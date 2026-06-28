@@ -1,0 +1,1 @@
+sd=sd_test_001,host=test-001,lun=/dev/sdb

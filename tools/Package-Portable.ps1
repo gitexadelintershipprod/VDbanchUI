@@ -23,6 +23,7 @@ $include = @(
     "docs",
     "profiles",
     "src",
+    "tests",
     "tools"
 )
 

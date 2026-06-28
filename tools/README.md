@@ -20,8 +20,13 @@ For development environments without Windows PowerShell, run:
 python3 tools/validate_offline.py
 ```
 
-The offline validator checks JSON contracts and renders representative raw,
-distributed, and filesystem Vdbench configs from the catalog.
+The offline validator checks JSON contracts, module layout, golden fixtures, and renders
+representative raw, distributed, and filesystem Vdbench configs from the catalog.
+
+## Module layout
+
+Application logic lives under `src/modules/`. The entry script `src/VdbenchUI.ps1` loads
+modules in dependency order via `Import-AppModules`.
 
 ## Fake Runner
 

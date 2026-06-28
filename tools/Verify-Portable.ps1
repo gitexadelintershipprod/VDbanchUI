@@ -58,7 +58,9 @@ Invoke-Step "Portable package inspection" {
             "Launch-VdbenchUI.bat",
             "README.md",
             "src\VdbenchUI.ps1",
+            "src\modules\ConfigGeneration.ps1",
             "config\parameter-catalog.json",
+            "tests\fixtures\raw-local.txt",
             "tools\Validate-Project.ps1",
             "tools\Invoke-SmokeTest.ps1",
             "tools\Verify-Portable.ps1"

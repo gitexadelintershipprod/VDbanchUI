@@ -1,0 +1,1 @@
+sd=sd1,lun=C:\vdbench\testfile.dat

@@ -1,0 +1,458 @@
+function Definition-AppliesToKind {
+    param(
+        [object]$Definition,
+        [string]$TestKind
+    )
+    $applies = [string](Get-PropertyValue $Definition "AppliesTo" "both")
+    if ($applies -eq "both") {
+        return $true
+    }
+    if ($TestKind -eq "Raw/block" -and $applies -eq "raw") {
+        return $true
+    }
+    if ($TestKind -eq "Filesystem" -and $applies -eq "fs") {
+        return $true
+    }
+    return $false
+}
+
+function Add-EnabledParameter {
+    param(
+        [System.Collections.Generic.List[string]]$Parts,
+        [System.Collections.Generic.List[string]]$Disabled,
+        [object]$Definition,
+        [string]$ExpectedLine
+    )
+    $line = [string]$Definition.Line
+    if ($line -ne $ExpectedLine) {
+        return
+    }
+    $key = [string]$Definition.Key
+    $value = Get-ProfileParamValue $script:CurrentProfile $key ""
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return
+    }
+    $name = [string]$Definition.VdbenchName
+    if (Get-ProfileParamEnabled $script:CurrentProfile $key) {
+        if ($value -eq "none" -and $name -eq "openflags") {
+            return
+        }
+        [void]$Parts.Add(("{0}={1}" -f $name, $value))
+    } else {
+        [void]$Disabled.Add(("* disabled: {0}={1} ({2})" -f $name, $value, $Definition.Section))
+    }
+}
+
+function Get-DefinitionsForLine {
+    param(
+        [string]$Line,
+        [string]$TestKind
+    )
+    return @($script:Catalog | Where-Object { $_.Line -eq $Line -and (Definition-AppliesToKind $_ $TestKind) })
+}
+
+function Test-RawDeviceTarget {
+    param([string]$Target)
+    if ([string]::IsNullOrWhiteSpace($Target)) {
+        return $false
+    }
+    $value = $Target.Trim()
+    if ($value -match '^\\\\\.\\PhysicalDrive\d+$') {
+        return $true
+    }
+    if ($value -match '^\\\\\.\\[A-Za-z]:$') {
+        return $true
+    }
+    if ($value -match '^/dev/(sd|hd|xvd|nvme|dm-|mapper/)') {
+        return $true
+    }
+    return $false
+}
+
+function Test-FilesystemRootTarget {
+    param([string]$Target)
+    if ([string]::IsNullOrWhiteSpace($Target)) {
+        return $false
+    }
+    $value = $Target.Trim()
+    if ($value -match '^[A-Za-z]:\\?$') {
+        return $true
+    }
+    if ($value -eq "/" -or $value -eq "\\") {
+        return $true
+    }
+    return $false
+}
+
+function Test-ParameterValueValid {
+    param(
+        [object]$Definition,
+        [string]$Value
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $true
+    }
+    $key = [string]$Definition.Key
+    $numericKeys = @(
+        "run.elapsed", "run.warmup", "run.interval",
+        "storage.threads", "workload.threads", "workload.rdpct", "workload.seekpct", "workload.skew",
+        "fsd.depth", "fsd.width", "fsd.files", "fwd.threads"
+    )
+    if ($numericKeys -contains $key) {
+        $parsed = 0.0
+        if (-not [double]::TryParse($Value, [ref]$parsed)) {
+            return $false
+        }
+        if ($parsed -lt 0) {
+            return $false
+        }
+    }
+    if ($key -eq "run.iorate" -or $key -eq "run.fwdrate") {
+        if ($Value -ne "max") {
+            $parsed = 0.0
+            if (-not [double]::TryParse($Value, [ref]$parsed) -or $parsed -le 0) {
+                return $false
+            }
+        }
+    }
+    $type = [string](Get-PropertyValue $Definition "Type" "text")
+    if ($type -eq "dropdown") {
+        $options = @($Definition.Options | ForEach-Object { [string]$_ })
+        if ($options.Count -gt 0 -and ($options -notcontains $Value)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Add-ParameterValidationWarnings {
+    param(
+        [System.Collections.Generic.List[string]]$Warnings,
+        [string]$TestKind
+    )
+    foreach ($def in @($script:Catalog | Where-Object { Definition-AppliesToKind $_ $TestKind })) {
+        $key = [string]$def.Key
+        if (-not (Get-ProfileParamEnabled $script:CurrentProfile $key)) {
+            continue
+        }
+        $value = Get-ProfileParamValue $script:CurrentProfile $key ""
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+        if (-not (Test-ParameterValueValid $def $value)) {
+            [void]$Warnings.Add(("Invalid value for {0}: '{1}'" -f $def.Label, $value))
+        }
+    }
+}
+
+function Add-TargetRiskWarnings {
+    param(
+        [System.Collections.Generic.List[string]]$Warnings,
+        [string]$TestKind,
+        [bool]$Distributed
+    )
+    if ($TestKind -eq "Raw/block") {
+        if ($Distributed) {
+            foreach ($slave in @(Get-EnabledSlaves)) {
+                $target = [string](Get-PropertyValue $slave "TestTarget" "")
+                if (Test-RawDeviceTarget $target) {
+                    [void]$Warnings.Add(("RISK: slave '{0}' target '{1}' looks like a raw physical device." -f $slave.Name, $target))
+                }
+            }
+        } else {
+            $target = Get-ProfileParamValue $script:CurrentProfile "storage.lun" ""
+            if (Test-RawDeviceTarget $target) {
+                [void]$Warnings.Add(("RISK: local target '{0}' looks like a raw physical device." -f $target))
+            }
+        }
+    } elseif ($TestKind -eq "Filesystem") {
+        $format = Get-ProfileParamValue $script:CurrentProfile "run.format" "no"
+        if (Get-ProfileParamEnabled $script:CurrentProfile "run.format" -and $format -ne "no") {
+            [void]$Warnings.Add(("RISK: filesystem format is enabled with value '{0}'." -f $format))
+        }
+        if ($Distributed) {
+            foreach ($slave in @(Get-EnabledSlaves)) {
+                $target = [string](Get-PropertyValue $slave "TestTarget" "")
+                if (Test-FilesystemRootTarget $target) {
+                    [void]$Warnings.Add(("RISK: slave '{0}' filesystem target '{1}' looks like a root drive/path." -f $slave.Name, $target))
+                }
+            }
+        } else {
+            $target = Get-ProfileParamValue $script:CurrentProfile "fsd.anchor" ""
+            if (Test-FilesystemRootTarget $target) {
+                [void]$Warnings.Add(("RISK: filesystem anchor '{0}' looks like a root drive/path." -f $target))
+            }
+        }
+    }
+}
+
+function Get-RiskWarnings {
+    param([object]$BuiltConfig)
+    return @($BuiltConfig.Warnings | Where-Object { [string]$_ -like "RISK:*" })
+}
+
+function Get-EnabledSlaves {
+    Capture-SlaveGrid
+    return @($script:Slaves | Where-Object { [bool]$_.Enabled })
+}
+
+function Add-ManualLines {
+    param(
+        [System.Collections.Generic.List[string]]$Lines,
+        [System.Collections.Generic.List[string]]$Disabled
+    )
+    $active = [string](Get-PropertyValue $script:CurrentProfile "AdvancedActive" "")
+    if (-not [string]::IsNullOrWhiteSpace($active)) {
+        [void]$Lines.Add("")
+        [void]$Lines.Add("* Manual active lines")
+        foreach ($line in ($active -split "`r?`n")) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                [void]$Lines.Add($line)
+            }
+        }
+    }
+    $inactive = [string](Get-PropertyValue $script:CurrentProfile "AdvancedDisabled" "")
+    if (-not [string]::IsNullOrWhiteSpace($inactive)) {
+        foreach ($line in ($inactive -split "`r?`n")) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                [void]$Disabled.Add(("* disabled manual: {0}" -f $line))
+            }
+        }
+    }
+}
+
+function Build-VdbenchConfig {
+    Capture-Settings
+    Capture-ProfileEditor
+
+    $testKind = [string]$script:CurrentProfile.TestKind
+    $distributed = Is-DistributedMode
+    $warnings = New-Object System.Collections.Generic.List[string]
+    $disabled = New-Object System.Collections.Generic.List[string]
+    $lines = New-Object System.Collections.Generic.List[string]
+
+    foreach ($def in @($script:Catalog | Where-Object { Definition-AppliesToKind $_ $testKind })) {
+        $required = [bool](Get-PropertyValue $def "Required" $false)
+        if (-not $required) {
+            continue
+        }
+        $key = [string]$def.Key
+        $value = Get-ProfileParamValue $script:CurrentProfile $key ""
+        if (-not (Get-ProfileParamEnabled $script:CurrentProfile $key)) {
+            [void]$warnings.Add(("Required parameter is disabled: {0}" -f $def.Label))
+        } elseif ([string]::IsNullOrWhiteSpace($value)) {
+            [void]$warnings.Add(("Required parameter is empty: {0}" -f $def.Label))
+        }
+    }
+    Add-ParameterValidationWarnings $warnings $testKind
+    Add-TargetRiskWarnings $warnings $testKind $distributed
+
+    [void]$lines.Add("* Generated by Vdbench UI")
+    [void]$lines.Add(("* GeneratedAt={0}" -f (Get-Date).ToString("o")))
+    [void]$lines.Add(("* Profile={0}" -f $script:CurrentProfile.Name))
+    [void]$lines.Add(("* Mode={0}" -f (Get-Mode)))
+    [void]$lines.Add("")
+
+    if ($distributed) {
+        $slaves = @(Get-EnabledSlaves)
+        if ($slaves.Count -eq 0) {
+            [void]$warnings.Add("Master/Slave mode is enabled but no enabled slaves exist.")
+        }
+        [void]$lines.Add("* Host definitions")
+        $hostDefaults = New-Object System.Collections.Generic.List[string]
+        [void]$hostDefaults.Add("hd=default")
+        $slaveShell = [string](Get-PropertyValue $script:Settings "SlaveShell" "ssh")
+        $slaveUser = [string](Get-PropertyValue $script:Settings "SlaveUser" "")
+        if (-not [string]::IsNullOrWhiteSpace($slaveShell)) {
+            [void]$hostDefaults.Add(("shell={0}" -f $slaveShell))
+        }
+        if (-not [string]::IsNullOrWhiteSpace($slaveUser)) {
+            [void]$hostDefaults.Add(("user={0}" -f $slaveUser))
+        }
+        [void]$lines.Add(($hostDefaults -join ","))
+        foreach ($slave in $slaves) {
+            $name = [string]$slave.Name
+            $hostName = [string]$slave.Host
+            $sshAlias = [string](Get-PropertyValue $slave "SshAlias" "")
+            $vdPath = [string]$slave.VdbenchPath
+            if ([string]::IsNullOrWhiteSpace($name)) {
+                [void]$warnings.Add("Enabled slave with host '$hostName' has no Name.")
+                continue
+            }
+            if ([string]::IsNullOrWhiteSpace($hostName)) {
+                [void]$warnings.Add("Enabled slave '$name' has no Host.")
+            }
+            if ([string]::IsNullOrWhiteSpace($vdPath)) {
+                [void]$warnings.Add("Enabled slave '$name' has no VdbenchPath.")
+            }
+            $systemName = $hostName
+            if (-not [string]::IsNullOrWhiteSpace($sshAlias)) {
+                $systemName = $sshAlias
+            }
+            [void]$lines.Add(("hd={0},system={1},vdbench={2}" -f $name, $systemName, $vdPath))
+        }
+        [void]$lines.Add("")
+    }
+
+    if ($testKind -eq "Raw/block") {
+        $sdName = Get-ProfileParamValue $script:CurrentProfile "storage.name" "sd1"
+        $wdName = Get-ProfileParamValue $script:CurrentProfile "workload.name" "wd1"
+        $rdName = Get-ProfileParamValue $script:CurrentProfile "run.name" "rd1"
+
+        [void]$lines.Add("* Storage definitions")
+        if ($distributed) {
+            $slaves = @(Get-EnabledSlaves)
+            foreach ($slave in $slaves) {
+                $parts = New-Object System.Collections.Generic.List[string]
+                $safeName = ([string]$slave.Name) -replace "[^A-Za-z0-9_]", "_"
+                [void]$parts.Add(("sd=sd_{0}" -f $safeName))
+                [void]$parts.Add(("host={0}" -f $slave.Name))
+                if ([string]::IsNullOrWhiteSpace([string]$slave.TestTarget)) {
+                    [void]$warnings.Add("Enabled slave '$($slave.Name)' has no TestTarget.")
+                } else {
+                    [void]$parts.Add(("lun={0}" -f $slave.TestTarget))
+                }
+                foreach ($def in Get-DefinitionsForLine "storage" $testKind) {
+                    if ($def.Key -eq "storage.lun") {
+                        continue
+                    }
+                    Add-EnabledParameter $parts $disabled $def "storage"
+                }
+                [void]$lines.Add(($parts -join ","))
+            }
+        } else {
+            $parts = New-Object System.Collections.Generic.List[string]
+            [void]$parts.Add(("sd={0}" -f $sdName))
+            foreach ($def in Get-DefinitionsForLine "storage" $testKind) {
+                Add-EnabledParameter $parts $disabled $def "storage"
+            }
+            [void]$lines.Add(($parts -join ","))
+        }
+        [void]$lines.Add("")
+
+        [void]$lines.Add("* Workload definitions")
+        $wdParts = New-Object System.Collections.Generic.List[string]
+        [void]$wdParts.Add(("wd={0}" -f $wdName))
+        if ($distributed) {
+            [void]$wdParts.Add("sd=sd*")
+        } else {
+            [void]$wdParts.Add(("sd={0}" -f $sdName))
+        }
+        foreach ($def in Get-DefinitionsForLine "workload" $testKind) {
+            Add-EnabledParameter $wdParts $disabled $def "workload"
+        }
+        [void]$lines.Add(($wdParts -join ","))
+        [void]$lines.Add("")
+
+        [void]$lines.Add("* Run definition")
+        $rdParts = New-Object System.Collections.Generic.List[string]
+        [void]$rdParts.Add(("rd={0}" -f $rdName))
+        [void]$rdParts.Add(("wd={0}" -f $wdName))
+        foreach ($def in Get-DefinitionsForLine "run" $testKind) {
+            Add-EnabledParameter $rdParts $disabled $def "run"
+        }
+        [void]$lines.Add(($rdParts -join ","))
+    } else {
+        $fsdName = Get-ProfileParamValue $script:CurrentProfile "fsd.name" "fsd1"
+        $fwdName = Get-ProfileParamValue $script:CurrentProfile "fwd.name" "fwd1"
+        $rdName = Get-ProfileParamValue $script:CurrentProfile "run.name" "rd1"
+
+        [void]$lines.Add("* Filesystem definitions")
+        if ($distributed) {
+            $slaves = @(Get-EnabledSlaves)
+            foreach ($slave in $slaves) {
+                $parts = New-Object System.Collections.Generic.List[string]
+                $safeName = ([string]$slave.Name) -replace "[^A-Za-z0-9_]", "_"
+                [void]$parts.Add(("fsd=fsd_{0}" -f $safeName))
+                [void]$parts.Add(("host={0}" -f $slave.Name))
+                if ([string]::IsNullOrWhiteSpace([string]$slave.TestTarget)) {
+                    [void]$warnings.Add("Enabled slave '$($slave.Name)' has no TestTarget.")
+                } else {
+                    [void]$parts.Add(("anchor={0}" -f $slave.TestTarget))
+                }
+                foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
+                    if ($def.Key -eq "fsd.anchor") {
+                        continue
+                    }
+                    Add-EnabledParameter $parts $disabled $def "fsd"
+                }
+                [void]$lines.Add(($parts -join ","))
+            }
+        } else {
+            $parts = New-Object System.Collections.Generic.List[string]
+            [void]$parts.Add(("fsd={0}" -f $fsdName))
+            foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
+                Add-EnabledParameter $parts $disabled $def "fsd"
+            }
+            [void]$lines.Add(($parts -join ","))
+        }
+        [void]$lines.Add("")
+
+        [void]$lines.Add("* Filesystem workload")
+        $fwdParts = New-Object System.Collections.Generic.List[string]
+        [void]$fwdParts.Add(("fwd={0}" -f $fwdName))
+        if ($distributed) {
+            [void]$fwdParts.Add("fsd=fsd*")
+        } else {
+            [void]$fwdParts.Add(("fsd={0}" -f $fsdName))
+        }
+        foreach ($def in Get-DefinitionsForLine "fwd" $testKind) {
+            Add-EnabledParameter $fwdParts $disabled $def "fwd"
+        }
+        [void]$lines.Add(($fwdParts -join ","))
+        [void]$lines.Add("")
+
+        [void]$lines.Add("* Run definition")
+        $rdParts = New-Object System.Collections.Generic.List[string]
+        [void]$rdParts.Add(("rd={0}" -f $rdName))
+        [void]$rdParts.Add(("fwd={0}" -f $fwdName))
+        foreach ($def in Get-DefinitionsForLine "run" $testKind) {
+            Add-EnabledParameter $rdParts $disabled $def "run"
+        }
+        [void]$lines.Add(($rdParts -join ","))
+    }
+
+    Add-ManualLines $lines $disabled
+
+    if ([bool](Get-PropertyValue $script:Settings "CommentDisabledParameters" $true) -and $disabled.Count -gt 0) {
+        [void]$lines.Add("")
+        [void]$lines.Add("* Disabled parameters preserved by UI")
+        foreach ($line in $disabled) {
+            [void]$lines.Add($line)
+        }
+    }
+
+    $masterBat = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "")
+    if ([string]::IsNullOrWhiteSpace($masterBat)) {
+        [void]$warnings.Add("MasterVdbenchBat is empty.")
+    } elseif (-not (Test-Path -LiteralPath $masterBat)) {
+        [void]$warnings.Add("MasterVdbenchBat does not exist on this machine: $masterBat")
+    }
+
+    return [pscustomobject]@{
+        Text = ($lines -join [Environment]::NewLine)
+        Warnings = @($warnings)
+        Disabled = @($disabled)
+    }
+}
+
+function Refresh-ConfigPreview {
+    if (-not $script:ConfigPreviewBox -or $null -eq $script:CurrentProfile) {
+        return
+    }
+    try {
+        $built = Build-VdbenchConfig
+        $prefix = ""
+        if ($built.Warnings.Count -gt 0) {
+            $prefix = ("* WARNINGS" + [Environment]::NewLine)
+            foreach ($warning in $built.Warnings) {
+                $prefix += ("* - " + $warning + [Environment]::NewLine)
+            }
+            $prefix += [Environment]::NewLine
+        }
+        $script:ConfigPreviewBox.Text = $prefix + $built.Text
+    } catch {
+        $script:ConfigPreviewBox.Text = "Preview error: " + $_.Exception.Message
+        Write-AppLog ("Config preview error: {0}" -f $_.Exception.Message) "ERROR"
+    }
+}

@@ -9,7 +9,7 @@
   "LinuxVdbench": "/opt/vdbench",
   "SshConfig": "C:\\Users\\Administrator\\.ssh\\config",
   "PrivateKey": "C:\\install\\ssh\\id_rsa",
-  "ReadinessCheckerArguments": "-HostName \"{Host}\" -VdbenchPath \"{VdbenchPath}\" -Target \"{Target}\"",
+  "ReadinessCheckerArguments": "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}",
   "SlaveShell": "ssh",
   "SlaveUser": "",
   "RunMode": "Single local run",

@@ -49,8 +49,8 @@ if ($stdout -notmatch "Fake Vdbench completed successfully") {
     throw "Fake runner completion marker was not found."
 }
 
-if ($stdout -notmatch "(?m)^\s*12\s+\d+\s+\d+(\.\d+)?\s+4096\s+70\s+\d+(\.\d+)?") {
-    throw "Expected final metrics row was not found."
+if ($stdout -notmatch "(?m)^\d{2}:\d{2}:\d{2}\.\d{3}\s+\d+\s+\d+\s+\d+(\.\d+)?\s+4096\s+70\s+\d+(\.\d+)?") {
+    throw "Expected final metrics row with Vdbench-style timestamp was not found."
 }
 
 Write-Host ("Smoke test OK. Output: {0}" -f $runRoot)

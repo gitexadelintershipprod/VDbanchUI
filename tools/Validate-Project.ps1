@@ -22,6 +22,33 @@ if ($errors -and $errors.Count -gt 0) {
 }
 Write-Host "PowerShell syntax OK."
 
+Write-Host "Validating module layout..."
+$moduleRoot = Join-Path $root "src\modules"
+foreach ($moduleName in @(
+    "Core.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
+    "TargetDiscovery.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1", "SelfTest.ps1"
+)) {
+    $modulePath = Join-Path $moduleRoot $moduleName
+    if (-not (Test-Path -LiteralPath $modulePath)) {
+        throw ("Missing module: {0}" -f $modulePath)
+    }
+}
+Write-Host "Module layout OK."
+
+Write-Host "Validating entry script..."
+$entry = Get-Content -LiteralPath $scriptPath -Raw
+if ($entry -notmatch "Import-AppModules") {
+    throw "Entry script must import modular layout."
+}
+if ($entry -notmatch "Stop-ProcessTree") {
+    # Stop-ProcessTree lives in ProcessRunner.ps1; ensure modular runner exists
+    $runnerModule = Get-Content -LiteralPath (Join-Path $moduleRoot "ProcessRunner.ps1") -Raw
+    if ($runnerModule -notmatch "function Stop-ProcessTree") {
+        throw "ProcessRunner module is missing Stop-ProcessTree."
+    }
+}
+Write-Host "Entry script OK."
+
 Write-Host "Running Vdbench UI headless self-test..."
 & powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -File $scriptPath -SelfTest
 if ($LASTEXITCODE -ne 0) {
