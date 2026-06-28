@@ -26,6 +26,14 @@ The application stores mutable state under:
 
 Settings, profiles, slave inventory, and selected run folders can be exported from the UI.
 
+### Runtime directories
+
+- `data/settings.json`, `data/slaves.json` — mutable app state
+- `data/runs/*.json` — run metadata index (status, paths, summary metrics)
+- `runs/` or configured `ReportsRoot` — actual Vdbench output per run
+- `logs/app.log` — application log
+- `profiles/*.json` — workload profiles
+
 ## Development Validation
 
 On Linux or any machine with Python 3:
@@ -33,6 +41,9 @@ On Linux or any machine with Python 3:
 ```bash
 python3 tools/validate_offline.py
 ```
+
+This checks JSON contracts, module layout, golden config fixtures, and renders sample
+configs for raw/filesystem local and distributed modes.
 
 On the Windows target:
 
@@ -42,6 +53,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Validate-Project
 
 `Validate-Project.ps1` also runs the main app script in headless `-SelfTest` mode to
 verify raw, distributed, and filesystem config generation without opening the UI.
+
+Pester tests (Windows, optional):
+
+```powershell
+Invoke-Pester -Path .\tests\ConfigGeneration.Tests.ps1
+```
 
 Non-UI smoke test on the Windows target:
 

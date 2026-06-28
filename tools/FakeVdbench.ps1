@@ -27,7 +27,8 @@ for ($i = 1; $i -le 12; $i++) {
     $iops = 1000 + ($i * 125)
     $mbps = [math]::Round(($iops * 4096) / 1048576, 2)
     $lat = [math]::Round(0.80 + ($i / 25), 3)
-    Write-Host ("{0,8} {1,10} {2,8} {3,7} {4,6} {5,8}" -f $i, $iops, $mbps, 4096, 70, $lat)
+    $stamp = (Get-Date).AddSeconds($i).ToString("HH:mm:ss.fff")
+    Write-Host ("{0} {1,10} {2,8} {3,7} {4,6} {5,8}" -f $stamp, $iops, $mbps, 4096, 70, $lat)
     Start-Sleep -Milliseconds 250
 }
 

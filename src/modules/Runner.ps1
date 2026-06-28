@@ -1,0 +1,348 @@
+function Queue-RunLog {
+    param([string]$Message)
+    $script:LogQueue.Enqueue($Message)
+}
+
+function Flush-RunLog {
+    if (-not $script:RunLogBox) {
+        return
+    }
+    $msg = $null
+    $count = 0
+    while ($script:LogQueue.TryDequeue([ref]$msg)) {
+        $script:RunLogBox.AppendText($msg + [Environment]::NewLine)
+        Add-MetricPointFromLine $msg
+        $count++
+        if ($count -gt 250) {
+            break
+        }
+    }
+}
+
+function Reset-RunChart {
+    $script:RunMetricIndex = 0
+    if ($script:RunChart) {
+        foreach ($series in $script:RunChart.Series) {
+            $series.Points.Clear()
+        }
+    }
+}
+
+function Add-MetricPointFromLine {
+    param([string]$Line)
+    if (-not $script:RunChart) {
+        return
+    }
+    $metrics = Get-MetricValuesFromLine $Line
+    if ($null -eq $metrics) {
+        return
+    }
+    try {
+        $x = [double]$metrics.Interval
+        if ($x -le 0) {
+            $script:RunMetricIndex++
+            $x = $script:RunMetricIndex
+        }
+        [void]$script:RunChart.Series["IOPS"].Points.AddXY($x, [double]$metrics.Iops)
+        [void]$script:RunChart.Series["MB/s"].Points.AddXY($x, [double]$metrics.Mbps)
+        [void]$script:RunChart.Series["Latency"].Points.AddXY($x, [double]$metrics.Latency)
+        foreach ($series in $script:RunChart.Series) {
+            while ($series.Points.Count -gt 300) {
+                $series.Points.RemoveAt(0)
+            }
+        }
+    } catch {
+        Write-AppLog ("Chart point update failed: {0}" -f $_.Exception.Message) "WARN"
+        return
+    }
+}
+
+function New-RunChart {
+    if (-not $script:ChartAvailable) {
+        return $null
+    }
+    $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart
+    $chart.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
+    $area.Name = "RunMetrics"
+    $area.AxisX.Title = "Interval"
+    $area.AxisY.Title = "IOPS / MB per sec"
+    $area.AxisY2.Title = "Latency"
+    $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::True
+    $area.AxisX.MajorGrid.LineColor = [System.Drawing.Color]::Gainsboro
+    $area.AxisY.MajorGrid.LineColor = [System.Drawing.Color]::Gainsboro
+    [void]$chart.ChartAreas.Add($area)
+
+    $legend = New-Object System.Windows.Forms.DataVisualization.Charting.Legend
+    $legend.Docking = [System.Windows.Forms.DataVisualization.Charting.Docking]::Top
+    [void]$chart.Legends.Add($legend)
+
+    foreach ($item in @(
+        @{ Name = "IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue },
+        @{ Name = "MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen },
+        @{ Name = "Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick }
+    )) {
+        $series = New-Object System.Windows.Forms.DataVisualization.Charting.Series
+        $series.Name = $item.Name
+        $series.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
+        $series.BorderWidth = 2
+        $series.Color = $item.Color
+        if ($item.Axis -eq "Y2") {
+            $series.YAxisType = [System.Windows.Forms.DataVisualization.Charting.AxisType]::Secondary
+        }
+        [void]$chart.Series.Add($series)
+    }
+    return $chart
+}
+
+function Set-RunMetadata {
+    param(
+        [string]$RunId,
+        [hashtable]$Updates
+    )
+    $path = Join-Path $script:RunStateRoot ($RunId + ".json")
+    $state = Read-JsonFile $path ([pscustomobject]@{ Id = $RunId })
+    foreach ($key in $Updates.Keys) {
+        Set-PropertyValue $state $key $Updates[$key]
+    }
+    Write-JsonFile $path $state
+}
+
+function Get-RunOutputRoot {
+    $reportsRoot = [string](Get-PropertyValue $script:Settings "ReportsRoot" "")
+    if (-not [string]::IsNullOrWhiteSpace($reportsRoot)) {
+        return $reportsRoot
+    }
+    return (Join-Path $script:AppRoot "runs")
+}
+
+function Get-NewRunContext {
+    param([object]$BuiltConfig)
+    $runId = (Get-Date).ToString("yyyyMMdd-HHmmss")
+    $runRoot = Get-RunOutputRoot
+    $runDir = Join-Path $runRoot $runId
+    try {
+        Ensure-Directory $runDir
+    } catch {
+        $runRoot = Join-Path $script:AppRoot "runs"
+        Ensure-Directory $runRoot
+        $runDir = Join-Path $runRoot $runId
+        Ensure-Directory $runDir
+    }
+
+    $parmPath = Join-Path $runDir "profile.parm"
+    $stdoutPath = Join-Path $runDir "stdout.log"
+    $stderrPath = Join-Path $runDir "stderr.log"
+    [System.IO.File]::WriteAllText($parmPath, $BuiltConfig.Text, [System.Text.Encoding]::ASCII)
+    [System.IO.File]::WriteAllText($stdoutPath, "")
+    [System.IO.File]::WriteAllText($stderrPath, "")
+
+    return [pscustomobject]@{
+        RunId = $runId
+        RunRoot = $runRoot
+        RunDir = $runDir
+        ParmPath = $parmPath
+        StdoutPath = $stdoutPath
+        StderrPath = $stderrPath
+    }
+}
+
+function New-RunMetadataMap {
+    param(
+        [object]$Context,
+        [object]$BuiltConfig,
+        [string]$Status,
+        [string]$Command
+    )
+    return @{
+        Id = [string]$Context.RunId
+        StartedAt = (Get-Date).ToString("o")
+        CompletedAt = ""
+        Status = $Status
+        ExitCode = ""
+        Profile = [string]$script:CurrentProfile.Name
+        Mode = (Get-Mode)
+        TestKind = [string]$script:CurrentProfile.TestKind
+        RunDir = [string]$Context.RunDir
+        ParmPath = [string]$Context.ParmPath
+        StdoutPath = [string]$Context.StdoutPath
+        StderrPath = [string]$Context.StderrPath
+        Command = $Command
+        Warnings = @($BuiltConfig.Warnings)
+    }
+}
+
+function New-ConfigOnlyRun {
+    Capture-Settings
+    Capture-SlaveGrid
+    Capture-ProfileEditor
+    $built = Build-VdbenchConfig
+    Save-CurrentProfile
+    $context = Get-NewRunContext $built
+    Set-RunMetadata $context.RunId (New-RunMetadataMap $context $built "Config generated" "No process started")
+    $script:CurrentRunId = [string]$context.RunId
+    if ($script:RunLogBox) {
+        $script:RunLogBox.Clear()
+        Queue-RunLog ("Generated config-only run {0}" -f $context.RunId)
+        Queue-RunLog ("Config: {0}" -f $context.ParmPath)
+        Queue-RunLog ("Output folder: {0}" -f $context.RunDir)
+    }
+    if ($script:RunStatusLabel) {
+        $script:RunStatusLabel.Text = "Config generated: " + $context.RunId
+    }
+    Refresh-Reports
+}
+
+function Start-VdbenchRun {
+    if ($script:CurrentProcess -and -not $script:CurrentProcess.HasExited) {
+        Show-Warning "A run is already active."
+        return
+    }
+    Capture-Settings
+    Capture-SlaveGrid
+    Capture-ProfileEditor
+    $built = Build-VdbenchConfig
+    $riskWarnings = @(Get-RiskWarnings $built)
+    if ($riskWarnings.Count -gt 0) {
+        $riskMessage = "This run has risk warnings:" + [Environment]::NewLine + (($riskWarnings | ForEach-Object { "- " + $_ }) -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine + "Continue with this Vdbench run?"
+        if (-not (Ask-YesNo $riskMessage "Risk confirmation")) {
+            return
+        }
+    }
+    if ($built.Warnings.Count -gt 0) {
+        $message = "Config has warnings:" + [Environment]::NewLine + (($built.Warnings | ForEach-Object { "- " + $_ }) -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine + "Start anyway?"
+        if (-not (Ask-YesNo $message "Config warnings")) {
+            return
+        }
+    }
+    if ([bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true)) {
+        if (-not (Ask-YesNo "Review Config Preview before running. Start Vdbench now?" "Start run")) {
+            return
+        }
+    }
+
+    $masterBat = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "")
+    if ([string]::IsNullOrWhiteSpace($masterBat) -or -not (Test-Path -LiteralPath $masterBat)) {
+        Show-Warning "Master Vdbench batch file does not exist: $masterBat"
+        return
+    }
+
+    $context = Get-NewRunContext $built
+    $runId = [string]$context.RunId
+    $runDir = [string]$context.RunDir
+    $parmPath = [string]$context.ParmPath
+    $stdoutPath = [string]$context.StdoutPath
+    $stderrPath = [string]$context.StderrPath
+    $script:CurrentRunId = $runId
+    $script:KillRequested = $false
+    Save-CurrentProfile
+    $commandText = ("`"{0}`" -f `"{1}`" -o `"{2}`"" -f $masterBat, $parmPath, $runDir)
+    Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)
+
+    $script:RunLogBox.Clear()
+    Reset-RunChart
+    Queue-RunLog ("Starting run {0}" -f $runId)
+    Queue-RunLog ("Command: {0}" -f $commandText)
+    Queue-RunLog ("Output: {0}" -f $runDir)
+    $script:RunStatusLabel.Text = "Running: " + $runId
+
+    $psi = Get-VdbenchProcessStartInfo $masterBat $parmPath $runDir ([string](Get-PropertyValue $script:Settings "VdbenchRoot" $script:AppRoot))
+
+    $capturedRunId = $runId
+    $capturedStdoutPath = $stdoutPath
+    $capturedStderrPath = $stderrPath
+    $script:ActiveStdoutPath = $stdoutPath
+    $script:ActiveStderrPath = $stderrPath
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    $process.EnableRaisingEvents = $true
+    $process.add_OutputDataReceived({
+        param($sender, $eventArgs)
+        if ($eventArgs.Data) {
+            $script:LogQueue.Enqueue($eventArgs.Data)
+            try {
+                [System.IO.File]::AppendAllText($capturedStdoutPath, $eventArgs.Data + [Environment]::NewLine)
+            } catch {
+                Write-AppLog ("Stdout append failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
+        }
+    })
+    $process.add_ErrorDataReceived({
+        param($sender, $eventArgs)
+        if ($eventArgs.Data) {
+            $script:LogQueue.Enqueue("[stderr] " + $eventArgs.Data)
+            try {
+                [System.IO.File]::AppendAllText($capturedStderrPath, $eventArgs.Data + [Environment]::NewLine)
+            } catch {
+                Write-AppLog ("Stderr append failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
+        }
+    })
+    $process.add_Exited({
+        param($sender, $eventArgs)
+        try {
+            $exitCode = $sender.ExitCode
+            $status = "Failed"
+            if ($script:KillRequested) {
+                $status = "Killed"
+            } elseif ($exitCode -eq 0) {
+                $status = "Completed"
+            }
+            $script:LogQueue.Enqueue(("Run exited with code {0}" -f $exitCode))
+            $updates = @{
+                CompletedAt = (Get-Date).ToString("o")
+                Status = $status
+                ExitCode = [string]$exitCode
+            }
+            $summary = Get-RunSummaryFromFile $capturedStdoutPath
+            foreach ($key in $summary.Keys) {
+                $updates[$key] = $summary[$key]
+            }
+            Set-RunMetadata $capturedRunId $updates
+            Write-AppLog ("Run {0} finished with status {1} (exit {2})" -f $capturedRunId, $status, $exitCode)
+        } catch {
+            Write-AppLog ("Run exit handler failed: {0}" -f $_.Exception.Message) "ERROR"
+        }
+    })
+
+    try {
+        [void]$process.Start()
+        $script:CurrentProcess = $process
+        $process.BeginOutputReadLine()
+        $process.BeginErrorReadLine()
+    } catch {
+        Set-RunMetadata $runId @{
+            CompletedAt = (Get-Date).ToString("o")
+            Status = "Start failed"
+            ExitCode = ""
+        }
+        Queue-RunLog ("Start failed: " + $_.Exception.Message)
+        $script:RunStatusLabel.Text = "Start failed"
+        Refresh-Reports
+    }
+}
+
+function Stop-VdbenchRun {
+    if ($script:CurrentProcess -and -not $script:CurrentProcess.HasExited) {
+        if (Ask-YesNo "Kill the active Vdbench process and its child processes?" "Stop run") {
+            try {
+                $script:KillRequested = $true
+                $runId = [string]$script:CurrentRunId
+                Stop-ProcessTree -Process $script:CurrentProcess
+                Queue-RunLog "Kill requested (process tree)."
+                Set-RunMetadata $runId @{
+                    CompletedAt = (Get-Date).ToString("o")
+                    Status = "Killed"
+                }
+                $script:RunStatusLabel.Text = "Killed: " + $runId
+                Write-AppLog ("Run {0} killed by user" -f $runId)
+            } catch {
+                Show-Warning $_.Exception.Message
+                Write-AppLog ("Kill failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
+        }
+    } else {
+        Show-Info "No active run."
+    }
+}

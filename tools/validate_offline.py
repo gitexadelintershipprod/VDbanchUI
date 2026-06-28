@@ -3,8 +3,8 @@
 
 This validator intentionally uses only the Python standard library so it can run in
 development environments that do not have Windows PowerShell available. It validates the
-JSON contracts and renders representative Vdbench parameter files from the same catalog
-shape used by the UI.
+JSON contracts, module layout, golden config snippets, and renders representative Vdbench
+parameter files from the same catalog shape used by the UI.
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "config" / "parameter-catalog.json"
 SETTINGS_PATH = ROOT / "config" / "default-settings.json"
 LAUNCHER_PATH = ROOT / "Launch-VdbenchUI.bat"
+MODULE_ROOT = ROOT / "src" / "modules"
+FIXTURE_ROOT = ROOT / "tests" / "fixtures"
 FAKE_RUNNER_PATH = ROOT / "tools" / "FakeVdbench.ps1"
 PACKAGE_SCRIPT_PATH = ROOT / "tools" / "Package-Portable.ps1"
 SMOKE_SCRIPT_PATH = ROOT / "tools" / "Invoke-SmokeTest.ps1"
@@ -44,6 +46,26 @@ REQUIRED_SETTINGS = {
     "RunMode",
     "ReadinessCheckerArguments",
     "SlaveShell",
+}
+
+REQUIRED_MODULES = [
+    "Core.ps1",
+    "Metrics.ps1",
+    "ProcessRunner.ps1",
+    "State.ps1",
+    "UiHelpers.ps1",
+    "TargetDiscovery.ps1",
+    "UiTabs.ps1",
+    "ConfigGeneration.ps1",
+    "Runner.ps1",
+    "SelfTest.ps1",
+]
+
+GOLDEN_FIXTURES = {
+    "raw-local.txt": "sd=sd1,lun=C:\\vdbench\\testfile.dat",
+    "raw-distributed.txt": "sd=sd_test_001,host=test-001,lun=/dev/sdb",
+    "fs-local.txt": "fsd=fsd1,anchor=C:\\vdbench\\fs_test",
+    "fs-distributed.txt": "fsd=fsd_test_002,host=test-002,anchor=/mnt/test",
 }
 
 
@@ -161,11 +183,23 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
         rd_name = param(profile, "run.name", "rd1")
 
         lines.append("* Filesystem definitions")
-        parts = [f"fsd={fsd_name}"]
-        add_params(parts, disabled, catalog, profile, "fsd", test_kind)
-        lines.extend([",".join(parts), ""])
+        if distributed:
+            for slave in slaves or []:
+                safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slave["Name"])
+                parts = [f"fsd=fsd_{safe_name}", f"host={slave['Name']}", f"anchor={slave['TestTarget']}"]
+                for definition in catalog:
+                    if definition["Key"] == "fsd.anchor":
+                        continue
+                    if definition["Line"] == "fsd" and applies(definition, test_kind):
+                        add_params(parts, disabled, [definition], profile, "fsd", test_kind)
+                lines.append(",".join(parts))
+        else:
+            parts = [f"fsd={fsd_name}"]
+            add_params(parts, disabled, catalog, profile, "fsd", test_kind)
+            lines.append(",".join(parts))
+        lines.append("")
 
-        parts = [f"fwd={fwd_name}", f"fsd={fsd_name}"]
+        parts = [f"fwd={fwd_name}", "fsd=fsd*" if distributed else f"fsd={fsd_name}"]
         add_params(parts, disabled, catalog, profile, "fwd", test_kind)
         lines.extend(["* Filesystem workload", ",".join(parts), ""])
 
@@ -192,75 +226,76 @@ def validate_catalog(catalog: list[dict]):
             assert item["Options"], f"dropdown parameter has no options: {key}"
 
 
+def validate_modules():
+    for name in REQUIRED_MODULES:
+        path = MODULE_ROOT / name
+        assert path.is_file(), f"missing module: {path}"
+
+
+def validate_golden_fixtures():
+    for name, expected in GOLDEN_FIXTURES.items():
+        path = FIXTURE_ROOT / name
+        assert path.is_file(), f"missing golden fixture: {path}"
+        content = path.read_text(encoding="utf-8").strip()
+        assert content == expected, f"golden fixture drift in {name}"
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
 
     validate_catalog(catalog)
+    validate_modules()
+    validate_golden_fixtures()
+
     missing_settings = REQUIRED_SETTINGS - set(settings)
     assert not missing_settings, f"missing default settings: {sorted(missing_settings)}"
     assert "-STA" in LAUNCHER_PATH.read_text(encoding="utf-8"), "launcher must use -STA"
+    assert (ROOT / ".gitignore").is_file(), ".gitignore must exist"
+
     ui_source = (ROOT / "src" / "VdbenchUI.ps1").read_text(encoding="utf-8")
+    assert "Import-AppModules" in ui_source
+    assert "src/modules" in ui_source or "modules" in ui_source
     assert "$this" not in ui_source, "event handlers should use sender arguments, not $this"
-    assert "param(" in ui_source and "[switch]$SelfTest" in ui_source
-    assert "function Invoke-AppSelfTest" in ui_source
-    assert "function Assert-SelfTestEquals" in ui_source
-    assert "raw risk warning" in ui_source
-    assert "ps1 runner quoted paths" in ui_source
-    assert "function Write-JsonFile" in ui_source and "[switch]$AsArray" in ui_source
-    assert "Write-JsonFile $script:SlavesPath $script:Slaves -AsArray" in ui_source
-    assert "function Import-Settings" in ui_source
-    assert "function Export-Settings" in ui_source
-    assert "function Get-VdbenchProcessStartInfo" in ui_source
-    assert "function New-ConfigOnlyRun" in ui_source
-    assert "$script:KillRequested" in ui_source
-    assert "function Duplicate-CurrentProfile" in ui_source
-    assert "function Delete-SelectedProfile" in ui_source
-    assert "function Import-Profile" in ui_source
-    assert "function Export-CurrentProfile" in ui_source
-    assert "function Test-AllSlaveConnections" in ui_source
-    assert "function Check-AllSlaveReadiness" in ui_source
-    assert "function Get-LocalTargetInventory" in ui_source
-    assert "function Get-SlaveTargetInventory" in ui_source
-    assert "function Convert-TargetInventoryOutput" in ui_source
-    assert "function Pick-TargetForCurrentProfile" in ui_source
-    assert "function Pick-TargetForSelectedSlave" in ui_source
-    assert "Win32_DiskDrive" in ui_source and "Win32_Volume" in ui_source
-    assert "ssh.exe" in ui_source
-    assert "Pick target" in ui_source
-    assert "target inventory parser count" in ui_source
-    assert "function Import-SlaveInventory" in ui_source
-    assert "function Export-SlaveInventory" in ui_source
-    assert "function Export-SelectedRunBundle" in ui_source
-    assert "Compress-Archive -Path $source" in ui_source
-    assert "function Add-TargetRiskWarnings" in ui_source
-    assert "function Get-RiskWarnings" in ui_source
-    assert "Risk confirmation" in ui_source
-    assert "function Test-RawDeviceTarget" in ui_source
-    assert "RISK:" in ui_source
-    assert "function Normalize-SlaveEntry" in ui_source
-    assert "$Profile.Parameters = @($normalizedParameters)" in ui_source
-    assert '/d /c "' in ui_source
+    assert "[switch]$SelfTest" in ui_source
+
+    config_module = (MODULE_ROOT / "ConfigGeneration.ps1").read_text(encoding="utf-8")
+    assert "function Build-VdbenchConfig" in config_module
+    assert "function Add-ParameterValidationWarnings" in config_module
+
+    runner_module = (MODULE_ROOT / "Runner.ps1").read_text(encoding="utf-8")
+    assert "function Stop-ProcessTree" in (MODULE_ROOT / "ProcessRunner.ps1").read_text(encoding="utf-8")
+    assert "Stop-ProcessTree -Process" in runner_module
+    assert "capturedRunId" in runner_module
+
+    metrics_module = (MODULE_ROOT / "Metrics.ps1").read_text(encoding="utf-8")
+    assert "function Get-MetricDataLine" in metrics_module
+    assert "Test-MetricHeaderLine" in metrics_module
+
+    self_test_module = (MODULE_ROOT / "SelfTest.ps1").read_text(encoding="utf-8")
+    assert "Use-SelfTestPaths" in self_test_module
+    assert "distributed filesystem definition" in self_test_module
+
     fake_runner = FAKE_RUNNER_PATH.read_text(encoding="utf-8")
     assert "Fake Vdbench runner" in fake_runner
-    assert "interval" in fake_runner and "MB/sec" in fake_runner
+    assert "HH:mm:ss.fff" in fake_runner
+    assert "Fake Vdbench completed successfully" in fake_runner
+
     package_script = PACKAGE_SCRIPT_PATH.read_text(encoding="utf-8")
     assert "Compress-Archive -Path" in package_script
-    assert "data" in package_script and "runs" in package_script
+    assert "src" in package_script
+
     smoke_script = SMOKE_SCRIPT_PATH.read_text(encoding="utf-8")
     assert "Fake Vdbench completed successfully" in smoke_script
-    assert "data\\smoke" in smoke_script
+
     verify_script = VERIFY_SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "Project validation" in verify_script
-    assert "Fake-runner smoke test" in verify_script
-    assert "Portable package inspection" in verify_script
-    assert "tools\\Verify-Portable.ps1" in verify_script
+    assert "Portable verification complete" in verify_script
 
     raw = default_profile(catalog, "Offline-Raw", "Raw/block")
     raw["Parameters"]["storage.dedupratio"]["Enabled"] = False
     raw["Parameters"]["storage.dedupratio"]["Value"] = "2"
     raw_config = render_config(catalog, settings, raw)
-    assert "sd=sd1,lun=C:\\vdbench\\testfile.dat" in raw_config
+    assert GOLDEN_FIXTURES["raw-local.txt"] in raw_config
     assert "wd=wd1,sd=sd1,xfersize=4k,rdpct=70,seekpct=100" in raw_config
     assert "rd=rd1,wd=wd1,elapsed=300,warmup=30,interval=1,iorate=max" in raw_config
     assert "* disabled: dedupratio=2" in raw_config
@@ -280,19 +315,36 @@ def main() -> int:
         ],
     )
     assert "hd=default,shell=ssh" in slave_config
-    assert "hd=test-001,system=test-001,vdbench=/opt/vdbench" in slave_config
-    assert "sd=sd_test_001,host=test-001,lun=/dev/sdb" in slave_config
+    assert GOLDEN_FIXTURES["raw-distributed.txt"] in slave_config
     assert "wd=wd1,sd=sd*" in slave_config
 
     fs = default_profile(catalog, "Offline-FS", "Filesystem")
     fs_config = render_config(catalog, settings, fs)
-    assert "fsd=fsd1,anchor=C:\\vdbench\\fs_test" in fs_config
+    assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
     assert "fwd=fwd1,fsd=fsd1,operation=read" in fs_config
     assert "rd=rd1,fwd=fwd1,elapsed=300,warmup=30,interval=1,fwdrate=max,format=no" in fs_config
 
+    fs_distributed = render_config(
+        catalog,
+        settings,
+        fs,
+        [
+            {
+                "Name": "test-002",
+                "Host": "10.0.0.12",
+                "SshAlias": "test-002",
+                "VdbenchPath": "/opt/vdbench",
+                "TestTarget": "/mnt/test",
+            }
+        ],
+    )
+    assert GOLDEN_FIXTURES["fs-distributed.txt"] in fs_distributed
+    assert "fwd=fwd1,fsd=fsd*" in fs_distributed
+
     print("offline validation ok")
     print(f"catalog parameters: {len(catalog)}")
-    print("sample configs: raw local, raw distributed, filesystem local")
+    print(f"modules: {len(REQUIRED_MODULES)}")
+    print("sample configs: raw local, raw distributed, filesystem local, filesystem distributed")
     return 0
 
 

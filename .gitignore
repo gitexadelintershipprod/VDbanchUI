@@ -1,0 +1,14 @@
+# Runtime and build artifacts
+data/
+runs/
+reports/
+logs/
+dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

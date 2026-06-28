@@ -7,54 +7,58 @@ runs on Windows Server 2022 Desktop Experience.
 
 ## Scope
 
-- Work only inside `/home/koiot/cursor/new-project`.
-- Do not use Docker.
+- Portable Windows UI; no Docker on the target server.
 - Assume Java, SSH, and Vdbench are already installed on the target server.
 - Provide a practical control-panel UI similar in spirit to Iometer: target selection,
   workload profile, run control, status, and reports.
 
-## Main Modules
+## Architecture (refactored)
+
+The application is split into PowerShell modules under `src/modules/`:
+
+| Module | Responsibility |
+|--------|----------------|
+| `Core.ps1` | JSON I/O, path helpers, logging, module loader |
+| `Metrics.ps1` | Vdbench stdout metric parsing (timestamp + legacy formats) |
+| `ProcessRunner.ps1` | Process start info, process-tree kill |
+| `State.ps1` | Settings, profiles, slaves persistence |
+| `UiHelpers.ps1` | Dialog helpers, common controls |
+| `TargetDiscovery.ps1` | Local/remote target inventory |
+| `UiTabs.ps1` | Windows Forms tab builders |
+| `ConfigGeneration.ps1` | Pure Vdbench `.parm` generation and validation |
+| `Runner.ps1` | Run lifecycle, charts, metadata |
+| `SelfTest.ps1` | Hermetic headless self-test |
+
+Entry point: `src/VdbenchUI.ps1` (dot-sources modules).
+
+## Runtime directories
+
+| Path | Purpose |
+|------|---------|
+| `data/settings.json` | User settings |
+| `data/slaves.json` | Slave inventory |
+| `data/runs/*.json` | Run metadata index (not Vdbench output) |
+| `runs/` or `ReportsRoot` | Vdbench run output folders (`.parm`, logs, reports) |
+| `logs/app.log` | Application log |
+| `profiles/*.json` | Saved workload profiles |
+
+## Main Modules (UI tabs)
 
 1. Settings / Paths
-   - Vdbench root
-   - Master `vdbench.bat`
-   - report root
-   - readiness checker script
-   - SSH config and private key
-   - Windows and Linux Vdbench path defaults
-
 2. Master / Slave
-   - single local mode or distributed master/slave mode
-   - slave inventory
-   - per-slave test target mapping
-   - readiness and connection checks
-
 3. Profile Builder
-   - parameter catalog with help text
-   - dropdowns for constrained values
-   - numeric/text inputs for free values
-   - per-parameter enable/disable control
-   - advanced manual lines
-
 4. Config Preview
-   - generated Vdbench parameter file
-   - disabled parameters rendered as comments
-   - warnings for missing paths or targets
-
 5. Run Monitor
-   - write `.parm` file
-   - run existing Vdbench CLI
-   - stream stdout/stderr
-   - stop/kill process
-   - persist run metadata
+6. Status / Reports
 
-6. Reports
-   - run history
-   - profile/config/log artifacts
-   - basic summary extracted from output when available
+## Validation
+
+- Linux/CI: `python3 tools/validate_offline.py`
+- Windows: `tools/Validate-Project.ps1`, `tools/Verify-Portable.ps1`
+- Golden fixtures: `tests/fixtures/*.txt`
+- Pester (Windows): `tests/ConfigGeneration.Tests.ps1`
 
 ## Initial Implementation Choice
 
-The first implementation uses PowerShell + Windows Forms. This keeps the app portable on
-a clean Windows Server 2022 Desktop Experience installation without requiring a .NET SDK,
-Node.js, Python, or Docker on the target server.
+PowerShell + Windows Forms keeps the app portable on Windows Server 2022 Desktop
+Experience without requiring a .NET SDK, Node.js, Python, or Docker on the target server.
