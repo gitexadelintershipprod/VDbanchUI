@@ -567,6 +567,7 @@ function Import-Settings {
         $script:Settings = $imported
         Write-JsonFile $script:SettingsPath $script:Settings
         Refresh-SettingsControls
+        Update-RunModeTabs
         Show-Info "Settings imported."
     } catch {
         Show-Warning ("Settings import failed: " + $_.Exception.Message)

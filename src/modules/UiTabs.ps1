@@ -456,6 +456,214 @@ function Pick-TargetForSelectedSlave {
         Show-Warning ("Target discovery failed: " + $_.Exception.Message)
     }
 }
+function Set-ProfileTargetValue {
+    param([string]$Selected)
+    if ($null -eq $script:CurrentProfile) {
+        Show-Warning "Create or load a profile first."
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($Selected)) {
+        return
+    }
+    Capture-ProfileEditor
+    $key = "storage.lun"
+    if ([string]$script:CurrentProfile.TestKind -eq "Filesystem") {
+        $key = "fsd.anchor"
+    }
+    Set-ProfileParamValue $script:CurrentProfile $key $Selected
+    Set-ProfileParamEnabled $script:CurrentProfile $key $true
+    if ($script:ParameterControls.ContainsKey($key)) {
+        $entry = $script:ParameterControls[$key]
+        $entry.Value.Text = $Selected
+        $entry.Enabled.Checked = $true
+    }
+    Refresh-ConfigPreview
+}
+
+function Refresh-LocalHostTab {
+    if ($null -eq $script:LocalHostInfoBox) {
+        return
+    }
+    Capture-Settings
+    $computer = [string]$env:COMPUTERNAME
+    if ([string]::IsNullOrWhiteSpace($computer)) {
+        $computer = "localhost"
+    }
+    $osCaption = "Windows"
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $osCaption = [string]$os.Caption
+    } catch {
+    }
+    $paths = @(
+        @{ Name = "Vdbench root"; Path = [string](Get-PropertyValue $script:Settings "VdbenchRoot" "") },
+        @{ Name = "Master runner"; Path = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "") },
+        @{ Name = "Reports root"; Path = [string](Get-PropertyValue $script:Settings "ReportsRoot" "") }
+    )
+    $lines = New-Object System.Collections.Generic.List[string]
+    [void]$lines.Add("Local single-host run")
+    [void]$lines.Add("====================")
+    [void]$lines.Add(("Computer: {0}" -f $computer))
+    [void]$lines.Add(("OS: {0}" -f $osCaption))
+    [void]$lines.Add(("Run mode: {0}" -f (Get-Mode)))
+    [void]$lines.Add("")
+    [void]$lines.Add("Master paths on this host:")
+    foreach ($item in $paths) {
+        $exists = $false
+        if (-not [string]::IsNullOrWhiteSpace($item.Path)) {
+            $exists = Test-Path -LiteralPath $item.Path
+        }
+        [void]$lines.Add(("{0,-16} {1,-55} Exists={2}" -f $item.Name, $item.Path, $exists))
+    }
+    [void]$lines.Add("")
+    [void]$lines.Add("Use the target inventory below for local raw disks or filesystem anchors.")
+  [void]$lines.Add("Selected targets are written into the active profile storage/fsd parameter.")
+    $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
+
+    if ($null -eq $script:LocalHostTargetGrid) {
+        return
+    }
+    $script:LocalHostTargetGrid.Rows.Clear()
+    try {
+        foreach ($item in @(Get-LocalTargetInventory)) {
+            $idx = $script:LocalHostTargetGrid.Rows.Add()
+            $row = $script:LocalHostTargetGrid.Rows[$idx]
+            $row.Cells["Kind"].Value = [string]$item.Kind
+            $row.Cells["Target"].Value = [string]$item.Target
+            $row.Cells["Description"].Value = [string]$item.Description
+        }
+    } catch {
+        $idx = $script:LocalHostTargetGrid.Rows.Add()
+        $row = $script:LocalHostTargetGrid.Rows[$idx]
+        $row.Cells["Kind"].Value = "Error"
+        $row.Cells["Target"].Value = ""
+        $row.Cells["Description"].Value = $_.Exception.Message
+    }
+}
+
+function Apply-SelectedLocalHostTarget {
+    if ($null -eq $script:LocalHostTargetGrid -or $script:LocalHostTargetGrid.SelectedRows.Count -eq 0) {
+        Show-Warning "Select a local target first."
+        return
+    }
+    $selected = [string]$script:LocalHostTargetGrid.SelectedRows[0].Cells["Target"].Value
+    if ([string]::IsNullOrWhiteSpace($selected)) {
+        Show-Warning "Selected row does not contain a target path."
+        return
+    }
+    Set-ProfileTargetValue $selected
+    Show-Info ("Profile target set to: {0}" -f $selected)
+}
+
+function Test-RunModeTabDisabled {
+    param([System.Windows.Forms.TabPage]$Page)
+    if ($null -eq $Page) {
+        return $false
+    }
+    $distributed = Is-DistributedMode
+    if ($Page -eq $script:LocalHostTab) {
+        return $distributed
+    }
+    if ($Page -eq $script:MasterSlaveTab) {
+        return -not $distributed
+    }
+    return $false
+}
+
+function Update-RunModeTabs {
+    if ($null -eq $script:MainTabControl) {
+        return
+    }
+    $distributed = Is-DistributedMode
+    if ($null -ne $script:LocalHostTab) {
+        $script:LocalHostTab.Enabled = -not $distributed
+    }
+    if ($null -ne $script:MasterSlaveTab) {
+        $script:MasterSlaveTab.Enabled = $distributed
+    }
+    if ($distributed) {
+        if ($null -ne $script:LocalHostTab -and $script:MainTabControl.SelectedTab -eq $script:LocalHostTab) {
+            $script:MainTabControl.SelectedTab = $script:MasterSlaveTab
+        }
+    } else {
+        if ($null -ne $script:MasterSlaveTab -and $script:MainTabControl.SelectedTab -eq $script:MasterSlaveTab) {
+            $script:MainTabControl.SelectedTab = $script:LocalHostTab
+        }
+        Refresh-LocalHostTab
+    }
+    $script:MainTabControl.Invalidate()
+}
+
+function Build-LocalHostTab {
+    $tab = New-Object System.Windows.Forms.TabPage
+    $tab.Text = "Local Host"
+
+    $container = New-Object System.Windows.Forms.TableLayoutPanel
+    $container.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $container.RowCount = 3
+    $container.ColumnCount = 1
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 170)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $tab.Controls.Add($container)
+
+    $toolbar = New-FlowToolbar
+    $refreshButton = New-Button "Refresh targets" 10 8 120 28
+    $refreshButton.Add_Click({ Refresh-LocalHostTab })
+    $toolbar.Controls.Add($refreshButton)
+
+    $applyButton = New-Button "Apply to profile" 138 8 120 28
+    $applyButton.Add_Click({ Apply-SelectedLocalHostTarget })
+    Set-ControlToolTip $applyButton "Write the selected local disk or filesystem path into the active profile."
+    $toolbar.Controls.Add($applyButton)
+
+    $validateButton = New-Button "Validate paths" 266 8 110 28
+    $validateButton.Add_Click({
+        Validate-SettingsPaths
+        Refresh-LocalHostTab
+    })
+    $toolbar.Controls.Add($validateButton)
+
+    $note = New-Label "Active when Run mode = Single local run. Distributed slave inventory is on Master / Slave." 0 0 760 24
+    $toolbar.Controls.Add($note)
+    $container.Controls.Add($toolbar, 0, 0)
+
+    $script:LocalHostInfoBox = New-Object System.Windows.Forms.TextBox
+    $script:LocalHostInfoBox.Multiline = $true
+    $script:LocalHostInfoBox.ReadOnly = $true
+    $script:LocalHostInfoBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $script:LocalHostInfoBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostInfoBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
+    $container.Controls.Add($script:LocalHostInfoBox, 0, 1)
+
+    $script:LocalHostTargetGrid = New-Object System.Windows.Forms.DataGridView
+    $script:LocalHostTargetGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostTargetGrid.ReadOnly = $true
+    $script:LocalHostTargetGrid.AllowUserToAddRows = $false
+    $script:LocalHostTargetGrid.AllowUserToDeleteRows = $false
+    $script:LocalHostTargetGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $script:LocalHostTargetGrid.MultiSelect = $false
+    $script:LocalHostTargetGrid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
+    foreach ($name in @("Kind", "Target", "Description")) {
+        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+        $col.Name = $name
+        $col.HeaderText = $name
+        if ($name -eq "Target") {
+            $col.FillWeight = 140
+        }
+        $script:LocalHostTargetGrid.Columns.Add($col) | Out-Null
+    }
+    $script:LocalHostTargetGrid.Add_CellDoubleClick({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -ge 0) {
+            Apply-SelectedLocalHostTarget
+        }
+    })
+    $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
+    Refresh-LocalHostTab
+    return $tab
+}
+
 function Build-MasterSlaveTab {
     $tab = New-Object System.Windows.Forms.TabPage
     $tab.Text = "Master / Slave"
@@ -739,18 +947,7 @@ function Pick-TargetForCurrentProfile {
         if ([string]::IsNullOrWhiteSpace($selected)) {
             return
         }
-        $key = "storage.lun"
-        if ([string]$script:CurrentProfile.TestKind -eq "Filesystem") {
-            $key = "fsd.anchor"
-        }
-        Set-ProfileParamValue $script:CurrentProfile $key $selected
-        Set-ProfileParamEnabled $script:CurrentProfile $key $true
-        if ($script:ParameterControls.ContainsKey($key)) {
-            $entry = $script:ParameterControls[$key]
-            $entry.Value.Text = $selected
-            $entry.Enabled.Checked = $true
-        }
-        Refresh-ConfigPreview
+        Set-ProfileTargetValue $selected
     } catch {
         Show-Warning ("Target discovery failed: " + $_.Exception.Message)
     }
@@ -1203,20 +1400,59 @@ function Build-MainForm {
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = [System.Windows.Forms.DockStyle]::Fill
     $tabs.Multiline = $true
+    $tabs.DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed
     $layout.Controls.Add($tabs, 0, 1)
     $script:MainTabControl = $tabs
 
     $tabs.TabPages.Add((Build-SettingsTab)) | Out-Null
-    $tabs.TabPages.Add((Build-MasterSlaveTab)) | Out-Null
+    $script:LocalHostTab = Build-LocalHostTab
+    $tabs.TabPages.Add($script:LocalHostTab) | Out-Null
+    $script:MasterSlaveTab = Build-MasterSlaveTab
+    $tabs.TabPages.Add($script:MasterSlaveTab) | Out-Null
     $tabs.TabPages.Add((Build-ProfileTab)) | Out-Null
     $tabs.TabPages.Add((Build-PreviewTab)) | Out-Null
     $tabs.TabPages.Add((Build-RunTab)) | Out-Null
     $tabs.TabPages.Add((Build-ReportsTab)) | Out-Null
 
+    $tabs.Add_DrawItem({
+        param($sender, $eventArgs)
+        $page = $sender.TabPages[$eventArgs.Index]
+        $disabled = Test-RunModeTabDisabled $page
+        $backColor = if ($disabled) {
+            [System.Drawing.Color]::FromArgb(220, 220, 220)
+        } else {
+            [System.Drawing.SystemColors]::Control
+        }
+        $foreColor = if ($disabled) {
+            [System.Drawing.Color]::DimGray
+        } else {
+            [System.Drawing.SystemColors]::ControlText
+        }
+        $backBrush = New-Object System.Drawing.SolidBrush $backColor
+        $eventArgs.Graphics.FillRectangle($backBrush, $eventArgs.Bounds)
+        $backBrush.Dispose()
+        $textBrush = New-Object System.Drawing.SolidBrush $foreColor
+        $format = New-Object System.Drawing.StringFormat
+        $format.Alignment = [System.Drawing.StringAlignment]::Center
+        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $eventArgs.Graphics.DrawString($page.Text, $page.Font, $textBrush, $eventArgs.Bounds, $format)
+        $textBrush.Dispose()
+    })
+
+    $tabs.Add_Selecting({
+        param($sender, $eventArgs)
+        if (Test-RunModeTabDisabled $eventArgs.TabPage) {
+            $eventArgs.Cancel = $true
+        }
+    })
+
     $tabs.Add_SelectedIndexChanged({
         Refresh-ConfigPreview
         Refresh-Reports
         Update-RunModeIndicator
+        if (-not (Is-DistributedMode) -and $sender.SelectedTab -eq $script:LocalHostTab) {
+            Refresh-LocalHostTab
+        }
     })
 
     $timer = New-Object System.Windows.Forms.Timer
@@ -1243,5 +1479,6 @@ function Build-MainForm {
     })
 
     Update-RunModeIndicator
+    Update-RunModeTabs
     return $form
 }

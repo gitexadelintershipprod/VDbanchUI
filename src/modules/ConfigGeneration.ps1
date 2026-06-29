@@ -496,6 +496,7 @@ function Update-RunModeIndicator {
         $profileName = [string]$script:CurrentProfile.Name
     }
     $script:RunModeIndicator.Text = ("Run mode: {0}  |  Profile: {1}" -f $mode, $profileName)
+    Update-RunModeTabs
 }
 
 function Show-ConfigPreviewConfirmation {
