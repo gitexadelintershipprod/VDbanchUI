@@ -1,4 +1,5 @@
 $script:SlaveReadinessTimers = @{}
+$script:SlaveReadinessTimerRows = @{}
 $script:SlaveGridRefreshing = $false
 
 function Get-SlaveRowState {
@@ -254,19 +255,27 @@ function Schedule-SlaveReadinessCheck {
     }
     $key = [string]$RowIndex
     if ($script:SlaveReadinessTimers.ContainsKey($key)) {
-        $script:SlaveReadinessTimers[$key].Stop()
-        $script:SlaveReadinessTimers[$key].Dispose()
+        $oldTimer = $script:SlaveReadinessTimers[$key]
+        [void]$script:SlaveReadinessTimerRows.Remove([string]$oldTimer.GetHashCode())
+        $oldTimer.Stop()
+        $oldTimer.Dispose()
         [void]$script:SlaveReadinessTimers.Remove($key)
     }
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1500
-    $timer.Tag = $RowIndex
+    $script:SlaveReadinessTimerRows[[string]$timer.GetHashCode()] = $RowIndex
     $timer.Add_Tick({
         param($sender, $eventArgs)
         $sender.Stop()
-        $sender.Dispose()
-        $rowIndex = [int]$sender.Tag
+        $timerKey = [string]$sender.GetHashCode()
+        if (-not $script:SlaveReadinessTimerRows.ContainsKey($timerKey)) {
+            $sender.Dispose()
+            return
+        }
+        $rowIndex = [int]$script:SlaveReadinessTimerRows[$timerKey]
+        [void]$script:SlaveReadinessTimerRows.Remove($timerKey)
         [void]$script:SlaveReadinessTimers.Remove([string]$rowIndex)
+        $sender.Dispose()
         if ($null -eq $script:SlaveGrid -or $rowIndex -lt 0 -or $rowIndex -ge $script:SlaveGrid.Rows.Count) {
             return
         }

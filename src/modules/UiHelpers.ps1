@@ -178,6 +178,7 @@ function Invoke-GridBatchUpdate {
 }
 
 $script:BackgroundUiPackages = @{}
+$script:BackgroundUiWorkerJobs = @{}
 
 function Start-BackgroundUiWork {
     param(
@@ -202,21 +203,27 @@ function Start-BackgroundUiWork {
     $jobId = [guid]::NewGuid().ToString()
     $script:BackgroundUiPackages[$jobId] = $package
     $worker = New-Object System.ComponentModel.BackgroundWorker
-    $worker.Tag = $jobId
+    $workerKey = [string]$worker.GetHashCode()
+    $script:BackgroundUiWorkerJobs[$workerKey] = $jobId
     $worker.Add_DoWork({
         param($sender, $eventArgs)
-        $id = [string]$sender.Tag
+        $id = [string]$eventArgs.Argument
         $pkg = $script:BackgroundUiPackages[$id]
         $eventArgs.Result = & $pkg.Work
     })
     $worker.Add_RunWorkerCompleted({
         param($sender, $eventArgs)
         # RunWorkerCompletedEventArgs has no Argument property (unlike DoWorkEventArgs).
-        $id = [string]$sender.Tag
+        $workerKey = [string]$sender.GetHashCode()
+        $id = [string]$script:BackgroundUiWorkerJobs[$workerKey]
+        [void]$script:BackgroundUiWorkerJobs.Remove($workerKey)
         $pkg = $script:BackgroundUiPackages[$id]
         [void]$script:BackgroundUiPackages.Remove($id)
-        $result = $eventArgs.Result
         $errorRecord = $eventArgs.Error
+        $result = $null
+        if ($null -eq $errorRecord) {
+            $result = $eventArgs.Result
+        }
         $onComplete = $pkg.OnComplete
         $owner = $pkg.Owner
         $owner.BeginInvoke([System.Action]{
@@ -228,5 +235,5 @@ function Start-BackgroundUiWork {
         }) | Out-Null
         $sender.Dispose()
     })
-    $worker.RunWorkerAsync() | Out-Null
+    $worker.RunWorkerAsync($jobId) | Out-Null
 }
