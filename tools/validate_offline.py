@@ -140,13 +140,15 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
         host_defaults = ["hd=default"]
         if settings.get("SlaveShell"):
             host_defaults.append(f"shell={settings['SlaveShell']}")
-        if settings.get("SlaveUser"):
-            host_defaults.append(f"user={settings['SlaveUser']}")
         lines.append("* Host definitions")
         lines.append(",".join(host_defaults))
         for slave in slaves or []:
             system = slave.get("SshAlias") or slave["Host"]
-            lines.append(f"hd={slave['Name']},system={system},vdbench={slave['VdbenchPath']}")
+            host_parts = [f"hd={slave['Name']}", f"system={system}"]
+            if slave.get("User"):
+                host_parts.append(f"user={slave['User']}")
+            host_parts.append(f"vdbench={slave['VdbenchPath']}")
+            lines.append(",".join(host_parts))
         lines.append("")
 
     if test_kind == "Raw/block":
@@ -286,9 +288,13 @@ def main() -> int:
     assert 'col.ReadOnly = $true' in ui_tabs_module and '"PrivateKey"' in ui_tabs_module
     assert "No log available for selected run." in ui_tabs_module
     assert "No config available for selected run." in ui_tabs_module
+    assert "$layout.Controls.Add($tabs, 0, 1)" in ui_tabs_module
+    assert '"User", "VdbenchPath"' in ui_tabs_module
+    assert '"SlaveUser"' not in ui_tabs_module
 
     assert "Get-DefaultVdbenchPathForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "SlaveUser" not in settings
 
     self_test_module = (MODULE_ROOT / "SelfTest.ps1").read_text(encoding="utf-8")
     assert "Use-SelfTestPaths" in self_test_module
@@ -327,12 +333,14 @@ def main() -> int:
                 "Name": "test-001",
                 "Host": "10.0.0.11",
                 "SshAlias": "test-001",
+                "User": "linuxuser",
                 "VdbenchPath": "/opt/vdbench",
                 "TestTarget": "/dev/sdb",
             }
         ],
     )
     assert "hd=default,shell=ssh" in slave_config
+    assert "hd=test-001,system=test-001,user=linuxuser,vdbench=/opt/vdbench" in slave_config
     assert GOLDEN_FIXTURES["raw-distributed.txt"] in slave_config
     assert "wd=wd1,sd=sd*" in slave_config
 
