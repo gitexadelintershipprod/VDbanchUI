@@ -64,6 +64,11 @@ function Ensure-ProfileCatalogKeys {
     if ($null -eq $Profile.PSObject.Properties["AdvancedDisabled"]) {
         $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
     }
+    if ($null -eq $Profile.PSObject.Properties["LocalTargets"]) {
+        $Profile | Add-Member -NotePropertyName "LocalTargets" -NotePropertyValue @()
+    } else {
+        $Profile.LocalTargets = @(Normalize-TargetEntries $Profile.LocalTargets)
+    }
 }
 
 function Get-DefaultVdbenchPathForOs {
@@ -88,6 +93,111 @@ function Get-DefaultTestTargetForOs {
         return "/dev/sdb"
     }
     return "C:\vdbench\testfile.dat"
+}
+
+function Get-DefaultTestFileTargetForOs {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "/var/tmp/vdbench-testfile.dat"
+    }
+    return "C:\vdbench\testfile.dat"
+}
+
+function Get-TargetCategory {
+    param([object]$Target)
+    $kind = [string](Get-PropertyValue $Target "Kind" "")
+    if ($kind -match "Filesystem") {
+        return "fs"
+    }
+    return "raw"
+}
+
+function New-TargetSelection {
+    param(
+        [string]$Kind,
+        [string]$Target,
+        [string]$Description = "",
+        [bool]$Selected = $false,
+        [bool]$CreateFile = $false
+    )
+    return [pscustomobject]@{
+        Kind = $Kind
+        Target = $Target
+        Description = $Description
+        Selected = $Selected
+        CreateFile = $CreateFile
+    }
+}
+
+function Normalize-TargetEntry {
+    param([object]$Item)
+    $target = [string](Get-PropertyValue $Item "Target" "")
+    if ([string]::IsNullOrWhiteSpace($target)) {
+        return $null
+    }
+    $kind = [string](Get-PropertyValue $Item "Kind" "")
+    if ([string]::IsNullOrWhiteSpace($kind)) {
+        $kind = "Raw disk"
+    }
+    return (New-TargetSelection `
+        -Kind $kind `
+        -Target $target `
+        -Description ([string](Get-PropertyValue $Item "Description" "")) `
+        -Selected ([bool](Get-PropertyValue $Item "Selected" $false)) `
+        -CreateFile ([bool](Get-PropertyValue $Item "CreateFile" $false)))
+}
+
+function Normalize-TargetEntries {
+    param([object[]]$Items)
+    $result = @()
+    foreach ($item in @($Items)) {
+        $normalized = Normalize-TargetEntry $item
+        if ($null -ne $normalized) {
+            $result += $normalized
+        }
+    }
+    return @($result)
+}
+
+function Get-SelectedTargetEntries {
+    param(
+        [object[]]$Targets,
+        [string]$Category = ""
+    )
+    $selected = @()
+    foreach ($target in @(Normalize-TargetEntries $Targets)) {
+        if (-not [bool](Get-PropertyValue $target "Selected" $false)) {
+            continue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Category) -and (Get-TargetCategory $target) -ne $Category) {
+            continue
+        }
+        $selected += $target
+    }
+    return @($selected)
+}
+
+function Get-TargetSummary {
+    param([object[]]$Targets)
+    $selected = @(Get-SelectedTargetEntries $Targets)
+    if ($selected.Count -eq 0) {
+        return ""
+    }
+    if ($selected.Count -eq 1) {
+        return [string]$selected[0].Target
+    }
+    return ("{0} targets selected" -f $selected.Count)
+}
+
+function Get-LegacyTargetEntries {
+    param(
+        [string]$Target,
+        [string]$Kind = "Raw disk"
+    )
+    if ([string]::IsNullOrWhiteSpace($Target)) {
+        return @()
+    }
+    return @((New-TargetSelection -Kind $Kind -Target $Target -Selected $true))
 }
 
 function Get-DefaultSshAliasForSlave {
@@ -118,6 +228,10 @@ function Apply-SlaveDefaults {
     $user = [string](Get-PropertyValue $Slave "User" "")
     $vdbenchPath = [string](Get-PropertyValue $Slave "VdbenchPath" "")
     $testTarget = [string](Get-PropertyValue $Slave "TestTarget" "")
+    $targets = @(Normalize-TargetEntries @(Get-PropertyValue $Slave "Targets" @()))
+    if ($targets.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($testTarget)) {
+        $targets = @(Get-LegacyTargetEntries $testTarget)
+    }
     $sshAlias = [string](Get-PropertyValue $Slave "SshAlias" "")
     if ([string]::IsNullOrWhiteSpace($user)) {
         $user = Get-DefaultSlaveUserForOs $osType
@@ -139,6 +253,7 @@ function Apply-SlaveDefaults {
         User = $user
         VdbenchPath = $vdbenchPath
         TestTarget = $testTarget
+        Targets = @($targets)
         SshAlias = $sshAlias
         PrivateKey = [string](Get-PropertyValue $Slave "PrivateKey" (Get-PropertyValue $script:Settings "PrivateKey" ""))
         Status = [string](Get-PropertyValue $Slave "Status" "Not checked")
@@ -252,6 +367,7 @@ function New-DefaultProfile {
         CreatedAt = (Get-Date).ToString("o")
         UpdatedAt = (Get-Date).ToString("o")
         Parameters = $items
+        LocalTargets = @()
         AdvancedActive = ""
         AdvancedDisabled = ""
     }

@@ -193,6 +193,109 @@ function New-ConfigOnlyRun {
     Refresh-Reports
 }
 
+function Convert-ToShellSingleQuoted {
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "'\''") + "'"
+}
+
+function New-RemoteSshArguments {
+    param([object]$Slave)
+    $parts = New-Object System.Collections.Generic.List[string]
+    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
+    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
+        [void]$parts.Add("-F")
+        [void]$parts.Add((Quote-ProcessArgument $sshConfig))
+    }
+    $privateKey = [string](Get-PropertyValue $Slave "PrivateKey" "")
+    if ([string]::IsNullOrWhiteSpace($privateKey)) {
+        $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
+        [void]$parts.Add("-i")
+        [void]$parts.Add((Quote-ProcessArgument $privateKey))
+    }
+    [void]$parts.Add("-o")
+    [void]$parts.Add("BatchMode=yes")
+    [void]$parts.Add("-o")
+    [void]$parts.Add("ConnectTimeout=8")
+    $systemName = [string](Get-PropertyValue $Slave "SshAlias" "")
+    if ([string]::IsNullOrWhiteSpace($systemName)) {
+        $systemName = [string](Get-PropertyValue $Slave "Host" "")
+    }
+    [void]$parts.Add((Quote-ProcessArgument $systemName))
+    return $parts
+}
+
+function New-TestFileTarget {
+    param(
+        [object]$Owner,
+        [object]$Target
+    )
+    return [pscustomobject]@{
+        Owner = $Owner
+        Target = [string](Get-PropertyValue $Target "Target" "")
+        OsType = [string](Get-PropertyValue $Owner "OsType" "Windows")
+        Host = [string](Get-PropertyValue $Owner "Host" "localhost")
+    }
+}
+
+function Get-TestFilesToCreate {
+    $items = @()
+    if (Is-DistributedMode) {
+        foreach ($slave in @(Get-EnabledSlaves)) {
+            foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "raw")) {
+                if ([string](Get-PropertyValue $target "Kind" "") -eq "Test file" -and [bool](Get-PropertyValue $target "CreateFile" $false)) {
+                    $items += New-TestFileTarget $slave $target
+                }
+            }
+        }
+    } else {
+        $owner = [pscustomobject]@{ Host = "localhost"; OsType = "Windows" }
+        foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "raw")) {
+            if ([string](Get-PropertyValue $target "Kind" "") -eq "Test file" -and [bool](Get-PropertyValue $target "CreateFile" $false)) {
+                $items += New-TestFileTarget $owner $target
+            }
+        }
+    }
+    return @($items)
+}
+
+function Initialize-TestFilesForRun {
+    foreach ($item in @(Get-TestFilesToCreate)) {
+        $path = [string]$item.Target
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+        if (Test-HostLooksLocal ([string]$item.Host)) {
+            $parent = Split-Path -Parent $path
+            if (-not [string]::IsNullOrWhiteSpace($parent)) {
+                Ensure-Directory $parent
+            }
+            [System.IO.File]::WriteAllText($path, "", [System.Text.Encoding]::ASCII)
+            continue
+        }
+        $sshParts = New-RemoteSshArguments $item.Owner
+        if ([string]$item.OsType -eq "Linux") {
+            $quotedPath = Convert-ToShellSingleQuoted $path
+            $remote = "mkdir -p -- `"$(dirname -- $quotedPath)`" && : > $quotedPath"
+            [void]$sshParts.Add("sh")
+            [void]$sshParts.Add("-lc")
+            [void]$sshParts.Add((Quote-ProcessArgument $remote))
+        } else {
+            $escapedPath = $path.Replace("'", "''")
+            $remote = "`$p='$escapedPath'; `$d=Split-Path -Parent `$p; if (`$d) { New-Item -ItemType Directory -Force -Path `$d | Out-Null }; Set-Content -LiteralPath `$p -Value '' -NoNewline"
+            [void]$sshParts.Add("powershell.exe")
+            [void]$sshParts.Add("-NoProfile")
+            [void]$sshParts.Add("-Command")
+            [void]$sshParts.Add((Quote-ProcessArgument $remote))
+        }
+        $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
+        if ($result.ExitCode -ne 0) {
+            throw ("Failed to create test file on {0}: {1}" -f $item.Host, (($result.StdErr + " " + $result.StdOut).Trim()))
+        }
+    }
+}
+
 function Start-VdbenchRun {
     if ($script:CurrentProcess -and -not $script:CurrentProcess.HasExited) {
         Show-Warning "A run is already active."
@@ -202,6 +305,13 @@ function Start-VdbenchRun {
     Capture-SlaveGrid
     Capture-ProfileEditor
     $built = Build-VdbenchConfig
+    $blockers = @($built.Warnings | Where-Object { [string]$_ -like "BLOCKER:*" })
+    if ($blockers.Count -gt 0) {
+        Refresh-ConfigPreview
+        Select-MainTab "Config Preview"
+        Show-Warning ("Run cannot start until these issues are fixed:" + [Environment]::NewLine + [Environment]::NewLine + ($blockers -join [Environment]::NewLine))
+        return
+    }
     $mustReviewConfig = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true) -or ($built.Warnings.Count -gt 0)
     if ($mustReviewConfig) {
         if (-not (Show-ConfigPreviewConfirmation $built)) {
@@ -212,6 +322,12 @@ function Start-VdbenchRun {
     $masterBat = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "")
     if ([string]::IsNullOrWhiteSpace($masterBat) -or -not (Test-Path -LiteralPath $masterBat)) {
         Show-Warning "Master Vdbench batch file does not exist: $masterBat"
+        return
+    }
+    try {
+        Initialize-TestFilesForRun
+    } catch {
+        Show-Warning ("Test file preparation failed: " + $_.Exception.Message)
         return
     }
 

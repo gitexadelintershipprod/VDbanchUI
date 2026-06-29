@@ -68,14 +68,7 @@ function Get-LocalTargetInventory {
         }
     }
 
-    $rawDefault = Get-ProfileParamValue $script:CurrentProfile "storage.lun" ""
-    if (-not [string]::IsNullOrWhiteSpace($rawDefault)) {
-        $items += New-TargetRecord "Current profile" $rawDefault "Current raw/block target"
-    }
-    $fsDefault = Get-ProfileParamValue $script:CurrentProfile "fsd.anchor" ""
-    if (-not [string]::IsNullOrWhiteSpace($fsDefault)) {
-        $items += New-TargetRecord "Current profile" $fsDefault "Current filesystem anchor"
-    }
+    $items += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs "Windows") "Raw/file target; create/overwrite is controlled by the target checkbox."
     return @($items | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Target) })
 }
 
@@ -180,6 +173,7 @@ function Get-SlaveTargetInventory {
         throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
     }
     $targets = @(Convert-TargetInventoryOutput $result.StdOut)
+    $targets += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs $osType) "Raw/file target; create/overwrite is controlled by the target checkbox."
     if ($targets.Count -eq 0) {
         throw "Remote discovery returned no targets."
     }

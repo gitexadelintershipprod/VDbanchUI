@@ -139,7 +139,6 @@ function Apply-SlaveGridRowDefaults {
     }
     $Row.Cells["User"].Value = Get-DefaultSlaveUserForOs $osType
     $Row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs $osType
-    $Row.Cells["TestTarget"].Value = Get-DefaultTestTargetForOs $osType
     $name = [string]$Row.Cells["Name"].Value
     $hostName = [string]$Row.Cells["Host"].Value
     if ($RefreshSshAlias -or [string]::IsNullOrWhiteSpace([string]$Row.Cells["SshAlias"].Value)) {
@@ -176,10 +175,14 @@ function Build-SlaveGrid {
     [void]$osCol.Items.Add("Linux")
     $grid.Columns.Add($osCol) | Out-Null
 
-    foreach ($name in @("User", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
+    foreach ($name in @("User", "VdbenchPath", "Targets", "SshAlias", "PrivateKey", "Status", "Notes")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
         $col.HeaderText = $name
+        if ($name -eq "Targets") {
+            $col.ReadOnly = $true
+            $col.FillWeight = 90
+        }
         if ($name -eq "Status") {
             $col.ReadOnly = $true
             $col.FillWeight = 80
@@ -239,9 +242,10 @@ function Populate-SlaveGrid {
         $idx = $script:SlaveGrid.Rows.Add()
         $row = $script:SlaveGrid.Rows[$idx]
         $normalized = Apply-SlaveDefaults $slave
-        foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
+        foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "PrivateKey", "Status", "Notes")) {
             $row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
         }
+        Set-SlaveRowTargets $row @(Get-PropertyValue $normalized "Targets" @())
     }
 }
 
@@ -269,7 +273,8 @@ function Capture-SlaveGrid {
             OsType = [string]$row.Cells["OsType"].Value
             User = [string]$row.Cells["User"].Value
             VdbenchPath = [string]$row.Cells["VdbenchPath"].Value
-            TestTarget = [string]$row.Cells["TestTarget"].Value
+            TestTarget = ""
+            Targets = @(Get-SlaveRowTargets $row)
             SshAlias = [string]$row.Cells["SshAlias"].Value
             PrivateKey = [string]$row.Cells["PrivateKey"].Value
             Status = [string]$row.Cells["Status"].Value
@@ -394,7 +399,13 @@ function Check-SlaveRowReadiness {
     }
     $hostName = [string]$Row.Cells["Host"].Value
     $vdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
-    $target = [string]$Row.Cells["TestTarget"].Value
+    $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
+    $target = ""
+    if ($targets.Count -gt 0) {
+        $target = [string]$targets[0].Target
+    } else {
+        $target = Get-DefaultTestTargetForOs ([string]$Row.Cells["OsType"].Value)
+    }
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
@@ -443,11 +454,16 @@ function Pick-TargetForSelectedSlave {
         Show-Warning "Select a slave row first."
         return
     }
+    $status = [string]$row.Cells["Status"].Value
+    if (@("Ready", "Ping OK", "Target selected") -notcontains $status) {
+        Show-Warning "Run Test ping or Check readiness successfully before selecting targets for this host."
+        return
+    }
     try {
         $targets = @(Get-SlaveTargetInventory $row)
-        $selected = Select-TargetFromList $targets "Select slave test target"
-        if (-not [string]::IsNullOrWhiteSpace($selected)) {
-            $row.Cells["TestTarget"].Value = $selected
+        $selected = Select-TargetsFromList $targets (Get-SlaveRowTargets $row) "Select slave test targets"
+        if ($null -ne $selected) {
+            Set-SlaveRowTargets $row $selected
             $row.Cells["Status"].Value = "Target selected"
             Capture-SlaveGrid
             Refresh-ConfigPreview
@@ -456,28 +472,205 @@ function Pick-TargetForSelectedSlave {
         Show-Warning ("Target discovery failed: " + $_.Exception.Message)
     }
 }
-function Set-ProfileTargetValue {
-    param([string]$Selected)
-    if ($null -eq $script:CurrentProfile) {
-        Show-Warning "Create or load a profile first."
+function Get-TargetIdentity {
+    param([object]$Target)
+    return (([string](Get-PropertyValue $Target "Kind" "")).ToLowerInvariant() + "|" + ([string](Get-PropertyValue $Target "Target" "")).ToLowerInvariant())
+}
+
+function Merge-TargetSelections {
+    param(
+        [object[]]$Discovered,
+        [object[]]$Existing
+    )
+    $existingByKey = @{}
+    foreach ($item in @(Normalize-TargetEntries $Existing)) {
+        $existingByKey[(Get-TargetIdentity $item)] = $item
+    }
+    $result = @()
+    $seen = @{}
+    foreach ($item in @($Discovered)) {
+        $normalized = Normalize-TargetEntry $item
+        if ($null -eq $normalized) {
+            continue
+        }
+        $key = Get-TargetIdentity $normalized
+        if ($existingByKey.ContainsKey($key)) {
+            $old = $existingByKey[$key]
+            $normalized.Selected = [bool](Get-PropertyValue $old "Selected" $false)
+            $normalized.CreateFile = [bool](Get-PropertyValue $old "CreateFile" $false)
+        }
+        $result += $normalized
+        $seen[$key] = $true
+    }
+    foreach ($item in @(Normalize-TargetEntries $Existing)) {
+        $key = Get-TargetIdentity $item
+        if (-not $seen.ContainsKey($key) -and [bool](Get-PropertyValue $item "Selected" $false)) {
+            $result += $item
+        }
+    }
+    return @($result)
+}
+
+function Add-TargetSelectionColumns {
+    param([System.Windows.Forms.DataGridView]$Grid)
+    $selectedCol = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
+    $selectedCol.Name = "Selected"
+    $selectedCol.HeaderText = "Use"
+    $selectedCol.FillWeight = 35
+    $Grid.Columns.Add($selectedCol) | Out-Null
+    foreach ($name in @("Kind", "Target")) {
+        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+        $col.Name = $name
+        $col.HeaderText = $name
+        $col.ReadOnly = $true
+        if ($name -eq "Target") {
+            $col.FillWeight = 150
+        }
+        $Grid.Columns.Add($col) | Out-Null
+    }
+    $createCol = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
+    $createCol.Name = "CreateFile"
+    $createCol.HeaderText = "Create/overwrite file"
+    $createCol.FillWeight = 80
+    $Grid.Columns.Add($createCol) | Out-Null
+    $descCol = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $descCol.Name = "Description"
+    $descCol.HeaderText = "Description"
+    $descCol.ReadOnly = $true
+    $Grid.Columns.Add($descCol) | Out-Null
+}
+
+function Set-TargetGridRows {
+    param(
+        [System.Windows.Forms.DataGridView]$Grid,
+        [object[]]$Targets
+    )
+    $Grid.Rows.Clear()
+    foreach ($target in @(Normalize-TargetEntries $Targets)) {
+        $idx = $Grid.Rows.Add()
+        $row = $Grid.Rows[$idx]
+        $row.Cells["Selected"].Value = [bool](Get-PropertyValue $target "Selected" $false)
+        $row.Cells["Kind"].Value = [string](Get-PropertyValue $target "Kind" "")
+        $row.Cells["Target"].Value = [string](Get-PropertyValue $target "Target" "")
+        $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $target "CreateFile" $false)
+        $row.Cells["Description"].Value = [string](Get-PropertyValue $target "Description" "")
+    }
+}
+
+function Get-TargetGridRows {
+    param([System.Windows.Forms.DataGridView]$Grid)
+    if ($null -eq $Grid) {
+        return @()
+    }
+    $Grid.EndEdit()
+    $targets = @()
+    foreach ($row in $Grid.Rows) {
+        if ($row.IsNewRow) {
+            continue
+        }
+        $targets += New-TargetSelection `
+            -Kind ([string]$row.Cells["Kind"].Value) `
+            -Target ([string]$row.Cells["Target"].Value) `
+            -Description ([string]$row.Cells["Description"].Value) `
+            -Selected ([bool]$row.Cells["Selected"].Value) `
+            -CreateFile ([bool]$row.Cells["CreateFile"].Value)
+    }
+    return @($targets)
+}
+
+function Update-TargetCreateFileEditability {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
-    if ([string]::IsNullOrWhiteSpace($Selected)) {
-        return
+    $isTestFile = ([string]$Row.Cells["Kind"].Value) -eq "Test file"
+    $Row.Cells["CreateFile"].ReadOnly = -not $isTestFile
+    if (-not $isTestFile) {
+        $Row.Cells["CreateFile"].Value = $false
     }
-    Capture-ProfileEditor
-    $key = "storage.lun"
-    if ([string]$script:CurrentProfile.TestKind -eq "Filesystem") {
-        $key = "fsd.anchor"
+}
+
+function Get-SlaveRowTargets {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    if ($null -eq $Row) {
+        return @()
     }
-    Set-ProfileParamValue $script:CurrentProfile $key $Selected
-    Set-ProfileParamEnabled $script:CurrentProfile $key $true
-    if ($script:ParameterControls.ContainsKey($key)) {
-        $entry = $script:ParameterControls[$key]
-        $entry.Value.Text = $Selected
-        $entry.Enabled.Checked = $true
+    return @(Normalize-TargetEntries @($Row.Tag))
+}
+
+function Set-SlaveRowTargets {
+    param(
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [object[]]$Targets
+    )
+    $normalized = @(Normalize-TargetEntries $Targets)
+    $Row.Tag = $normalized
+    $Row.Cells["Targets"].Value = Get-TargetSummary $normalized
+}
+
+function Select-TargetsFromList {
+    param(
+        [object[]]$Targets,
+        [object[]]$Existing,
+        [string]$Title
+    )
+    $merged = @(Merge-TargetSelections $Targets $Existing)
+    if ($merged.Count -eq 0) {
+        Show-Warning "No selectable targets were found."
+        return $null
     }
-    Refresh-ConfigPreview
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = $Title
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 980, 560
+    $dialog.MinimizeBox = $false
+    $dialog.MaximizeBox = $true
+
+    $grid = New-Object System.Windows.Forms.DataGridView
+    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $grid.AllowUserToAddRows = $false
+    $grid.AllowUserToDeleteRows = $false
+    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $grid.MultiSelect = $false
+    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
+    Add-TargetSelectionColumns $grid
+    Set-TargetGridRows $grid $merged
+    foreach ($row in $grid.Rows) {
+        Update-TargetCreateFileEditability $row
+    }
+    $grid.Add_CurrentCellDirtyStateChanged({
+        param($sender, $eventArgs)
+        if ($sender.IsCurrentCellDirty) {
+            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
+        }
+    })
+    $grid.Add_CellValueChanged({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -ge 0) {
+            Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
+        }
+    })
+    $dialog.Controls.Add($grid)
+
+    $buttonPanel = New-Object System.Windows.Forms.Panel
+    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $buttonPanel.Height = 46
+    $dialog.Controls.Add($buttonPanel)
+
+    $okButton = New-Button "Save selection" 720 9 125 28
+    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $buttonPanel.Controls.Add($okButton)
+    $cancelButton = New-Button "Cancel" 855 9 80 28
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $buttonPanel.Controls.Add($cancelButton)
+    $dialog.AcceptButton = $okButton
+    $dialog.CancelButton = $cancelButton
+
+    $result = $dialog.ShowDialog($script:Form)
+    if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
+        return $null
+    }
+    return @(Get-TargetGridRows $grid)
 }
 
 function Refresh-LocalHostTab {
@@ -485,6 +678,9 @@ function Refresh-LocalHostTab {
         return
     }
     Capture-Settings
+    if (-not $script:RefreshingLocalTargets) {
+        Capture-LocalHostTargets
+    }
     $computer = [string]$env:COMPUTERNAME
     if ([string]::IsNullOrWhiteSpace($computer)) {
         $computer = "localhost"
@@ -516,43 +712,59 @@ function Refresh-LocalHostTab {
         [void]$lines.Add(("{0,-16} {1,-55} Exists={2}" -f $item.Name, $item.Path, $exists))
     }
     [void]$lines.Add("")
-    [void]$lines.Add("Use the target inventory below for local raw disks or filesystem anchors.")
-  [void]$lines.Add("Selected targets are written into the active profile storage/fsd parameter.")
+    [void]$lines.Add("Select one or more local raw/file or filesystem targets below.")
+    [void]$lines.Add("Selections are stored in the active profile and survive refresh.")
     $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
 
     if ($null -eq $script:LocalHostTargetGrid) {
         return
     }
-    $script:LocalHostTargetGrid.Rows.Clear()
     try {
-        foreach ($item in @(Get-LocalTargetInventory)) {
-            $idx = $script:LocalHostTargetGrid.Rows.Add()
-            $row = $script:LocalHostTargetGrid.Rows[$idx]
-            $row.Cells["Kind"].Value = [string]$item.Kind
-            $row.Cells["Target"].Value = [string]$item.Target
-            $row.Cells["Description"].Value = [string]$item.Description
+        $existing = @()
+        if ($null -ne $script:CurrentProfile) {
+            $existing = @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @())
+        }
+        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory) $existing)
+        $script:RefreshingLocalTargets = $true
+        try {
+            Set-TargetGridRows $script:LocalHostTargetGrid $targets
+            foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                Update-TargetCreateFileEditability $row
+            }
+        } finally {
+            $script:RefreshingLocalTargets = $false
         }
     } catch {
+        $script:LocalHostTargetGrid.Rows.Clear()
         $idx = $script:LocalHostTargetGrid.Rows.Add()
         $row = $script:LocalHostTargetGrid.Rows[$idx]
+        $row.Cells["Selected"].Value = $false
         $row.Cells["Kind"].Value = "Error"
         $row.Cells["Target"].Value = ""
+        $row.Cells["CreateFile"].Value = $false
         $row.Cells["Description"].Value = $_.Exception.Message
     }
 }
 
-function Apply-SelectedLocalHostTarget {
-    if ($null -eq $script:LocalHostTargetGrid -or $script:LocalHostTargetGrid.SelectedRows.Count -eq 0) {
-        Show-Warning "Select a local target first."
+function Capture-LocalHostTargets {
+    if ($null -eq $script:LocalHostTargetGrid -or $null -eq $script:CurrentProfile) {
         return
     }
-    $selected = [string]$script:LocalHostTargetGrid.SelectedRows[0].Cells["Target"].Value
-    if ([string]::IsNullOrWhiteSpace($selected)) {
-        Show-Warning "Selected row does not contain a target path."
+    if ($script:RefreshingLocalTargets) {
         return
     }
-    Set-ProfileTargetValue $selected
-    Show-Info ("Profile target set to: {0}" -f $selected)
+    $script:CurrentProfile.LocalTargets = @(Get-TargetGridRows $script:LocalHostTargetGrid)
+}
+
+function Save-LocalHostTargets {
+    if ($null -eq $script:CurrentProfile) {
+        Show-Warning "Create or load a profile first."
+        return
+    }
+    Capture-LocalHostTargets
+    Save-CurrentProfile
+    Refresh-ConfigPreview
+    Show-Info "Local target selections saved."
 }
 
 function Test-RunModeTabDisabled {
@@ -602,8 +814,8 @@ function Build-LocalHostTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 170)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 70)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -612,9 +824,9 @@ function Build-LocalHostTab {
     $refreshButton.Add_Click({ Refresh-LocalHostTab })
     $toolbar.Controls.Add($refreshButton)
 
-    $applyButton = New-Button "Apply to profile" 138 8 120 28
-    $applyButton.Add_Click({ Apply-SelectedLocalHostTarget })
-    Set-ControlToolTip $applyButton "Write the selected local disk or filesystem path into the active profile."
+    $applyButton = New-Button "Save selections" 138 8 120 28
+    $applyButton.Add_Click({ Save-LocalHostTargets })
+    Set-ControlToolTip $applyButton "Persist selected local targets in the active profile."
     $toolbar.Controls.Add($applyButton)
 
     $validateButton = New-Button "Validate paths" 266 8 110 28
@@ -624,7 +836,7 @@ function Build-LocalHostTab {
     })
     $toolbar.Controls.Add($validateButton)
 
-    $note = New-Label "Active when Run mode = Single local run. Distributed slave inventory is on Master / Slave." 0 0 760 24
+    $note = New-Label "Active when Run mode = Single local run. Check Use for each target; Create/overwrite applies only to Test file rows." 0 0 900 40
     $toolbar.Controls.Add($note)
     $container.Controls.Add($toolbar, 0, 0)
 
@@ -638,25 +850,37 @@ function Build-LocalHostTab {
 
     $script:LocalHostTargetGrid = New-Object System.Windows.Forms.DataGridView
     $script:LocalHostTargetGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostTargetGrid.ReadOnly = $true
+    $script:LocalHostTargetGrid.ReadOnly = $false
     $script:LocalHostTargetGrid.AllowUserToAddRows = $false
     $script:LocalHostTargetGrid.AllowUserToDeleteRows = $false
     $script:LocalHostTargetGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
     $script:LocalHostTargetGrid.MultiSelect = $false
     $script:LocalHostTargetGrid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    foreach ($name in @("Kind", "Target", "Description")) {
-        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-        $col.Name = $name
-        $col.HeaderText = $name
-        if ($name -eq "Target") {
-            $col.FillWeight = 140
+    Add-TargetSelectionColumns $script:LocalHostTargetGrid
+    $script:LocalHostTargetGrid.Add_CurrentCellDirtyStateChanged({
+        param($sender, $eventArgs)
+        if ($sender.IsCurrentCellDirty) {
+            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
         }
-        $script:LocalHostTargetGrid.Columns.Add($col) | Out-Null
-    }
+    })
+    $script:LocalHostTargetGrid.Add_CellValueChanged({
+        param($sender, $eventArgs)
+        if ($script:RefreshingLocalTargets) {
+            return
+        }
+        if ($eventArgs.RowIndex -ge 0) {
+            Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
+            Capture-LocalHostTargets
+            Refresh-ConfigPreview
+        }
+    })
     $script:LocalHostTargetGrid.Add_CellDoubleClick({
         param($sender, $eventArgs)
         if ($eventArgs.RowIndex -ge 0) {
-            Apply-SelectedLocalHostTarget
+            $row = $sender.Rows[$eventArgs.RowIndex]
+            $row.Cells["Selected"].Value = -not [bool]$row.Cells["Selected"].Value
+            Capture-LocalHostTargets
+            Refresh-ConfigPreview
         }
     })
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
@@ -745,7 +969,7 @@ function Build-MasterSlaveTab {
     Set-ControlToolTip $clearKeyButton "Clear the per-slave private key override and use the Settings private key."
     $toolbar.Controls.Add($clearKeyButton)
 
-    $note = New-Label "TestTarget = disk/device/directory per slave. SshAlias auto-fills from Name/Host. User defaults: Windows=administrator, Linux=root. Use Add slave to create rows." 0 0 900 24
+    $note = New-Label "Run check first, then Pick target. Multiple targets are allowed; raw/file and filesystem targets cannot be mixed for one profile." 0 0 940 40
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
@@ -844,6 +1068,7 @@ function Capture-ProfileEditor {
     if ($script:AdvancedDisabledBox) {
         $script:CurrentProfile.AdvancedDisabled = $script:AdvancedDisabledBox.Text
     }
+    Capture-LocalHostTargets
 }
 
 function Refresh-ProfileEditor {
@@ -882,6 +1107,9 @@ function Refresh-ProfileEditor {
         }
         $y += 30
         foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section -and (Definition-AppliesToKind $_ $testKind) })) {
+            if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
+                continue
+            }
             Add-ParameterRow $panel $def $y
             $y += 32
         }
@@ -935,24 +1163,6 @@ function Refresh-ProfileList {
     }
 }
 
-function Pick-TargetForCurrentProfile {
-    if ($null -eq $script:CurrentProfile) {
-        Show-Warning "Create or load a profile first."
-        return
-    }
-    Capture-ProfileEditor
-    try {
-        $targets = @(Get-LocalTargetInventory)
-        $selected = Select-TargetFromList $targets "Select local profile target"
-        if ([string]::IsNullOrWhiteSpace($selected)) {
-            return
-        }
-        Set-ProfileTargetValue $selected
-    } catch {
-        Show-Warning ("Target discovery failed: " + $_.Exception.Message)
-    }
-}
-
 function Build-ProfileTab {
     $tab = New-Object System.Windows.Forms.TabPage
     $tab.Text = "Profile Builder"
@@ -961,7 +1171,7 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 112)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 124)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -1048,12 +1258,7 @@ function Build-ProfileTab {
     })
     $toolbar.Controls.Add($script:ProfileKindCombo)
 
-    $pickLocalTargetButton = New-Button "Pick target" 760 43 95 27
-    $pickLocalTargetButton.Add_Click({ Pick-TargetForCurrentProfile })
-    Set-ControlToolTip $pickLocalTargetButton "Local targets only. For distributed slave targets, use Master / Slave -> Pick target."
-    $toolbar.Controls.Add($pickLocalTargetButton)
-
-    $note = New-Label "Every parameter has help. Clear Enabled to preserve values but comment them in generated config." 10 78 900
+    $note = New-Label "Targets are selected in Local Host or Master / Slave. Every parameter has help; disabled values are preserved as comments." 10 78 1040 34
     $toolbar.Controls.Add($note)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl

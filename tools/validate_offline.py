@@ -160,20 +160,30 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
         if distributed:
             for slave in slaves or []:
                 safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slave["Name"])
-                parts = [f"sd=sd_{safe_name}", f"host={slave['Name']}", f"lun={slave['TestTarget']}"]
+                raw_targets = [t for t in slave.get("Targets", []) if t.get("Selected") and t.get("Kind") != "Filesystem"]
+                for index, target in enumerate(raw_targets, start=1):
+                    parts = [f"sd=sd_{safe_name}_{index}", f"host={slave['Name']}", f"lun={target['Target']}"]
+                    for definition in catalog:
+                        if definition["Key"] == "storage.lun":
+                            continue
+                        if definition["Line"] == "storage" and applies(definition, test_kind):
+                            add_params(parts, disabled, [definition], profile, "storage", test_kind)
+                    lines.append(",".join(parts))
+        else:
+            raw_targets = [t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") != "Filesystem"]
+            for index, target in enumerate(raw_targets, start=1):
+                name = sd_name if len(raw_targets) == 1 else f"{sd_name}_{index}"
+                parts = [f"sd={name}", f"lun={target['Target']}"]
                 for definition in catalog:
                     if definition["Key"] == "storage.lun":
                         continue
                     if definition["Line"] == "storage" and applies(definition, test_kind):
                         add_params(parts, disabled, [definition], profile, "storage", test_kind)
                 lines.append(",".join(parts))
-        else:
-            parts = [f"sd={sd_name}"]
-            add_params(parts, disabled, catalog, profile, "storage", test_kind)
-            lines.append(",".join(parts))
         lines.append("")
 
-        parts = [f"wd={wd_name}", "sd=sd*" if distributed else f"sd={sd_name}"]
+        local_raw_count = len([t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") != "Filesystem"])
+        parts = [f"wd={wd_name}", "sd=sd*" if distributed or local_raw_count > 1 else f"sd={sd_name}"]
         add_params(parts, disabled, catalog, profile, "workload", test_kind)
         lines.extend(["* Workload definitions", ",".join(parts), ""])
 
@@ -189,20 +199,30 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
         if distributed:
             for slave in slaves or []:
                 safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slave["Name"])
-                parts = [f"fsd=fsd_{safe_name}", f"host={slave['Name']}", f"anchor={slave['TestTarget']}"]
+                fs_targets = [t for t in slave.get("Targets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
+                for index, target in enumerate(fs_targets, start=1):
+                    parts = [f"fsd=fsd_{safe_name}_{index}", f"host={slave['Name']}", f"anchor={target['Target']}"]
+                    for definition in catalog:
+                        if definition["Key"] == "fsd.anchor":
+                            continue
+                        if definition["Line"] == "fsd" and applies(definition, test_kind):
+                            add_params(parts, disabled, [definition], profile, "fsd", test_kind)
+                    lines.append(",".join(parts))
+        else:
+            fs_targets = [t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
+            for index, target in enumerate(fs_targets, start=1):
+                name = fsd_name if len(fs_targets) == 1 else f"{fsd_name}_{index}"
+                parts = [f"fsd={name}", f"anchor={target['Target']}"]
                 for definition in catalog:
                     if definition["Key"] == "fsd.anchor":
                         continue
                     if definition["Line"] == "fsd" and applies(definition, test_kind):
                         add_params(parts, disabled, [definition], profile, "fsd", test_kind)
                 lines.append(",".join(parts))
-        else:
-            parts = [f"fsd={fsd_name}"]
-            add_params(parts, disabled, catalog, profile, "fsd", test_kind)
-            lines.append(",".join(parts))
         lines.append("")
 
-        parts = [f"fwd={fwd_name}", "fsd=fsd*" if distributed else f"fsd={fsd_name}"]
+        local_fs_count = len([t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"])
+        parts = [f"fwd={fwd_name}", "fsd=fsd*" if distributed or local_fs_count > 1 else f"fsd={fsd_name}"]
         add_params(parts, disabled, catalog, profile, "fwd", test_kind)
         lines.extend(["* Filesystem workload", ",".join(parts), ""])
 
@@ -297,11 +317,16 @@ def main() -> int:
     assert "AllowUserToAddRows = $false" in ui_tabs_module
     assert "function Build-LocalHostTab" in ui_tabs_module
     assert "function Update-RunModeTabs" in ui_tabs_module
+    assert "Pick-TargetForCurrentProfile" not in ui_tabs_module
+    assert 'New-Button "Pick target" 760' not in ui_tabs_module
+    assert '@("storage.lun", "fsd.anchor")' in ui_tabs_module
     assert "DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed" in ui_tabs_module
     assert "[System.Drawing.RectangleF]::new" in ui_tabs_module
     assert "tabs.Add_SelectedIndexChanged({\n        param($sender, $eventArgs)" in ui_tabs_module.replace("\r\n", "\n")
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SlaveUser" not in settings
+    assert "BLOCKER: enabled slave" in config_module
+    assert "Initialize-TestFilesForRun" in runner_module
 
     self_test_module = (MODULE_ROOT / "SelfTest.ps1").read_text(encoding="utf-8")
     assert "Use-SelfTestPaths" in self_test_module
@@ -323,6 +348,7 @@ def main() -> int:
     assert "Portable verification complete" in verify_script
 
     raw = default_profile(catalog, "Offline-Raw", "Raw/block")
+    raw["LocalTargets"] = [{"Kind": "Test file", "Target": "C:\\vdbench\\testfile.dat", "Selected": True}]
     raw["Parameters"]["storage.dedupratio"]["Enabled"] = False
     raw["Parameters"]["storage.dedupratio"]["Value"] = "2"
     raw_config = render_config(catalog, settings, raw)
@@ -342,16 +368,17 @@ def main() -> int:
                 "SshAlias": "test-001",
                 "User": "linuxuser",
                 "VdbenchPath": "/opt/vdbench",
-                "TestTarget": "/dev/sdb",
+                "Targets": [{"Kind": "Raw disk", "Target": "/dev/sdb", "Selected": True}],
             }
         ],
     )
     assert "hd=default,shell=ssh" in slave_config
     assert "hd=test-001,system=test-001,user=linuxuser,vdbench=/opt/vdbench" in slave_config
-    assert GOLDEN_FIXTURES["raw-distributed.txt"] in slave_config
+    assert "sd=sd_test_001_1,host=test-001,lun=/dev/sdb" in slave_config
     assert "wd=wd1,sd=sd*" in slave_config
 
     fs = default_profile(catalog, "Offline-FS", "Filesystem")
+    fs["LocalTargets"] = [{"Kind": "Filesystem", "Target": "C:\\vdbench\\fs_test", "Selected": True}]
     fs_config = render_config(catalog, settings, fs)
     assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
     assert "fwd=fwd1,fsd=fsd1,operation=read" in fs_config
@@ -367,11 +394,11 @@ def main() -> int:
                 "Host": "10.0.0.12",
                 "SshAlias": "test-002",
                 "VdbenchPath": "/opt/vdbench",
-                "TestTarget": "/mnt/test",
+                "Targets": [{"Kind": "Filesystem", "Target": "/mnt/test", "Selected": True}],
             }
         ],
     )
-    assert GOLDEN_FIXTURES["fs-distributed.txt"] in fs_distributed
+    assert "fsd=fsd_test_002_1,host=test-002,anchor=/mnt/test" in fs_distributed
     assert "fwd=fwd1,fsd=fsd*" in fs_distributed
 
     print("offline validation ok")
