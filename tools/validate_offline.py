@@ -254,6 +254,9 @@ def validate_modules():
     for name in REQUIRED_MODULES:
         path = MODULE_ROOT / name
         assert path.is_file(), f"missing module: {path}"
+        if name.endswith(".ps1"):
+            text = path.read_text(encoding="utf-8")
+            assert text.count("{") == text.count("}"), f"unbalanced braces in module: {name}"
 
 
 def validate_golden_fixtures():
