@@ -298,6 +298,7 @@ def main() -> int:
     assert "function Build-LocalHostTab" in ui_tabs_module
     assert "function Update-RunModeTabs" in ui_tabs_module
     assert "DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed" in ui_tabs_module
+    assert "[System.Drawing.RectangleF]::new" in ui_tabs_module
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SlaveUser" not in settings
 

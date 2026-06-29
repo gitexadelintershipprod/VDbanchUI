@@ -1435,7 +1435,14 @@ function Build-MainForm {
         $format = New-Object System.Drawing.StringFormat
         $format.Alignment = [System.Drawing.StringAlignment]::Center
         $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $eventArgs.Graphics.DrawString($page.Text, $page.Font, $textBrush, $eventArgs.Bounds, $format)
+        $textBounds = [System.Drawing.RectangleF]::new(
+            [single]$eventArgs.Bounds.X,
+            [single]$eventArgs.Bounds.Y,
+            [single]$eventArgs.Bounds.Width,
+            [single]$eventArgs.Bounds.Height
+        )
+        $eventArgs.Graphics.DrawString($page.Text, $page.Font, $textBrush, $textBounds, $format)
+        $format.Dispose()
         $textBrush.Dispose()
     })
 
