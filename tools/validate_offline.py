@@ -338,6 +338,10 @@ def main() -> int:
     assert "function Get-CachedTargetInventory" in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
     assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Start-BackgroundUiWork" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "$worker.Tag = $jobId" in ui_helpers_module
+    assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
+    assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
     assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module
