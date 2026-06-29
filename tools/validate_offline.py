@@ -358,6 +358,8 @@ def main() -> int:
 
     verify_script = VERIFY_SCRIPT_PATH.read_text(encoding="utf-8")
     assert "Portable verification complete" in verify_script
+    validate_project_script = (ROOT / "tools" / "Validate-Project.ps1").read_text(encoding="utf-8")
+    assert '"UiSlaveGrid.ps1"' in validate_project_script
 
     raw = default_profile(catalog, "Offline-Raw", "Raw/block")
     raw["LocalTargets"] = [{"Kind": "Test file", "Target": "C:\\vdbench\\testfile.dat", "Selected": True}]
