@@ -220,6 +220,38 @@ function Test-SlaveHasHost {
     return -not [string]::IsNullOrWhiteSpace($hostName)
 }
 
+function Resolve-SlaveReadinessStatus {
+    param([object]$Slave)
+    $status = [string](Get-PropertyValue $Slave "ReadinessStatus" "")
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        return $status
+    }
+    $legacy = [string](Get-PropertyValue $Slave "Status" "")
+    if ($legacy -eq "Ready" -or $legacy -eq "Target selected") {
+        return "Ready"
+    }
+    if ($legacy -eq "Checking..." -or $legacy -eq "Pinging...") {
+        return "Checking"
+    }
+    if ([string]::IsNullOrWhiteSpace($legacy) -or $legacy -eq "Not checked") {
+        return "Pending"
+    }
+    return $legacy
+}
+
+function Test-SlaveReadinessReady {
+    param([object]$Slave)
+    return (Resolve-SlaveReadinessStatus $Slave) -eq "Ready"
+}
+
+function Test-SlaveIsUsable {
+    param([object]$Slave)
+    if (-not (Test-SlaveReadinessReady $Slave)) {
+        return $false
+    }
+    return (@(Get-SelectedTargetEntries @(Get-PropertyValue $Slave "Targets" @())).Count -gt 0)
+}
+
 function Apply-SlaveDefaults {
     param([object]$Slave)
     $osType = [string](Get-PropertyValue $Slave "OsType" "Windows")
@@ -245,8 +277,23 @@ function Apply-SlaveDefaults {
     if ([string]::IsNullOrWhiteSpace($sshAlias)) {
         $sshAlias = Get-DefaultSshAliasForSlave $name $hostName
     }
+    $readinessStatus = Resolve-SlaveReadinessStatus $Slave
+    $readinessCheckedAt = [string](Get-PropertyValue $Slave "ReadinessCheckedAt" "")
+    if ([string]::IsNullOrWhiteSpace($readinessCheckedAt)) {
+        $readinessCheckedAt = [string](Get-PropertyValue $Slave "CheckedAt" "")
+    }
+    $pingStatus = [string](Get-PropertyValue $Slave "PingStatus" "")
+    if ([string]::IsNullOrWhiteSpace($pingStatus) -and [string](Get-PropertyValue $Slave "Status" "") -match "^Ping") {
+        $pingStatus = [string](Get-PropertyValue $Slave "Status" "")
+    }
+    $pingCheckedAt = [string](Get-PropertyValue $Slave "PingCheckedAt" "")
+    $readinessOutput = [string](Get-PropertyValue $Slave "ReadinessOutput" "")
+    $enabled = [bool](Get-PropertyValue $Slave "Enabled" $false)
+    if ($readinessStatus -ne "Ready") {
+        $enabled = $false
+    }
     return [pscustomobject]@{
-        Enabled = [bool](Get-PropertyValue $Slave "Enabled" $true)
+        Enabled = $enabled
         Name = $name
         Host = $hostName
         OsType = $osType
@@ -255,8 +302,13 @@ function Apply-SlaveDefaults {
         TestTarget = $testTarget
         Targets = @($targets)
         SshAlias = $sshAlias
-        PrivateKey = [string](Get-PropertyValue $Slave "PrivateKey" (Get-PropertyValue $script:Settings "PrivateKey" ""))
-        Status = [string](Get-PropertyValue $Slave "Status" "Not checked")
+        PrivateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+        ReadinessStatus = $readinessStatus
+        ReadinessCheckedAt = $readinessCheckedAt
+        ReadinessOutput = $readinessOutput
+        PingStatus = $pingStatus
+        PingCheckedAt = $pingCheckedAt
+        Status = $readinessStatus
         Notes = [string](Get-PropertyValue $Slave "Notes" "")
     }
 }
@@ -604,7 +656,8 @@ function Import-SlaveInventory {
                 continue
             }
             $normalizedItem = Normalize-SlaveEntry $item
-            $normalizedItem.Status = "Imported"
+            $normalizedItem.ReadinessStatus = "Pending"
+            $normalizedItem.ReadinessCheckedAt = ""
             $normalized += $normalizedItem
         }
         $script:Slaves = @($normalized)

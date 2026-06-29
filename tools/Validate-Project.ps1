@@ -26,7 +26,7 @@ Write-Host "Validating module layout..."
 $moduleRoot = Join-Path $root "src\modules"
 foreach ($moduleName in @(
     "Core.ps1", "Import-AppModules.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
-    "TargetDiscovery.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1", "SelfTest.ps1"
+    "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1", "SelfTest.ps1"
 )) {
     $modulePath = Join-Path $moduleRoot $moduleName
     if (-not (Test-Path -LiteralPath $modulePath)) {

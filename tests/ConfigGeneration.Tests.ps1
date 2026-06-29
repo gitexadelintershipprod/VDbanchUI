@@ -47,8 +47,7 @@ Describe "Golden config snippets" {
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/dev/sdb"
                 SshAlias = "test-001"
-                PrivateKey = ""
-                Status = "Pester"
+                ReadinessStatus = "Ready"
                 Notes = ""
             }
         )
@@ -68,8 +67,7 @@ Describe "Golden config snippets" {
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/mnt/test"
                 SshAlias = "test-002"
-                PrivateKey = ""
-                Status = "Pester"
+                ReadinessStatus = "Ready"
                 Notes = ""
             }
         )

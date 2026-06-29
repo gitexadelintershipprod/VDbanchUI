@@ -7,6 +7,7 @@ $order = @(
     "State.ps1",
     "UiHelpers.ps1",
     "TargetDiscovery.ps1",
+    "UiSlaveGrid.ps1",
     "UiTabs.ps1",
     "ConfigGeneration.ps1",
     "Runner.ps1",

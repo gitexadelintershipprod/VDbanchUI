@@ -109,3 +109,120 @@ function New-FlowToolbar {
     $toolbar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6, 5, 6, 5
     return $toolbar
 }
+
+function New-MainTabPage {
+    param(
+        [string]$FullTitle,
+        [string]$ShortTitle
+    )
+    if ([string]::IsNullOrWhiteSpace($ShortTitle)) {
+        $ShortTitle = $FullTitle
+    }
+    $tab = New-Object System.Windows.Forms.TabPage
+    $tab.Text = $ShortTitle
+    $tab.Tag = $FullTitle
+    return $tab
+}
+
+function Get-MainTabFullTitle {
+    param([System.Windows.Forms.TabPage]$Page)
+    if ($null -eq $Page) {
+        return ""
+    }
+    $fullTitle = [string]$Page.Tag
+    if ([string]::IsNullOrWhiteSpace($fullTitle)) {
+        $fullTitle = [string]$Page.Text
+    }
+    return $fullTitle
+}
+
+function Enable-MainTabToolTips {
+    param([System.Windows.Forms.TabControl]$Tabs)
+    if ($null -eq $Tabs -or $null -eq $script:AppToolTip) {
+        return
+    }
+    $Tabs.Add_MouseMove({
+        param($sender, $eventArgs)
+        for ($i = 0; $i -lt $sender.TabCount; $i++) {
+            if ($sender.GetTabRect($i).Contains($eventArgs.Location)) {
+                $fullTitle = Get-MainTabFullTitle $sender.TabPages[$i]
+                if ($fullTitle -ne $script:MainTabToolTipText) {
+                    $script:MainTabToolTipText = $fullTitle
+                    $script:AppToolTip.SetToolTip($sender, $fullTitle)
+                }
+                return
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($script:MainTabToolTipText)) {
+            $script:MainTabToolTipText = ""
+            $script:AppToolTip.SetToolTip($sender, "")
+        }
+    })
+}
+
+function Invoke-GridBatchUpdate {
+    param(
+        [System.Windows.Forms.DataGridView]$Grid,
+        [scriptblock]$Action
+    )
+    if ($null -eq $Grid) {
+        & $Action
+        return
+    }
+    $Grid.SuspendLayout()
+    try {
+        & $Action
+    } finally {
+        $Grid.ResumeLayout($true)
+    }
+}
+
+$script:BackgroundUiPackages = @{}
+
+function Start-BackgroundUiWork {
+    param(
+        [System.Windows.Forms.Control]$Owner,
+        [scriptblock]$Work,
+        [scriptblock]$OnComplete
+    )
+    if ($null -eq $Owner) {
+        try {
+            $result = & $Work
+            & $OnComplete $result $null
+        } catch {
+            & $OnComplete $null $_
+        }
+        return
+    }
+    $package = [pscustomobject]@{
+        Work = $Work
+        OnComplete = $OnComplete
+        Owner = $Owner
+    }
+    $worker = New-Object System.ComponentModel.BackgroundWorker
+    $worker.Add_DoWork({
+        param($sender, $eventArgs)
+        $pkg = $script:BackgroundUiPackages[$eventArgs.Argument]
+        $eventArgs.Result = & $pkg.Work
+    })
+    $worker.Add_RunWorkerCompleted({
+        param($sender, $eventArgs)
+        $pkg = $script:BackgroundUiPackages[$eventArgs.Argument]
+        [void]$script:BackgroundUiPackages.Remove($eventArgs.Argument)
+        $result = $eventArgs.Result
+        $errorRecord = $eventArgs.Error
+        $onComplete = $pkg.OnComplete
+        $owner = $pkg.Owner
+        $owner.BeginInvoke([System.Action]{
+            if ($null -ne $errorRecord) {
+                & $onComplete $null $errorRecord
+            } else {
+                & $onComplete $result $null
+            }
+        }) | Out-Null
+        $sender.Dispose()
+    })
+    $jobId = [guid]::NewGuid().ToString()
+    $script:BackgroundUiPackages[$jobId] = $package
+    $worker.RunWorkerAsync($jobId)
+}

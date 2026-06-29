@@ -1,6 +1,5 @@
 function Build-SettingsTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Settings / Paths"
+    $tab = New-MainTabPage "Settings / Paths" "Settings"
 
     $panel = New-Object System.Windows.Forms.Panel
     $panel.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -124,354 +123,6 @@ function Build-SettingsTab {
     Validate-SettingsPaths
     return $tab
 }
-function Apply-SlaveGridRowDefaults {
-    param(
-        $Row,
-        [switch]$RefreshSshAlias
-    )
-    if ($null -eq $Row -or $Row.IsNewRow) {
-        return
-    }
-    $osType = [string]$Row.Cells["OsType"].Value
-    if ([string]::IsNullOrWhiteSpace($osType)) {
-        $osType = "Windows"
-        $Row.Cells["OsType"].Value = $osType
-    }
-    $Row.Cells["User"].Value = Get-DefaultSlaveUserForOs $osType
-    $Row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs $osType
-    $name = [string]$Row.Cells["Name"].Value
-    $hostName = [string]$Row.Cells["Host"].Value
-    if ($RefreshSshAlias -or [string]::IsNullOrWhiteSpace([string]$Row.Cells["SshAlias"].Value)) {
-        $Row.Cells["SshAlias"].Value = Get-DefaultSshAliasForSlave $name $hostName
-    }
-}
-
-function Build-SlaveGrid {
-    $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $grid.AllowUserToAddRows = $false
-    $grid.AllowUserToDeleteRows = $true
-    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
-    $grid.MultiSelect = $false
-
-    $enabledCol = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
-    $enabledCol.Name = "Enabled"
-    $enabledCol.HeaderText = "Enabled"
-    $enabledCol.FillWeight = 55
-    $grid.Columns.Add($enabledCol) | Out-Null
-
-    foreach ($name in @("Name", "Host")) {
-        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-        $col.Name = $name
-        $col.HeaderText = $name
-        $grid.Columns.Add($col) | Out-Null
-    }
-
-    $osCol = New-Object System.Windows.Forms.DataGridViewComboBoxColumn
-    $osCol.Name = "OsType"
-    $osCol.HeaderText = "OS"
-    [void]$osCol.Items.Add("Windows")
-    [void]$osCol.Items.Add("Linux")
-    $grid.Columns.Add($osCol) | Out-Null
-
-    foreach ($name in @("User", "VdbenchPath", "Targets", "SshAlias", "PrivateKey", "Status", "Notes")) {
-        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-        $col.Name = $name
-        $col.HeaderText = $name
-        if ($name -eq "Targets") {
-            $col.ReadOnly = $true
-            $col.FillWeight = 90
-        }
-        if ($name -eq "Status") {
-            $col.ReadOnly = $true
-            $col.FillWeight = 80
-        }
-        if ($name -eq "PrivateKey") {
-            $col.HeaderText = "Key override"
-            $col.ReadOnly = $true
-            $col.FillWeight = 70
-        }
-        $grid.Columns.Add($col) | Out-Null
-    }
-
-    $grid.Add_CellFormatting({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -lt 0) {
-            return
-        }
-        if ($sender.Columns[$eventArgs.ColumnIndex].Name -ne "PrivateKey") {
-            return
-        }
-        $rawValue = [string]$sender.Rows[$eventArgs.RowIndex].Cells["PrivateKey"].Value
-        if ([string]::IsNullOrWhiteSpace($rawValue)) {
-            $eventArgs.Value = "(from settings)"
-            $eventArgs.FormattingApplied = $true
-        } else {
-            $eventArgs.Value = "********"
-            $eventArgs.FormattingApplied = $true
-        }
-    })
-
-    $grid.Add_CellValueChanged({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -lt 0) {
-            return
-        }
-        $columnName = $sender.Columns[$eventArgs.ColumnIndex].Name
-        if (@("OsType", "Name", "Host") -notcontains $columnName) {
-            return
-        }
-        Capture-Settings
-        $row = $sender.Rows[$eventArgs.RowIndex]
-        if ($row.IsNewRow) {
-            return
-        }
-        $refreshSshAlias = @("Name", "Host") -contains $columnName
-        Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$refreshSshAlias
-    })
-    return $grid
-}
-
-function Populate-SlaveGrid {
-    $script:SlaveGrid.Rows.Clear()
-    foreach ($slave in @($script:Slaves)) {
-        if (-not (Test-SlaveHasHost $slave)) {
-            continue
-        }
-        $idx = $script:SlaveGrid.Rows.Add()
-        $row = $script:SlaveGrid.Rows[$idx]
-        $normalized = Apply-SlaveDefaults $slave
-        foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "PrivateKey", "Status", "Notes")) {
-            $row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
-        }
-        Set-SlaveRowTargets $row @(Get-PropertyValue $normalized "Targets" @())
-    }
-}
-
-function Capture-SlaveGrid {
-    if ($null -eq $script:SlaveGrid) {
-        return
-    }
-    $items = @()
-    foreach ($row in $script:SlaveGrid.Rows) {
-        if ($row.IsNewRow) {
-            continue
-        }
-        $name = [string]$row.Cells["Name"].Value
-        $hostName = [string]$row.Cells["Host"].Value
-        if ([string]::IsNullOrWhiteSpace($hostName)) {
-            continue
-        }
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            $name = $hostName
-        }
-        $items += Apply-SlaveDefaults ([pscustomobject]@{
-            Enabled = [bool]$row.Cells["Enabled"].Value
-            Name = $name
-            Host = $hostName
-            OsType = [string]$row.Cells["OsType"].Value
-            User = [string]$row.Cells["User"].Value
-            VdbenchPath = [string]$row.Cells["VdbenchPath"].Value
-            TestTarget = ""
-            Targets = @(Get-SlaveRowTargets $row)
-            SshAlias = [string]$row.Cells["SshAlias"].Value
-            PrivateKey = [string]$row.Cells["PrivateKey"].Value
-            Status = [string]$row.Cells["Status"].Value
-            Notes = [string]$row.Cells["Notes"].Value
-        })
-    }
-    $script:Slaves = @($items)
-}
-
-function Save-Slaves {
-    Capture-SlaveGrid
-    Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
-    Show-Info "Slave inventory saved."
-    Refresh-ConfigPreview
-}
-
-function Set-SelectedSlavePrivateKey {
-    $row = Get-SelectedSlaveRow
-    if ($null -eq $row) {
-        Show-Warning "Select a slave row first."
-        return
-    }
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Title = "Select private key override"
-    $dialog.Filter = "Private key files (*.*)|*.*"
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $row.Cells["PrivateKey"].Value = $dialog.FileName
-        $row.Cells["Status"].Value = "Key override set"
-        Capture-SlaveGrid
-        Refresh-ConfigPreview
-    }
-}
-
-function Clear-SelectedSlavePrivateKey {
-    $row = Get-SelectedSlaveRow
-    if ($null -eq $row) {
-        Show-Warning "Select a slave row first."
-        return
-    }
-    $row.Cells["PrivateKey"].Value = ""
-    $row.Cells["Status"].Value = "Using settings key"
-    Capture-SlaveGrid
-    Refresh-ConfigPreview
-}
-
-function Get-SelectedSlaveRow {
-    if ($script:SlaveGrid.SelectedRows.Count -gt 0) {
-        return $script:SlaveGrid.SelectedRows[0]
-    }
-    if ($script:SlaveGrid.CurrentRow -and -not $script:SlaveGrid.CurrentRow.IsNewRow) {
-        return $script:SlaveGrid.CurrentRow
-    }
-    return $null
-}
-
-function Test-SelectedSlaveConnection {
-    $row = Get-SelectedSlaveRow
-    if ($null -eq $row) {
-        Show-Warning "Select a slave row first."
-        return
-    }
-    Test-SlaveRowConnection $row
-}
-
-function Test-SlaveRowConnection {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
-    if ($null -eq $Row -or $Row.IsNewRow) {
-        return
-    }
-    $hostName = [string]$Row.Cells["Host"].Value
-    if ([string]::IsNullOrWhiteSpace($hostName)) {
-        $Row.Cells["Status"].Value = "Missing host"
-        return
-    }
-
-    try {
-        $result = Test-Connection -ComputerName $hostName -Count 1 -Quiet -ErrorAction Stop
-        if ($result) {
-            $Row.Cells["Status"].Value = "Ping OK"
-        } else {
-            $Row.Cells["Status"].Value = "Ping failed (ICMP may be blocked; use readiness check)"
-        }
-    } catch {
-        $Row.Cells["Status"].Value = "Ping error: " + $_.Exception.Message
-    }
-}
-
-function Test-AllSlaveConnections {
-    foreach ($row in $script:SlaveGrid.Rows) {
-        if ($row.IsNewRow) {
-            continue
-        }
-        Test-SlaveRowConnection $row
-    }
-}
-
-function Check-SelectedSlaveReadiness {
-    Capture-Settings
-    $row = Get-SelectedSlaveRow
-    if ($null -eq $row) {
-        Show-Warning "Select a slave row first."
-        return
-    }
-    Check-SlaveRowReadiness $row $true
-}
-
-function Check-SlaveRowReadiness {
-    param(
-        [System.Windows.Forms.DataGridViewRow]$Row,
-        [bool]$ShowOutput
-    )
-    if ($null -eq $Row -or $Row.IsNewRow) {
-        return
-    }
-    $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
-    if ([string]::IsNullOrWhiteSpace($checker) -or -not (Test-Path -LiteralPath $checker)) {
-        $Row.Cells["Status"].Value = "Readiness checker missing"
-        if ($ShowOutput) {
-            Show-Warning "Readiness checker path is missing or does not exist."
-        }
-        return
-    }
-    $hostName = [string]$Row.Cells["Host"].Value
-    $vdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
-    $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
-    $target = ""
-    if ($targets.Count -gt 0) {
-        $target = [string]$targets[0].Target
-    } else {
-        $target = Get-DefaultTestTargetForOs ([string]$Row.Cells["OsType"].Value)
-    }
-
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "powershell.exe"
-    $template = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
-    $checkerArgs = Expand-ReadinessCheckerArguments $template $hostName $vdbenchPath $target
-    $quotedChecker = Quote-ProcessArgument $checker
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.CreateNoWindow = $true
-    try {
-        $p = [System.Diagnostics.Process]::Start($psi)
-        $out = $p.StandardOutput.ReadToEnd()
-        $err = $p.StandardError.ReadToEnd()
-        $p.WaitForExit()
-        if ($p.ExitCode -eq 0) {
-            $Row.Cells["Status"].Value = "Ready"
-        } else {
-            $Row.Cells["Status"].Value = "Readiness failed"
-        }
-        if ($ShowOutput) {
-            Show-Info (($out + [Environment]::NewLine + $err).Trim()) "Readiness output"
-        }
-    } catch {
-        $Row.Cells["Status"].Value = "Readiness error"
-        if ($ShowOutput) {
-            Show-Warning $_.Exception.Message
-        }
-    }
-}
-
-function Check-AllSlaveReadiness {
-    Capture-Settings
-    foreach ($row in $script:SlaveGrid.Rows) {
-        if ($row.IsNewRow) {
-            continue
-        }
-        Check-SlaveRowReadiness $row $false
-    }
-}
-function Pick-TargetForSelectedSlave {
-    Capture-Settings
-    $row = Get-SelectedSlaveRow
-    if ($null -eq $row) {
-        Show-Warning "Select a slave row first."
-        return
-    }
-    $status = [string]$row.Cells["Status"].Value
-    if (@("Ready", "Ping OK", "Target selected") -notcontains $status) {
-        Show-Warning "Run Test ping or Check readiness successfully before selecting targets for this host."
-        return
-    }
-    try {
-        $targets = @(Get-SlaveTargetInventory $row)
-        $selected = Select-TargetsFromList $targets (Get-SlaveRowTargets $row) "Select slave test targets"
-        if ($null -ne $selected) {
-            Set-SlaveRowTargets $row $selected
-            $row.Cells["Status"].Value = "Target selected"
-            Capture-SlaveGrid
-            Refresh-ConfigPreview
-        }
-    } catch {
-        Show-Warning ("Target discovery failed: " + $_.Exception.Message)
-    }
-}
 function Get-TargetIdentity {
     param([object]$Target)
     return (([string](Get-PropertyValue $Target "Kind" "")).ToLowerInvariant() + "|" + ([string](Get-PropertyValue $Target "Target" "")).ToLowerInvariant())
@@ -545,15 +196,17 @@ function Set-TargetGridRows {
         [System.Windows.Forms.DataGridView]$Grid,
         [object[]]$Targets
     )
-    $Grid.Rows.Clear()
-    foreach ($target in @(Normalize-TargetEntries $Targets)) {
-        $idx = $Grid.Rows.Add()
-        $row = $Grid.Rows[$idx]
-        $row.Cells["Selected"].Value = [bool](Get-PropertyValue $target "Selected" $false)
-        $row.Cells["Kind"].Value = [string](Get-PropertyValue $target "Kind" "")
-        $row.Cells["Target"].Value = [string](Get-PropertyValue $target "Target" "")
-        $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $target "CreateFile" $false)
-        $row.Cells["Description"].Value = [string](Get-PropertyValue $target "Description" "")
+    Invoke-GridBatchUpdate $Grid {
+        $Grid.Rows.Clear()
+        foreach ($target in @(Normalize-TargetEntries $Targets)) {
+            $idx = $Grid.Rows.Add()
+            $row = $Grid.Rows[$idx]
+            $row.Cells["Selected"].Value = [bool](Get-PropertyValue $target "Selected" $false)
+            $row.Cells["Kind"].Value = [string](Get-PropertyValue $target "Kind" "")
+            $row.Cells["Target"].Value = [string](Get-PropertyValue $target "Target" "")
+            $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $target "CreateFile" $false)
+            $row.Cells["Description"].Value = [string](Get-PropertyValue $target "Description" "")
+        }
     }
 }
 
@@ -590,90 +243,8 @@ function Update-TargetCreateFileEditability {
     }
 }
 
-function Get-SlaveRowTargets {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
-    if ($null -eq $Row) {
-        return @()
-    }
-    return @(Normalize-TargetEntries @($Row.Tag))
-}
-
-function Set-SlaveRowTargets {
-    param(
-        [System.Windows.Forms.DataGridViewRow]$Row,
-        [object[]]$Targets
-    )
-    $normalized = @(Normalize-TargetEntries $Targets)
-    $Row.Tag = $normalized
-    $Row.Cells["Targets"].Value = Get-TargetSummary $normalized
-}
-
-function Select-TargetsFromList {
-    param(
-        [object[]]$Targets,
-        [object[]]$Existing,
-        [string]$Title
-    )
-    $merged = @(Merge-TargetSelections $Targets $Existing)
-    if ($merged.Count -eq 0) {
-        Show-Warning "No selectable targets were found."
-        return $null
-    }
-    $dialog = New-Object System.Windows.Forms.Form
-    $dialog.Text = $Title
-    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 980, 560
-    $dialog.MinimizeBox = $false
-    $dialog.MaximizeBox = $true
-
-    $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $grid.AllowUserToAddRows = $false
-    $grid.AllowUserToDeleteRows = $false
-    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
-    $grid.MultiSelect = $false
-    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    Add-TargetSelectionColumns $grid
-    Set-TargetGridRows $grid $merged
-    foreach ($row in $grid.Rows) {
-        Update-TargetCreateFileEditability $row
-    }
-    $grid.Add_CurrentCellDirtyStateChanged({
-        param($sender, $eventArgs)
-        if ($sender.IsCurrentCellDirty) {
-            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
-        }
-    })
-    $grid.Add_CellValueChanged({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -ge 0) {
-            Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
-        }
-    })
-    $dialog.Controls.Add($grid)
-
-    $buttonPanel = New-Object System.Windows.Forms.Panel
-    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
-    $buttonPanel.Height = 46
-    $dialog.Controls.Add($buttonPanel)
-
-    $okButton = New-Button "Save selection" 720 9 125 28
-    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $buttonPanel.Controls.Add($okButton)
-    $cancelButton = New-Button "Cancel" 855 9 80 28
-    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $buttonPanel.Controls.Add($cancelButton)
-    $dialog.AcceptButton = $okButton
-    $dialog.CancelButton = $cancelButton
-
-    $result = $dialog.ShowDialog($script:Form)
-    if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
-        return $null
-    }
-    return @(Get-TargetGridRows $grid)
-}
-
 function Refresh-LocalHostTab {
+    param([switch]$ForceInventory)
     if ($null -eq $script:LocalHostInfoBox) {
         return
     }
@@ -724,7 +295,7 @@ function Refresh-LocalHostTab {
         if ($null -ne $script:CurrentProfile) {
             $existing = @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @())
         }
-        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory) $existing)
+        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory -Force:$ForceInventory) $existing)
         $script:RefreshingLocalTargets = $true
         try {
             Set-TargetGridRows $script:LocalHostTargetGrid $targets
@@ -735,14 +306,16 @@ function Refresh-LocalHostTab {
             $script:RefreshingLocalTargets = $false
         }
     } catch {
-        $script:LocalHostTargetGrid.Rows.Clear()
-        $idx = $script:LocalHostTargetGrid.Rows.Add()
-        $row = $script:LocalHostTargetGrid.Rows[$idx]
-        $row.Cells["Selected"].Value = $false
-        $row.Cells["Kind"].Value = "Error"
-        $row.Cells["Target"].Value = ""
-        $row.Cells["CreateFile"].Value = $false
-        $row.Cells["Description"].Value = $_.Exception.Message
+        Invoke-GridBatchUpdate $script:LocalHostTargetGrid {
+            $script:LocalHostTargetGrid.Rows.Clear()
+            $idx = $script:LocalHostTargetGrid.Rows.Add()
+            $row = $script:LocalHostTargetGrid.Rows[$idx]
+            $row.Cells["Selected"].Value = $false
+            $row.Cells["Kind"].Value = "Error"
+            $row.Cells["Target"].Value = ""
+            $row.Cells["CreateFile"].Value = $false
+            $row.Cells["Description"].Value = $_.Exception.Message
+        }
     }
 }
 
@@ -807,8 +380,7 @@ function Update-RunModeTabs {
 }
 
 function Build-LocalHostTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Local Host"
+    $tab = New-MainTabPage "Local Host" "Local"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -821,7 +393,7 @@ function Build-LocalHostTab {
 
     $toolbar = New-FlowToolbar
     $refreshButton = New-Button "Refresh targets" 10 8 120 28
-    $refreshButton.Add_Click({ Refresh-LocalHostTab })
+    $refreshButton.Add_Click({ Refresh-LocalHostTab -ForceInventory })
     $toolbar.Controls.Add($refreshButton)
 
     $applyButton = New-Button "Save selections" 138 8 120 28
@@ -886,97 +458,6 @@ function Build-LocalHostTab {
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
     Refresh-LocalHostTab
     return $tab
-}
-
-function Build-MasterSlaveTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Master / Slave"
-
-    $container = New-Object System.Windows.Forms.TableLayoutPanel
-    $container.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.RowCount = 2
-    $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 92)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $tab.Controls.Add($container)
-
-    $toolbar = New-FlowToolbar
-    $container.Controls.Add($toolbar, 0, 0)
-
-    $addButton = New-Button "Add slave" 10 8 95 28
-    $addButton.Add_Click({
-        Capture-Settings
-        $idx = $script:SlaveGrid.Rows.Add()
-        $row = $script:SlaveGrid.Rows[$idx]
-        $row.Cells["Enabled"].Value = $true
-        $row.Cells["Name"].Value = "slave-" + ($idx + 1)
-        $row.Cells["Host"].Value = "host-or-ip"
-        $row.Cells["OsType"].Value = "Windows"
-        Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$true
-        $row.Cells["Status"].Value = "Not checked"
-    })
-    $toolbar.Controls.Add($addButton)
-
-    $removeButton = New-Button "Remove" 112 8 80 28
-    $removeButton.Add_Click({
-        $row = Get-SelectedSlaveRow
-        if ($row -and -not $row.IsNewRow) {
-            $script:SlaveGrid.Rows.Remove($row)
-        }
-    })
-    $toolbar.Controls.Add($removeButton)
-
-    $saveButton = New-Button "Save" 200 8 80 28
-    $saveButton.Add_Click({ Save-Slaves })
-    $toolbar.Controls.Add($saveButton)
-
-    $testButton = New-Button "Test ping" 288 8 95 28
-    $testButton.Add_Click({ Test-SelectedSlaveConnection })
-    $toolbar.Controls.Add($testButton)
-
-    $pingAllButton = New-Button "Ping all" 390 8 80 28
-    $pingAllButton.Add_Click({ Test-AllSlaveConnections })
-    $toolbar.Controls.Add($pingAllButton)
-
-    $readyButton = New-Button "Check readiness" 478 8 125 28
-    $readyButton.Add_Click({ Check-SelectedSlaveReadiness })
-    $toolbar.Controls.Add($readyButton)
-
-    $readyAllButton = New-Button "Readiness all" 610 8 105 28
-    $readyAllButton.Add_Click({ Check-AllSlaveReadiness })
-    $toolbar.Controls.Add($readyAllButton)
-
-    $exportButton = New-Button "Export" 10 44 75 28
-    $exportButton.Add_Click({ Export-SlaveInventory })
-    $toolbar.Controls.Add($exportButton)
-
-    $importButton = New-Button "Import" 92 44 75 28
-    $importButton.Add_Click({ Import-SlaveInventory })
-    $toolbar.Controls.Add($importButton)
-
-    $pickTargetButton = New-Button "Pick target" 174 44 95 28
-    $pickTargetButton.Add_Click({ Pick-TargetForSelectedSlave })
-    Set-ControlToolTip $pickTargetButton "Discover local or remote slave targets over SSH."
-    $toolbar.Controls.Add($pickTargetButton)
-
-    $setKeyButton = New-Button "Set key" 0 0 80 28
-    $setKeyButton.Add_Click({ Set-SelectedSlavePrivateKey })
-    Set-ControlToolTip $setKeyButton "Set a per-slave private key override without exposing it in the grid."
-    $toolbar.Controls.Add($setKeyButton)
-
-    $clearKeyButton = New-Button "Clear key" 0 0 85 28
-    $clearKeyButton.Add_Click({ Clear-SelectedSlavePrivateKey })
-    Set-ControlToolTip $clearKeyButton "Clear the per-slave private key override and use the Settings private key."
-    $toolbar.Controls.Add($clearKeyButton)
-
-    $note = New-Label "Run check first, then Pick target. Multiple targets are allowed; raw/file and filesystem targets cannot be mixed for one profile." 0 0 940 40
-    $toolbar.Controls.Add($note)
-
-    $script:SlaveGrid = Build-SlaveGrid
-    $container.Controls.Add($script:SlaveGrid, 0, 1)
-    Populate-SlaveGrid
-    return $tab
-}
 function Show-ParameterHelp {
     param([object]$Definition)
     $message = @(
@@ -1164,8 +645,7 @@ function Refresh-ProfileList {
 }
 
 function Build-ProfileTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Profile Builder"
+    $tab = New-MainTabPage "Profile Builder" "Profile"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1277,8 +757,7 @@ function Build-ProfileTab {
     return $tab
 }
 function Build-PreviewTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Config Preview"
+    $tab = New-MainTabPage "Config Preview" "Preview"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1346,8 +825,7 @@ function Open-CurrentRunFolder {
 }
 
 function Build-RunTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Run Monitor"
+    $tab = New-MainTabPage "Run Monitor" "Run"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1419,12 +897,14 @@ function Refresh-Reports {
     if (-not $script:ReportsGrid) {
         return
     }
-    $script:ReportsGrid.Rows.Clear()
-    foreach ($state in Get-RunStates) {
-        $idx = $script:ReportsGrid.Rows.Add()
-        $row = $script:ReportsGrid.Rows[$idx]
-        foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
-            $row.Cells[$name].Value = [string](Get-PropertyValue $state $name "")
+    Invoke-GridBatchUpdate $script:ReportsGrid {
+        $script:ReportsGrid.Rows.Clear()
+        foreach ($state in Get-RunStates) {
+            $idx = $script:ReportsGrid.Rows.Add()
+            $row = $script:ReportsGrid.Rows[$idx]
+            foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
+                $row.Cells[$name].Value = [string](Get-PropertyValue $state $name "")
+            }
         }
     }
 }
@@ -1507,8 +987,7 @@ function Show-SelectedRunLog {
 }
 
 function Build-ReportsTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Status / Reports"
+    $tab = New-MainTabPage "Status / Reports" "Reports"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1577,6 +1056,8 @@ function Build-MainForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Vdbench UI - Portable Manager"
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
+    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF -ArgumentList 96, 96
     $form.Size = New-Object System.Drawing.Size -ArgumentList 1280, 820
     $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1100, 700
 
@@ -1620,6 +1101,7 @@ function Build-MainForm {
     $tabs.TabPages.Add((Build-PreviewTab)) | Out-Null
     $tabs.TabPages.Add((Build-RunTab)) | Out-Null
     $tabs.TabPages.Add((Build-ReportsTab)) | Out-Null
+    Enable-MainTabToolTips $tabs
 
     $tabs.Add_DrawItem({
         param($sender, $eventArgs)
@@ -1673,7 +1155,7 @@ function Build-MainForm {
         if ($null -eq $selected) {
             return
         }
-        $title = [string]$selected.Text
+        $title = Get-MainTabFullTitle $selected
         if ($title -eq "Config Preview") {
             Refresh-ConfigPreview
         }
@@ -1687,9 +1169,20 @@ function Build-MainForm {
     })
 
     $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 250
+    $timer.Interval = 500
+    $script:UiRefreshTimer = $timer
     $timer.Add_Tick({
-        Flush-RunLog
+        $activeRun = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
+        if ($activeRun) {
+            if ($script:UiRefreshTimer.Interval -ne 250) {
+                $script:UiRefreshTimer.Interval = 250
+            }
+            Flush-RunLog
+            return
+        }
+        if ($script:UiRefreshTimer.Interval -ne 500) {
+            $script:UiRefreshTimer.Interval = 500
+        }
         if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
             if (-not $script:RunFinishedNotified) {
                 $script:RunFinishedNotified = $true

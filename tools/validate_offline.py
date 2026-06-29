@@ -56,6 +56,7 @@ REQUIRED_MODULES = [
     "State.ps1",
     "UiHelpers.ps1",
     "TargetDiscovery.ps1",
+    "UiSlaveGrid.ps1",
     "UiTabs.ps1",
     "ConfigGeneration.ps1",
     "Runner.ps1",
@@ -303,16 +304,20 @@ def main() -> int:
     ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
     assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module
-    assert "function Set-SelectedSlavePrivateKey" in ui_tabs_module
-    assert "function Clear-SelectedSlavePrivateKey" in ui_tabs_module
-    assert 'col.ReadOnly = $true' in ui_tabs_module and '"PrivateKey"' in ui_tabs_module
+    ui_slave_module = (MODULE_ROOT / "UiSlaveGrid.ps1").read_text(encoding="utf-8")
+    assert "function Build-MasterSlaveTab" in ui_slave_module
+    assert "function Browse-SlaveTargetsForRow" in ui_slave_module
+    assert "function Start-SlaveReadinessCheck" in ui_slave_module
+    assert 'New-Button "Test ping"' not in ui_slave_module
+    assert 'New-Button "Pick target"' not in ui_slave_module
+    assert "function Set-SelectedSlavePrivateKey" not in ui_tabs_module
     assert "No log available for selected run." in ui_tabs_module
     assert "No config available for selected run." in ui_tabs_module
     assert "$layout.Controls.Add($tabs, 0, 1)" in ui_tabs_module
-    assert '"User", "VdbenchPath"' in ui_tabs_module
+    assert '"User", "VdbenchPath"' in ui_slave_module
     assert '"SlaveUser"' not in ui_tabs_module
 
-    assert "Get-DefaultSlaveUserForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Test-SlaveReadinessReady" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Get-DefaultSshAliasForSlave" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "AllowUserToAddRows = $false" in ui_tabs_module
     assert "function Build-LocalHostTab" in ui_tabs_module
@@ -325,6 +330,12 @@ def main() -> int:
     assert "TextRenderer]::DrawText" in ui_tabs_module
     assert "tabs.Add_SelectedIndexChanged({\n        param($sender, $eventArgs)" in ui_tabs_module.replace("\r\n", "\n")
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Get-CachedTargetInventory" in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
+    assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Start-BackgroundUiWork" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
+    assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module
     assert "SlaveUser" not in settings
     assert "BLOCKER: enabled slave" in config_module
     assert "Initialize-TestFilesForRun" in runner_module
@@ -347,6 +358,8 @@ def main() -> int:
 
     verify_script = VERIFY_SCRIPT_PATH.read_text(encoding="utf-8")
     assert "Portable verification complete" in verify_script
+    validate_project_script = (ROOT / "tools" / "Validate-Project.ps1").read_text(encoding="utf-8")
+    assert '"UiSlaveGrid.ps1"' in validate_project_script
 
     raw = default_profile(catalog, "Offline-Raw", "Raw/block")
     raw["LocalTargets"] = [{"Kind": "Test file", "Target": "C:\\vdbench\\testfile.dat", "Selected": True}]

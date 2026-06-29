@@ -88,8 +88,7 @@ function Invoke-AppSelfTest {
                 TestTarget = "/dev/sdb"
                 Targets = @((New-TargetSelection -Kind "Raw disk" -Target "/dev/sdb" -Selected $true))
                 SshAlias = "test-001"
-                PrivateKey = ""
-                Status = "Self-test"
+                ReadinessStatus = "Ready"
                 Notes = ""
             }
         )
@@ -119,8 +118,7 @@ function Invoke-AppSelfTest {
                 TestTarget = "/mnt/test"
                 Targets = @((New-TargetSelection -Kind "Filesystem" -Target "/mnt/test" -Selected $true))
                 SshAlias = "test-002"
-                PrivateKey = ""
-                Status = "Self-test"
+                ReadinessStatus = "Ready"
                 Notes = ""
             }
         )

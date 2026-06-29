@@ -201,7 +201,7 @@ function Get-RiskWarnings {
 
 function Get-EnabledSlaves {
     Capture-SlaveGrid
-    return @($script:Slaves | Where-Object { [bool]$_.Enabled })
+    return @($script:Slaves | Where-Object { [bool]$_.Enabled -and (Test-SlaveReadinessReady $_) })
 }
 
 function Get-ConfigTargetCategory {
@@ -220,6 +220,7 @@ function Add-TargetSelectionWarnings {
     )
     $category = Get-ConfigTargetCategory $TestKind
     if ($Distributed) {
+        Capture-SlaveGrid
         foreach ($slave in @(Get-EnabledSlaves)) {
             $selected = @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()))
             if ($selected.Count -eq 0) {
@@ -231,6 +232,14 @@ function Add-TargetSelectionWarnings {
                 if ($targetCategory -ne $category) {
                     [void]$Warnings.Add(("BLOCKER: slave '{0}' target '{1}' is {2}, but the profile expects {3} targets." -f $slave.Name, $target.Target, $targetCategory, $category))
                 }
+            }
+        }
+        foreach ($slave in @($script:Slaves)) {
+            if (-not [bool](Get-PropertyValue $slave "Enabled" $false)) {
+                continue
+            }
+            if (-not (Test-SlaveReadinessReady $slave)) {
+                [void]$Warnings.Add(("BLOCKER: slave '{0}' is enabled but readiness is '{1}'." -f $slave.Name, (Resolve-SlaveReadinessStatus $slave)))
             }
         }
     } else {
@@ -567,7 +576,8 @@ function Select-MainTab {
         return
     }
     foreach ($page in $script:MainTabControl.TabPages) {
-        if ([string]$page.Text -eq $TabTitle) {
+        $fullTitle = Get-MainTabFullTitle $page
+        if ($fullTitle -eq $TabTitle -or [string]$page.Text -eq $TabTitle) {
             $script:MainTabControl.SelectedTab = $page
             return
         }
