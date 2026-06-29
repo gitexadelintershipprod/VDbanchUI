@@ -204,8 +204,8 @@ function Start-SlavePingCheck {
         param($Context)
         Get-SlavePingStatus $Context.HostName
     } -OnComplete {
-        param($Result, $WorkError, $Context)
-        $status = if ($null -ne $WorkError) { "Ping error: " + $WorkError.Exception.Message } else { [string]$Result }
+        param($Result, $ErrorMessage, $Context)
+        $status = if ($null -ne $ErrorMessage) { "Ping error: " + $ErrorMessage } else { [string]$Result }
         $checkedAt = (Get-Date).ToString("o")
         Update-SlaveRowPing $Context.RowIndex $status $checkedAt
     }
@@ -234,12 +234,12 @@ function Start-SlaveReadinessCheck {
         param($Context)
         Get-SlaveReadinessResult $Context.HostName $Context.VdbenchPath $Context.Target $Context.Checker $Context.CheckerTemplate
     } -OnComplete {
-        param($Result, $WorkError, $Context)
+        param($Result, $ErrorMessage, $Context)
         $checkedAt = (Get-Date).ToString("o")
-        if ($null -ne $WorkError) {
-            Update-SlaveRowReadiness $Context.RowIndex "Error" $checkedAt $WorkError.Exception.Message
+        if ($null -ne $ErrorMessage) {
+            Update-SlaveRowReadiness $Context.RowIndex "Error" $checkedAt $ErrorMessage
             if ($Context.ShowOutput) {
-                Show-Warning $WorkError.Exception.Message
+                Show-Warning $ErrorMessage
             }
             return
         }
