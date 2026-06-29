@@ -19,8 +19,7 @@ function Build-SettingsTab {
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },
         @{ Key = "PrivateKey"; Label = "Private key"; Browse = "file" },
         @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none" },
-        @{ Key = "SlaveShell"; Label = "Slave shell"; Browse = "none" },
-        @{ Key = "SlaveUser"; Label = "Slave user"; Browse = "none" }
+        @{ Key = "SlaveShell"; Label = "Slave shell"; Browse = "none" }
     )
 
     $y = 18
@@ -154,7 +153,7 @@ function Build-SlaveGrid {
     [void]$osCol.Items.Add("Linux")
     $grid.Columns.Add($osCol) | Out-Null
 
-    foreach ($name in @("VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
+    foreach ($name in @("User", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
         $col.HeaderText = $name
@@ -212,7 +211,7 @@ function Populate-SlaveGrid {
     foreach ($slave in @($script:Slaves)) {
         $idx = $script:SlaveGrid.Rows.Add()
         $row = $script:SlaveGrid.Rows[$idx]
-        foreach ($col in @("Enabled", "Name", "Host", "OsType", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
+        foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
             $row.Cells[$col].Value = Get-PropertyValue $slave $col ""
         }
     }
@@ -237,6 +236,7 @@ function Capture-SlaveGrid {
             Name = $name
             Host = $hostName
             OsType = [string]$row.Cells["OsType"].Value
+            User = [string]$row.Cells["User"].Value
             VdbenchPath = [string]$row.Cells["VdbenchPath"].Value
             TestTarget = [string]$row.Cells["TestTarget"].Value
             SshAlias = [string]$row.Cells["SshAlias"].Value
@@ -449,6 +449,7 @@ function Build-MasterSlaveTab {
         $row.Cells["Name"].Value = "slave-" + ($idx + 1)
         $row.Cells["Host"].Value = "host-or-ip"
         $row.Cells["OsType"].Value = "Windows"
+        $row.Cells["User"].Value = ""
         $row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs "Windows"
         $row.Cells["TestTarget"].Value = "C:\vdbench\testfile.dat"
         $row.Cells["Status"].Value = "Not checked"
@@ -1154,17 +1155,26 @@ function Build-MainForm {
     $script:AppToolTip.ReshowDelay = 200
     $script:AppToolTip.ShowAlways = $true
 
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.RowCount = 2
+    $layout.ColumnCount = 1
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 30)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $form.Controls.Add($layout)
+
     $header = New-Object System.Windows.Forms.Panel
-    $header.Dock = [System.Windows.Forms.DockStyle]::Top
+    $header.Dock = [System.Windows.Forms.DockStyle]::Fill
     $header.Height = 30
     $script:RunModeIndicator = New-Label "Run mode: Single local run  |  Profile: (none)" 12 5 1100 20
     $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:RunModeIndicator.Font, ([System.Drawing.FontStyle]::Bold)
     $header.Controls.Add($script:RunModeIndicator)
-    $form.Controls.Add($header)
+    $layout.Controls.Add($header, 0, 0)
 
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $form.Controls.Add($tabs)
+    $tabs.Multiline = $true
+    $layout.Controls.Add($tabs, 0, 1)
     $script:MainTabControl = $tabs
 
     $tabs.TabPages.Add((Build-SettingsTab)) | Out-Null

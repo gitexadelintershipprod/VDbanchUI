@@ -87,6 +87,7 @@ function Normalize-SlaveEntry {
         Name = [string](Get-PropertyValue $Item "Name" "")
         Host = [string](Get-PropertyValue $Item "Host" "")
         OsType = $osType
+        User = [string](Get-PropertyValue $Item "User" "")
         VdbenchPath = $vdbenchPath
         TestTarget = [string](Get-PropertyValue $Item "TestTarget" "")
         SshAlias = [string](Get-PropertyValue $Item "SshAlias" "")
@@ -125,6 +126,7 @@ function Initialize-AppState {
                 Name = "test-001"
                 Host = "test-001"
                 OsType = "Windows"
+                User = ""
                 VdbenchPath = (Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
                 TestTarget = "C:\vdbench\testfile.dat"
                 SshAlias = "test-001"

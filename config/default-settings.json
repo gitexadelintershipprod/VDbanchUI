@@ -11,7 +11,6 @@
   "PrivateKey": "C:\\install\\ssh\\id_rsa",
   "ReadinessCheckerArguments": "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}",
   "SlaveShell": "ssh",
-  "SlaveUser": "",
   "RunMode": "Single local run",
   "CommentDisabledParameters": true,
   "RequirePreviewBeforeRun": true

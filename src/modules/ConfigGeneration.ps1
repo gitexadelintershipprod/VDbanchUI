@@ -262,17 +262,14 @@ function Build-VdbenchConfig {
         $hostDefaults = New-Object System.Collections.Generic.List[string]
         [void]$hostDefaults.Add("hd=default")
         $slaveShell = [string](Get-PropertyValue $script:Settings "SlaveShell" "ssh")
-        $slaveUser = [string](Get-PropertyValue $script:Settings "SlaveUser" "")
         if (-not [string]::IsNullOrWhiteSpace($slaveShell)) {
             [void]$hostDefaults.Add(("shell={0}" -f $slaveShell))
-        }
-        if (-not [string]::IsNullOrWhiteSpace($slaveUser)) {
-            [void]$hostDefaults.Add(("user={0}" -f $slaveUser))
         }
         [void]$lines.Add(($hostDefaults -join ","))
         foreach ($slave in $slaves) {
             $name = [string]$slave.Name
             $hostName = [string]$slave.Host
+            $slaveUser = [string](Get-PropertyValue $slave "User" "")
             $sshAlias = [string](Get-PropertyValue $slave "SshAlias" "")
             $vdPath = [string]$slave.VdbenchPath
             if ([string]::IsNullOrWhiteSpace($name)) {
@@ -289,7 +286,14 @@ function Build-VdbenchConfig {
             if (-not [string]::IsNullOrWhiteSpace($sshAlias)) {
                 $systemName = $sshAlias
             }
-            [void]$lines.Add(("hd={0},system={1},vdbench={2}" -f $name, $systemName, $vdPath))
+            $hostParts = New-Object System.Collections.Generic.List[string]
+            [void]$hostParts.Add(("hd={0}" -f $name))
+            [void]$hostParts.Add(("system={0}" -f $systemName))
+            if (-not [string]::IsNullOrWhiteSpace($slaveUser)) {
+                [void]$hostParts.Add(("user={0}" -f $slaveUser))
+            }
+            [void]$hostParts.Add(("vdbench={0}" -f $vdPath))
+            [void]$lines.Add(($hostParts -join ","))
         }
         [void]$lines.Add("")
     }
