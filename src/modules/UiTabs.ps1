@@ -25,25 +25,28 @@ function Build-SettingsTab {
 
     $y = 18
     foreach ($field in $fields) {
-        $labelText = [string]$field.Label
-        if ($field.InfoOnly) {
+        $labelText = [string](Get-PropertyValue $field "Label" "")
+        if ([bool](Get-PropertyValue $field "InfoOnly" $false)) {
             $labelText = $labelText + " (reference)"
         }
         $panel.Controls.Add((New-Label $labelText 18 $y 180))
-        $box = New-TextBox ([string](Get-PropertyValue $script:Settings $field.Key "")) 210 $y 520
-        if ($field.InfoOnly) {
+        $fieldKey = [string](Get-PropertyValue $field "Key" "")
+        $box = New-TextBox ([string](Get-PropertyValue $script:Settings $fieldKey "")) 210 $y 520
+        if ([bool](Get-PropertyValue $field "InfoOnly" $false)) {
             $box.ReadOnly = $true
             $box.BackColor = [System.Drawing.Color]::Gainsboro
             Set-ControlToolTip $box "Reference only. This value is not used by config generation or runs."
         }
-        if (-not [string]::IsNullOrWhiteSpace([string]$field.Hint)) {
-            Set-ControlToolTip $box ([string]$field.Hint)
+        $hint = [string](Get-PropertyValue $field "Hint" "")
+        if (-not [string]::IsNullOrWhiteSpace($hint)) {
+            Set-ControlToolTip $box $hint
         }
         $panel.Controls.Add($box)
-        $script:SettingsControls[$field.Key] = $box
-        if ($field.Browse -ne "none") {
+        $script:SettingsControls[$fieldKey] = $box
+        $browse = [string](Get-PropertyValue $field "Browse" "none")
+        if ($browse -ne "none") {
             $button = New-Button "Browse" 740 ($y - 2) 80 26
-            if ($field.Browse -eq "folder") {
+            if ($browse -eq "folder") {
                 $button.Add_Click({
                     param($sender, $eventArgs)
                     Browse-FolderForControl $sender.Tag
