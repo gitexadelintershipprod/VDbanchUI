@@ -295,7 +295,9 @@ def main() -> int:
     assert "Get-DefaultSlaveUserForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Get-DefaultSshAliasForSlave" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "AllowUserToAddRows = $false" in ui_tabs_module
-    assert "Apply-SlaveGridRowDefaults" in ui_tabs_module
+    assert "function Build-LocalHostTab" in ui_tabs_module
+    assert "function Update-RunModeTabs" in ui_tabs_module
+    assert "DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed" in ui_tabs_module
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SlaveUser" not in settings
 
