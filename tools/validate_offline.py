@@ -311,7 +311,8 @@ def main() -> int:
     assert "function Build-MasterSlaveTab" in ui_slave_module
     assert "function Browse-SlaveTargetsForRow" in ui_slave_module
     assert "function Start-SlaveReadinessCheck" in ui_slave_module
-    assert "$timer.Tag = $RowIndex" in ui_slave_module
+    assert "SlaveReadinessTimerRows" in ui_slave_module
+    assert "$timer.Tag" not in ui_slave_module
     assert "capturedIndex" not in ui_slave_module
     assert 'New-Button "Test ping"' not in ui_slave_module
     assert 'New-Button "Pick target"' not in ui_slave_module
@@ -339,9 +340,12 @@ def main() -> int:
     assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Start-BackgroundUiWork" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "$worker.Tag = $jobId" in ui_helpers_module
+    assert "$script:BackgroundUiWorkerJobs" in ui_helpers_module
+    assert "$worker.Tag" not in ui_helpers_module
     assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
     assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
+    assert "SlaveReadinessTimerRows" in ui_slave_module
+    assert "$timer.Tag" not in ui_slave_module
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
     assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module
