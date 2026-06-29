@@ -8,9 +8,9 @@ function Build-SettingsTab {
     $tab.Controls.Add($panel)
 
     $fields = @(
-        @{ Key = "InstallRoot"; Label = "Install root"; Browse = "folder"; InfoOnly = $true },
+        @{ Key = "InstallRoot"; Label = "Install root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "VdbenchRoot"; Label = "Vdbench root"; Browse = "folder" },
-        @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "folder"; InfoOnly = $true },
+        @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
         @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file" },
         @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file" },
@@ -161,6 +161,7 @@ function Build-SlaveGrid {
         }
         if ($name -eq "PrivateKey") {
             $col.HeaderText = "Key override"
+            $col.ReadOnly = $true
             $col.FillWeight = 70
         }
         $grid.Columns.Add($col) | Out-Null
@@ -248,6 +249,35 @@ function Save-Slaves {
     Capture-SlaveGrid
     Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
     Show-Info "Slave inventory saved."
+    Refresh-ConfigPreview
+}
+
+function Set-SelectedSlavePrivateKey {
+    $row = Get-SelectedSlaveRow
+    if ($null -eq $row) {
+        Show-Warning "Select a slave row first."
+        return
+    }
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = "Select private key override"
+    $dialog.Filter = "Private key files (*.*)|*.*"
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $row.Cells["PrivateKey"].Value = $dialog.FileName
+        $row.Cells["Status"].Value = "Key override set"
+        Capture-SlaveGrid
+        Refresh-ConfigPreview
+    }
+}
+
+function Clear-SelectedSlavePrivateKey {
+    $row = Get-SelectedSlaveRow
+    if ($null -eq $row) {
+        Show-Warning "Select a slave row first."
+        return
+    }
+    $row.Cells["PrivateKey"].Value = ""
+    $row.Cells["Status"].Value = "Using settings key"
+    Capture-SlaveGrid
     Refresh-ConfigPreview
 }
 
@@ -404,8 +434,7 @@ function Build-MasterSlaveTab {
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar = New-FlowToolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $addButton = New-Button "Add slave" 10 8 95 28
@@ -465,7 +494,17 @@ function Build-MasterSlaveTab {
     Set-ControlToolTip $pickTargetButton "Discover local or remote slave targets over SSH."
     $toolbar.Controls.Add($pickTargetButton)
 
-    $note = New-Label "TestTarget = disk/device/directory per slave. Disabled rows are omitted. Key override blank = Settings private key." 280 48 760 24
+    $setKeyButton = New-Button "Set key" 0 0 80 28
+    $setKeyButton.Add_Click({ Set-SelectedSlavePrivateKey })
+    Set-ControlToolTip $setKeyButton "Set a per-slave private key override without exposing it in the grid."
+    $toolbar.Controls.Add($setKeyButton)
+
+    $clearKeyButton = New-Button "Clear key" 0 0 85 28
+    $clearKeyButton.Add_Click({ Clear-SelectedSlavePrivateKey })
+    Set-ControlToolTip $clearKeyButton "Clear the per-slave private key override and use the Settings private key."
+    $toolbar.Controls.Add($clearKeyButton)
+
+    $note = New-Label "TestTarget = disk/device/directory per slave. Disabled rows are omitted. Key override blank = Settings private key." 0 0 760 24
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
@@ -696,8 +735,7 @@ function Build-ProfileTab {
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar = New-FlowToolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $toolbar.Controls.Add((New-Label "Profile" 10 12 60))
@@ -1001,11 +1039,14 @@ function Show-SelectedRunConfig {
     if ($script:ReportsGrid.SelectedRows.Count -eq 0) {
         return
     }
+    $script:ReportDetailBox.Text = ""
     $id = [string]$script:ReportsGrid.SelectedRows[0].Cells["Id"].Value
     $state = Read-JsonFile (Join-Path $script:RunStateRoot ($id + ".json")) $null
     $parmPath = [string](Get-PropertyValue $state "ParmPath" "")
     if ($state -and -not [string]::IsNullOrWhiteSpace($parmPath) -and (Test-Path -LiteralPath $parmPath)) {
         $script:ReportDetailBox.Text = [System.IO.File]::ReadAllText($parmPath)
+    } else {
+        $script:ReportDetailBox.Text = "No config available for selected run."
     }
 }
 
@@ -1013,6 +1054,7 @@ function Show-SelectedRunLog {
     if ($script:ReportsGrid.SelectedRows.Count -eq 0) {
         return
     }
+    $script:ReportDetailBox.Text = ""
     $id = [string]$script:ReportsGrid.SelectedRows[0].Cells["Id"].Value
     $state = Read-JsonFile (Join-Path $script:RunStateRoot ($id + ".json")) $null
     $stdoutPath = [string](Get-PropertyValue $state "StdoutPath" "")
@@ -1024,6 +1066,8 @@ function Show-SelectedRunLog {
             $text += [System.IO.File]::ReadAllText($stderrPath)
         }
         $script:ReportDetailBox.Text = $text
+    } else {
+        $script:ReportDetailBox.Text = "No log available for selected run."
     }
 }
 

@@ -99,3 +99,13 @@ function Set-ControlToolTip {
     }
     $script:AppToolTip.SetToolTip($Control, $Text)
 }
+
+function New-FlowToolbar {
+    $toolbar = New-Object System.Windows.Forms.FlowLayoutPanel
+    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+    $toolbar.WrapContents = $true
+    $toolbar.AutoScroll = $true
+    $toolbar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6, 5, 6, 5
+    return $toolbar
+}
