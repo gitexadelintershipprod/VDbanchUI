@@ -1454,6 +1454,7 @@ function Build-MainForm {
     })
 
     $tabs.Add_SelectedIndexChanged({
+        param($sender, $eventArgs)
         Refresh-ConfigPreview
         Refresh-Reports
         Update-RunModeIndicator
