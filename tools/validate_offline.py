@@ -50,6 +50,7 @@ REQUIRED_SETTINGS = {
 
 REQUIRED_MODULES = [
     "Core.ps1",
+    "Import-AppModules.ps1",
     "Metrics.ps1",
     "ProcessRunner.ps1",
     "State.ps1",
