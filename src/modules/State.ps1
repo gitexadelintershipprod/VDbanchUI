@@ -66,14 +66,28 @@ function Ensure-ProfileCatalogKeys {
     }
 }
 
+function Get-DefaultVdbenchPathForOs {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return [string](Get-PropertyValue $script:Settings "LinuxVdbench" "/opt/vdbench")
+    }
+    return [string](Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
+}
+
 function Normalize-SlaveEntry {
     param([object]$Item)
+    $osType = [string](Get-PropertyValue $Item "OsType" "Windows")
+    $defaultPath = Get-DefaultVdbenchPathForOs $osType
+    $vdbenchPath = [string](Get-PropertyValue $Item "VdbenchPath" "")
+    if ([string]::IsNullOrWhiteSpace($vdbenchPath)) {
+        $vdbenchPath = $defaultPath
+    }
     return [pscustomobject]@{
         Enabled = [bool](Get-PropertyValue $Item "Enabled" $true)
         Name = [string](Get-PropertyValue $Item "Name" "")
         Host = [string](Get-PropertyValue $Item "Host" "")
-        OsType = [string](Get-PropertyValue $Item "OsType" "Windows")
-        VdbenchPath = [string](Get-PropertyValue $Item "VdbenchPath" (Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench"))
+        OsType = $osType
+        VdbenchPath = $vdbenchPath
         TestTarget = [string](Get-PropertyValue $Item "TestTarget" "")
         SshAlias = [string](Get-PropertyValue $Item "SshAlias" "")
         PrivateKey = [string](Get-PropertyValue $Item "PrivateKey" (Get-PropertyValue $script:Settings "PrivateKey" ""))
@@ -448,6 +462,7 @@ function Save-Settings {
     Capture-Settings
     Write-JsonFile $script:SettingsPath $script:Settings
     Show-Info "Settings saved."
+    Update-RunModeIndicator
     Refresh-ConfigPreview
 }
 

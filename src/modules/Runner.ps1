@@ -216,7 +216,7 @@ function Start-VdbenchRun {
         }
     }
     if ([bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true)) {
-        if (-not (Ask-YesNo "Review Config Preview before running. Start Vdbench now?" "Start run")) {
+        if (-not (Show-ConfigPreviewConfirmation $built)) {
             return
         }
     }
@@ -235,6 +235,7 @@ function Start-VdbenchRun {
     $stderrPath = [string]$context.StderrPath
     $script:CurrentRunId = $runId
     $script:KillRequested = $false
+    $script:RunFinishedNotified = $false
     Save-CurrentProfile
     $commandText = ("`"{0}`" -f `"{1}`" -o `"{2}`"" -f $masterBat, $parmPath, $runDir)
     Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)

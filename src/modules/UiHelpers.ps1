@@ -88,3 +88,14 @@ function Ask-YesNo {
     $result = [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
     return ($result -eq [System.Windows.Forms.DialogResult]::Yes)
 }
+
+function Set-ControlToolTip {
+    param(
+        [System.Windows.Forms.Control]$Control,
+        [string]$Text
+    )
+    if ($null -eq $script:AppToolTip -or $null -eq $Control) {
+        return
+    }
+    $script:AppToolTip.SetToolTip($Control, $Text)
+}

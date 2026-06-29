@@ -442,6 +442,7 @@ function Refresh-ConfigPreview {
     }
     try {
         $built = Build-VdbenchConfig
+        $script:LastBuiltConfig = $built
         $prefix = ""
         if ($built.Warnings.Count -gt 0) {
             $prefix = ("* WARNINGS" + [Environment]::NewLine)
@@ -455,4 +456,100 @@ function Refresh-ConfigPreview {
         $script:ConfigPreviewBox.Text = "Preview error: " + $_.Exception.Message
         Write-AppLog ("Config preview error: {0}" -f $_.Exception.Message) "ERROR"
     }
+}
+
+function Get-CleanConfigText {
+    param([object]$BuiltConfig = $null)
+    if ($null -eq $BuiltConfig) {
+        Capture-Settings
+        Capture-SlaveGrid
+        Capture-ProfileEditor
+        $BuiltConfig = Build-VdbenchConfig
+    }
+    return [string]$BuiltConfig.Text
+}
+
+function Select-MainTab {
+    param([string]$TabTitle)
+    if ($null -eq $script:MainTabControl) {
+        return
+    }
+    foreach ($page in $script:MainTabControl.TabPages) {
+        if ([string]$page.Text -eq $TabTitle) {
+            $script:MainTabControl.SelectedTab = $page
+            return
+        }
+    }
+}
+
+function Update-RunModeIndicator {
+    if ($null -eq $script:RunModeIndicator) {
+        return
+    }
+    $mode = Get-Mode
+    $profileName = "(none)"
+    if ($null -ne $script:CurrentProfile -and -not [string]::IsNullOrWhiteSpace([string]$script:CurrentProfile.Name)) {
+        $profileName = [string]$script:CurrentProfile.Name
+    }
+    $script:RunModeIndicator.Text = ("Run mode: {0}  |  Profile: {1}" -f $mode, $profileName)
+}
+
+function Show-ConfigPreviewConfirmation {
+    param([object]$BuiltConfig)
+    Refresh-ConfigPreview
+    Select-MainTab "Config Preview"
+
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "Confirm Vdbench config"
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 900, 620
+    $dialog.MinimizeBox = $false
+    $dialog.MaximizeBox = $true
+
+    $buttonPanel = New-Object System.Windows.Forms.Panel
+    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $buttonPanel.Height = 46
+    $dialog.Controls.Add($buttonPanel)
+
+    $intro = New-Object System.Windows.Forms.Label
+    $intro.Dock = [System.Windows.Forms.DockStyle]::Top
+    $intro.Height = 48
+    $intro.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 10, 0
+    if ($BuiltConfig.Warnings.Count -gt 0) {
+        $intro.Text = "Review the generated config below. Warnings are listed first; only the config body will be written to the .parm file."
+    } else {
+        $intro.Text = "Review the generated config below before starting Vdbench."
+    }
+    $dialog.Controls.Add($intro)
+
+    $box = New-Object System.Windows.Forms.TextBox
+    $box.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $box.Multiline = $true
+    $box.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
+    $box.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
+    $box.ReadOnly = $true
+    $box.WordWrap = $false
+    $previewText = [string]$BuiltConfig.Text
+    if ($BuiltConfig.Warnings.Count -gt 0) {
+        $previewText = ("* WARNINGS" + [Environment]::NewLine +
+            (($BuiltConfig.Warnings | ForEach-Object { "* - " + $_ }) -join [Environment]::NewLine) +
+            [Environment]::NewLine + [Environment]::NewLine + $previewText)
+    }
+    $box.Text = $previewText
+    $dialog.Controls.Add($box)
+
+    $startButton = New-Button "Start run" 670 9 95 28
+    $startButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $buttonPanel.Controls.Add($startButton)
+
+    $cancelButton = New-Button "Cancel" 775 9 90 28
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $buttonPanel.Controls.Add($cancelButton)
+
+    $dialog.AcceptButton = $startButton
+    $dialog.CancelButton = $cancelButton
+    if ($null -ne $script:Form) {
+        return ($dialog.ShowDialog($script:Form) -eq [System.Windows.Forms.DialogResult]::OK)
+    }
+    return ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)
 }

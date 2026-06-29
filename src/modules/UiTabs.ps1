@@ -8,14 +8,14 @@ function Build-SettingsTab {
     $tab.Controls.Add($panel)
 
     $fields = @(
-        @{ Key = "InstallRoot"; Label = "Install root"; Browse = "folder" },
+        @{ Key = "InstallRoot"; Label = "Install root"; Browse = "folder"; InfoOnly = $true },
         @{ Key = "VdbenchRoot"; Label = "Vdbench root"; Browse = "folder" },
-        @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "folder" },
+        @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "folder"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
         @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file" },
         @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file" },
-        @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder" },
-        @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none" },
+        @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder"; Hint = "Default Vdbench path for Windows slaves." },
+        @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none"; Hint = "Default Vdbench path for Linux slaves." },
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },
         @{ Key = "PrivateKey"; Label = "Private key"; Browse = "file" },
         @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none" },
@@ -25,8 +25,20 @@ function Build-SettingsTab {
 
     $y = 18
     foreach ($field in $fields) {
-        $panel.Controls.Add((New-Label $field.Label 18 $y 180))
+        $labelText = [string]$field.Label
+        if ($field.InfoOnly) {
+            $labelText = $labelText + " (reference)"
+        }
+        $panel.Controls.Add((New-Label $labelText 18 $y 180))
         $box = New-TextBox ([string](Get-PropertyValue $script:Settings $field.Key "")) 210 $y 520
+        if ($field.InfoOnly) {
+            $box.ReadOnly = $true
+            $box.BackColor = [System.Drawing.Color]::Gainsboro
+            Set-ControlToolTip $box "Reference only. This value is not used by config generation or runs."
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$field.Hint)) {
+            Set-ControlToolTip $box ([string]$field.Hint)
+        }
         $panel.Controls.Add($box)
         $script:SettingsControls[$field.Key] = $box
         if ($field.Browse -ne "none") {
@@ -53,6 +65,7 @@ function Build-SettingsTab {
     $mode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $mode.Add_SelectedIndexChanged({
         Capture-Settings
+        Update-RunModeIndicator
         Refresh-ConfigPreview
     })
     $panel.Controls.Add($mode)
@@ -146,8 +159,47 @@ function Build-SlaveGrid {
             $col.ReadOnly = $true
             $col.FillWeight = 80
         }
+        if ($name -eq "PrivateKey") {
+            $col.HeaderText = "Key override"
+            $col.FillWeight = 70
+        }
         $grid.Columns.Add($col) | Out-Null
     }
+
+    $grid.Add_CellFormatting({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -lt 0) {
+            return
+        }
+        if ($sender.Columns[$eventArgs.ColumnIndex].Name -ne "PrivateKey") {
+            return
+        }
+        $rawValue = [string]$sender.Rows[$eventArgs.RowIndex].Cells["PrivateKey"].Value
+        if ([string]::IsNullOrWhiteSpace($rawValue)) {
+            $eventArgs.Value = "(from settings)"
+            $eventArgs.FormattingApplied = $true
+        } else {
+            $eventArgs.Value = "********"
+            $eventArgs.FormattingApplied = $true
+        }
+    })
+
+    $grid.Add_CellValueChanged({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -lt 0) {
+            return
+        }
+        $columnName = $sender.Columns[$eventArgs.ColumnIndex].Name
+        if ($columnName -ne "OsType") {
+            return
+        }
+        Capture-Settings
+        $row = $sender.Rows[$eventArgs.RowIndex]
+        if ($row.IsNewRow) {
+            return
+        }
+        $row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs ([string]$row.Cells["OsType"].Value)
+    })
     return $grid
 }
 
@@ -348,7 +400,7 @@ function Build-MasterSlaveTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 92)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -356,21 +408,22 @@ function Build-MasterSlaveTab {
     $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.Controls.Add($toolbar, 0, 0)
 
-    $addButton = New-Button "Add slave" 10 12 95 28
+    $addButton = New-Button "Add slave" 10 8 95 28
     $addButton.Add_Click({
+        Capture-Settings
         $idx = $script:SlaveGrid.Rows.Add()
         $row = $script:SlaveGrid.Rows[$idx]
         $row.Cells["Enabled"].Value = $true
         $row.Cells["Name"].Value = "slave-" + ($idx + 1)
         $row.Cells["Host"].Value = "host-or-ip"
         $row.Cells["OsType"].Value = "Windows"
-        $row.Cells["VdbenchPath"].Value = (Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
+        $row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs "Windows"
         $row.Cells["TestTarget"].Value = "C:\vdbench\testfile.dat"
         $row.Cells["Status"].Value = "Not checked"
     })
     $toolbar.Controls.Add($addButton)
 
-    $removeButton = New-Button "Remove" 112 12 80 28
+    $removeButton = New-Button "Remove" 112 8 80 28
     $removeButton.Add_Click({
         $row = Get-SelectedSlaveRow
         if ($row -and -not $row.IsNewRow) {
@@ -379,39 +432,40 @@ function Build-MasterSlaveTab {
     })
     $toolbar.Controls.Add($removeButton)
 
-    $saveButton = New-Button "Save" 200 12 80 28
+    $saveButton = New-Button "Save" 200 8 80 28
     $saveButton.Add_Click({ Save-Slaves })
     $toolbar.Controls.Add($saveButton)
 
-    $testButton = New-Button "Test ping" 288 12 95 28
+    $testButton = New-Button "Test ping" 288 8 95 28
     $testButton.Add_Click({ Test-SelectedSlaveConnection })
     $toolbar.Controls.Add($testButton)
 
-    $pingAllButton = New-Button "Ping all" 390 12 80 28
+    $pingAllButton = New-Button "Ping all" 390 8 80 28
     $pingAllButton.Add_Click({ Test-AllSlaveConnections })
     $toolbar.Controls.Add($pingAllButton)
 
-    $readyButton = New-Button "Check readiness" 478 12 125 28
+    $readyButton = New-Button "Check readiness" 478 8 125 28
     $readyButton.Add_Click({ Check-SelectedSlaveReadiness })
     $toolbar.Controls.Add($readyButton)
 
-    $readyAllButton = New-Button "Readiness all" 610 12 105 28
+    $readyAllButton = New-Button "Readiness all" 610 8 105 28
     $readyAllButton.Add_Click({ Check-AllSlaveReadiness })
     $toolbar.Controls.Add($readyAllButton)
 
-    $exportButton = New-Button "Export" 723 12 75 28
+    $exportButton = New-Button "Export" 10 44 75 28
     $exportButton.Add_Click({ Export-SlaveInventory })
     $toolbar.Controls.Add($exportButton)
 
-    $importButton = New-Button "Import" 806 12 75 28
+    $importButton = New-Button "Import" 92 44 75 28
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $pickTargetButton = New-Button "Pick target" 889 12 95 28
+    $pickTargetButton = New-Button "Pick target" 174 44 95 28
     $pickTargetButton.Add_Click({ Pick-TargetForSelectedSlave })
+    Set-ControlToolTip $pickTargetButton "Discover local or remote slave targets over SSH."
     $toolbar.Controls.Add($pickTargetButton)
 
-    $note = New-Label "TestTarget is the slave disk/device/directory. Disabled rows are omitted from config." 995 15 330 24
+    $note = New-Label "TestTarget = disk/device/directory per slave. Disabled rows are omitted. Key override blank = Settings private key." 280 48 760 24
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
@@ -584,6 +638,7 @@ function Refresh-ProfileEditor {
     $script:ProfileParamTabs.TabPages.Add($advTab) | Out-Null
     $script:RefreshingProfileEditor = $false
     Refresh-ConfigPreview
+    Update-RunModeIndicator
 }
 
 function Refresh-ProfileList {
@@ -637,7 +692,7 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 78)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 112)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -655,6 +710,7 @@ function Build-ProfileTab {
         if ($profile) {
             $script:CurrentProfile = $profile
             Refresh-ProfileEditor
+            Update-RunModeIndicator
         }
     })
     $toolbar.Controls.Add($loadButton)
@@ -692,24 +748,24 @@ function Build-ProfileTab {
     $deleteButton.Add_Click({ Delete-SelectedProfile })
     $toolbar.Controls.Add($deleteButton)
 
-    $folderButton = New-Button "Folder" 990 9 75 27
+    $folderButton = New-Button "Folder" 10 44 75 27
     $folderButton.Add_Click({ Open-ProfileFolder })
     $toolbar.Controls.Add($folderButton)
 
-    $importButton = New-Button "Import" 1074 9 75 27
+    $importButton = New-Button "Import" 92 44 75 27
     $importButton.Add_Click({ Import-Profile })
     $toolbar.Controls.Add($importButton)
 
-    $exportButton = New-Button "Export" 1156 9 75 27
+    $exportButton = New-Button "Export" 174 44 75 27
     $exportButton.Add_Click({ Export-CurrentProfile })
     $toolbar.Controls.Add($exportButton)
 
-    $toolbar.Controls.Add((New-Label "Name" 10 46 50))
-    $script:ProfileNameBox = New-TextBox "" 72 44 230
+    $toolbar.Controls.Add((New-Label "Name" 260 46 50))
+    $script:ProfileNameBox = New-TextBox "" 312 44 230
     $toolbar.Controls.Add($script:ProfileNameBox)
 
-    $toolbar.Controls.Add((New-Label "Type" 318 46 40))
-    $script:ProfileKindCombo = New-ComboBox @("Raw/block", "Filesystem") "Raw/block" 360 44 150
+    $toolbar.Controls.Add((New-Label "Type" 558 46 40))
+    $script:ProfileKindCombo = New-ComboBox @("Raw/block", "Filesystem") "Raw/block" 600 44 150
     $script:ProfileKindCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $script:ProfileKindCombo.Add_SelectedIndexChanged({
         if ($script:RefreshingProfileEditor) {
@@ -719,15 +775,17 @@ function Build-ProfileTab {
             Capture-ProfileEditor
             $script:CurrentProfile.TestKind = [string]$script:ProfileKindCombo.Text
             Refresh-ProfileEditor
+            Update-RunModeIndicator
         }
     })
     $toolbar.Controls.Add($script:ProfileKindCombo)
 
-    $pickLocalTargetButton = New-Button "Pick target" 530 43 95 27
+    $pickLocalTargetButton = New-Button "Pick target" 760 43 95 27
     $pickLocalTargetButton.Add_Click({ Pick-TargetForCurrentProfile })
+    Set-ControlToolTip $pickLocalTargetButton "Local targets only. For distributed slave targets, use Master / Slave -> Pick target."
     $toolbar.Controls.Add($pickLocalTargetButton)
 
-    $note = New-Label "Every parameter has help. Clear Enabled to preserve values but comment them in generated config." 635 46 590
+    $note = New-Label "Every parameter has help. Clear Enabled to preserve values but comment them in generated config." 10 78 900
     $toolbar.Controls.Add($note)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl
@@ -767,17 +825,27 @@ function Build-PreviewTab {
 
     $copyButton = New-Button "Copy config" 104 8 100 28
     $copyButton.Add_Click({
-        [System.Windows.Forms.Clipboard]::SetText($script:ConfigPreviewBox.Text)
+        try {
+            $clean = Get-CleanConfigText
+            [System.Windows.Forms.Clipboard]::SetText($clean)
+        } catch {
+            Show-Warning ("Copy failed: " + $_.Exception.Message)
+        }
     })
     $toolbar.Controls.Add($copyButton)
 
     $saveButton = New-Button "Save .parm" 214 8 100 28
     $saveButton.Add_Click({
-        $dialog = New-Object System.Windows.Forms.SaveFileDialog
-        $dialog.Filter = "Vdbench parameter file (*.parm)|*.parm|Text file (*.txt)|*.txt|All files (*.*)|*.*"
-        $dialog.FileName = ((Sanitize-FileName $script:CurrentProfile.Name) + ".parm")
-        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            [System.IO.File]::WriteAllText($dialog.FileName, $script:ConfigPreviewBox.Text, [System.Text.Encoding]::ASCII)
+        try {
+            $clean = Get-CleanConfigText
+            $dialog = New-Object System.Windows.Forms.SaveFileDialog
+            $dialog.Filter = "Vdbench parameter file (*.parm)|*.parm|Text file (*.txt)|*.txt|All files (*.*)|*.*"
+            $dialog.FileName = ((Sanitize-FileName $script:CurrentProfile.Name) + ".parm")
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                [System.IO.File]::WriteAllText($dialog.FileName, $clean, [System.Text.Encoding]::ASCII)
+            }
+        } catch {
+            Show-Warning ("Save failed: " + $_.Exception.Message)
         }
     })
     $toolbar.Controls.Add($saveButton)
@@ -1009,6 +1077,9 @@ function Build-ReportsTab {
         $col.HeaderText = $name
         $script:ReportsGrid.Columns.Add($col) | Out-Null
     }
+    $script:ReportsGrid.Add_SelectionChanged({
+        Show-SelectedRunLog
+    })
     $container.Controls.Add($script:ReportsGrid, 0, 1)
 
     $script:ReportDetailBox = New-Object System.Windows.Forms.TextBox
@@ -1030,9 +1101,24 @@ function Build-MainForm {
     $form.Size = New-Object System.Drawing.Size -ArgumentList 1280, 820
     $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1100, 700
 
+    $script:AppToolTip = New-Object System.Windows.Forms.ToolTip
+    $script:AppToolTip.AutoPopDelay = 12000
+    $script:AppToolTip.InitialDelay = 400
+    $script:AppToolTip.ReshowDelay = 200
+    $script:AppToolTip.ShowAlways = $true
+
+    $header = New-Object System.Windows.Forms.Panel
+    $header.Dock = [System.Windows.Forms.DockStyle]::Top
+    $header.Height = 30
+    $script:RunModeIndicator = New-Label "Run mode: Single local run  |  Profile: (none)" 12 5 1100 20
+    $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:RunModeIndicator.Font, ([System.Drawing.FontStyle]::Bold)
+    $header.Controls.Add($script:RunModeIndicator)
+    $form.Controls.Add($header)
+
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = [System.Windows.Forms.DockStyle]::Fill
     $form.Controls.Add($tabs)
+    $script:MainTabControl = $tabs
 
     $tabs.TabPages.Add((Build-SettingsTab)) | Out-Null
     $tabs.TabPages.Add((Build-MasterSlaveTab)) | Out-Null
@@ -1044,6 +1130,7 @@ function Build-MainForm {
     $tabs.Add_SelectedIndexChanged({
         Refresh-ConfigPreview
         Refresh-Reports
+        Update-RunModeIndicator
     })
 
     $timer = New-Object System.Windows.Forms.Timer
@@ -1051,8 +1138,11 @@ function Build-MainForm {
     $timer.Add_Tick({
         Flush-RunLog
         if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
-            $script:RunStatusLabel.Text = "Finished: " + $script:CurrentRunId
-            Refresh-Reports
+            if (-not $script:RunFinishedNotified) {
+                $script:RunFinishedNotified = $true
+                $script:RunStatusLabel.Text = "Finished: " + $script:CurrentRunId
+                Refresh-Reports
+            }
         }
     })
     $timer.Start()
@@ -1066,5 +1156,6 @@ function Build-MainForm {
         }
     })
 
+    Update-RunModeIndicator
     return $form
 }
