@@ -567,7 +567,8 @@ function Select-MainTab {
         return
     }
     foreach ($page in $script:MainTabControl.TabPages) {
-        if ([string]$page.Text -eq $TabTitle) {
+        $fullTitle = Get-MainTabFullTitle $page
+        if ($fullTitle -eq $TabTitle -or [string]$page.Text -eq $TabTitle) {
             $script:MainTabControl.SelectedTab = $page
             return
         }

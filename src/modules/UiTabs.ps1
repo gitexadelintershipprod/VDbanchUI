@@ -1,6 +1,5 @@
 function Build-SettingsTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Settings / Paths"
+    $tab = New-MainTabPage "Settings / Paths" "Settings"
 
     $panel = New-Object System.Windows.Forms.Panel
     $panel.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -234,18 +233,20 @@ function Build-SlaveGrid {
 }
 
 function Populate-SlaveGrid {
-    $script:SlaveGrid.Rows.Clear()
-    foreach ($slave in @($script:Slaves)) {
-        if (-not (Test-SlaveHasHost $slave)) {
-            continue
+    Invoke-GridBatchUpdate $script:SlaveGrid {
+        $script:SlaveGrid.Rows.Clear()
+        foreach ($slave in @($script:Slaves)) {
+            if (-not (Test-SlaveHasHost $slave)) {
+                continue
+            }
+            $idx = $script:SlaveGrid.Rows.Add()
+            $row = $script:SlaveGrid.Rows[$idx]
+            $normalized = Apply-SlaveDefaults $slave
+            foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "PrivateKey", "Status", "Notes")) {
+                $row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
+            }
+            Set-SlaveRowTargets $row @(Get-PropertyValue $normalized "Targets" @())
         }
-        $idx = $script:SlaveGrid.Rows.Add()
-        $row = $script:SlaveGrid.Rows[$idx]
-        $normalized = Apply-SlaveDefaults $slave
-        foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "PrivateKey", "Status", "Notes")) {
-            $row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
-        }
-        Set-SlaveRowTargets $row @(Get-PropertyValue $normalized "Targets" @())
     }
 }
 
@@ -339,35 +340,97 @@ function Test-SelectedSlaveConnection {
     Test-SlaveRowConnection $row
 }
 
+function Update-SlaveRowStatus {
+    param(
+        [int]$RowIndex,
+        [string]$Status
+    )
+    if ($null -eq $script:SlaveGrid -or $RowIndex -lt 0 -or $RowIndex -ge $script:SlaveGrid.Rows.Count) {
+        return
+    }
+    $row = $script:SlaveGrid.Rows[$RowIndex]
+    if ($row.IsNewRow) {
+        return
+    }
+    $row.Cells["Status"].Value = $Status
+}
+
+function Get-SlavePingStatus {
+    param([string]$HostName)
+    if ([string]::IsNullOrWhiteSpace($HostName)) {
+        return "Missing host"
+    }
+    try {
+        $result = Test-Connection -ComputerName $HostName -Count 1 -Quiet -ErrorAction Stop
+        if ($result) {
+            return "Ping OK"
+        }
+        return "Ping failed (ICMP may be blocked; use readiness check)"
+    } catch {
+        return "Ping error: " + $_.Exception.Message
+    }
+}
+
+function Get-SlaveGridWorkRows {
+    $rows = @()
+    if ($null -eq $script:SlaveGrid) {
+        return $rows
+    }
+    foreach ($row in $script:SlaveGrid.Rows) {
+        if ($row.IsNewRow) {
+            continue
+        }
+        $rows += [pscustomobject]@{
+            Index = $row.Index
+            Host = [string]$row.Cells["Host"].Value
+        }
+    }
+    return @($rows)
+}
+
 function Test-SlaveRowConnection {
     param([System.Windows.Forms.DataGridViewRow]$Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
+    $rowIndex = $Row.Index
     $hostName = [string]$Row.Cells["Host"].Value
-    if ([string]::IsNullOrWhiteSpace($hostName)) {
-        $Row.Cells["Status"].Value = "Missing host"
-        return
-    }
-
-    try {
-        $result = Test-Connection -ComputerName $hostName -Count 1 -Quiet -ErrorAction Stop
-        if ($result) {
-            $Row.Cells["Status"].Value = "Ping OK"
+    Update-SlaveRowStatus $rowIndex "Pinging..."
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
+        Get-SlavePingStatus $hostName
+    } -OnComplete {
+        param($result, $errorRecord)
+        if ($null -ne $errorRecord) {
+            Update-SlaveRowStatus $rowIndex ("Ping error: " + $errorRecord.Exception.Message)
         } else {
-            $Row.Cells["Status"].Value = "Ping failed (ICMP may be blocked; use readiness check)"
+            Update-SlaveRowStatus $rowIndex ([string]$result)
         }
-    } catch {
-        $Row.Cells["Status"].Value = "Ping error: " + $_.Exception.Message
     }
 }
 
 function Test-AllSlaveConnections {
-    foreach ($row in $script:SlaveGrid.Rows) {
-        if ($row.IsNewRow) {
-            continue
+    $workRows = @(Get-SlaveGridWorkRows)
+    if ($workRows.Count -eq 0) {
+        return
+    }
+    foreach ($item in $workRows) {
+        Update-SlaveRowStatus $item.Index "Pinging..."
+    }
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
+        $results = @{}
+        foreach ($item in $workRows) {
+            $results[[string]$item.Index] = Get-SlavePingStatus $item.Host
         }
-        Test-SlaveRowConnection $row
+        return $results
+    } -OnComplete {
+        param($result, $errorRecord)
+        if ($null -ne $errorRecord) {
+            Show-Warning ("Ping all failed: " + $errorRecord.Exception.Message)
+            return
+        }
+        foreach ($key in @($result.Keys)) {
+            Update-SlaveRowStatus ([int]$key) ([string]$result[$key])
+        }
     }
 }
 
@@ -381,37 +444,24 @@ function Check-SelectedSlaveReadiness {
     Check-SlaveRowReadiness $row $true
 }
 
-function Check-SlaveRowReadiness {
+function Get-SlaveReadinessResult {
     param(
-        [System.Windows.Forms.DataGridViewRow]$Row,
-        [bool]$ShowOutput
+        [string]$HostName,
+        [string]$VdbenchPath,
+        [string]$Target,
+        [string]$Checker,
+        [string]$CheckerTemplate
     )
-    if ($null -eq $Row -or $Row.IsNewRow) {
-        return
-    }
-    $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
-    if ([string]::IsNullOrWhiteSpace($checker) -or -not (Test-Path -LiteralPath $checker)) {
-        $Row.Cells["Status"].Value = "Readiness checker missing"
-        if ($ShowOutput) {
-            Show-Warning "Readiness checker path is missing or does not exist."
+    if ([string]::IsNullOrWhiteSpace($Checker) -or -not (Test-Path -LiteralPath $Checker)) {
+        return [pscustomobject]@{
+            Status = "Readiness checker missing"
+            Output = ""
         }
-        return
     }
-    $hostName = [string]$Row.Cells["Host"].Value
-    $vdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
-    $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
-    $target = ""
-    if ($targets.Count -gt 0) {
-        $target = [string]$targets[0].Target
-    } else {
-        $target = Get-DefaultTestTargetForOs ([string]$Row.Cells["OsType"].Value)
-    }
-
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
-    $template = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
-    $checkerArgs = Expand-ReadinessCheckerArguments $template $hostName $vdbenchPath $target
-    $quotedChecker = Quote-ProcessArgument $checker
+    $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target
+    $quotedChecker = Quote-ProcessArgument $Checker
     $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
@@ -422,29 +472,106 @@ function Check-SlaveRowReadiness {
         $out = $p.StandardOutput.ReadToEnd()
         $err = $p.StandardError.ReadToEnd()
         $p.WaitForExit()
-        if ($p.ExitCode -eq 0) {
-            $Row.Cells["Status"].Value = "Ready"
-        } else {
-            $Row.Cells["Status"].Value = "Readiness failed"
-        }
-        if ($ShowOutput) {
-            Show-Info (($out + [Environment]::NewLine + $err).Trim()) "Readiness output"
+        $status = if ($p.ExitCode -eq 0) { "Ready" } else { "Readiness failed" }
+        return [pscustomobject]@{
+            Status = $status
+            Output = ($out + [Environment]::NewLine + $err).Trim()
         }
     } catch {
-        $Row.Cells["Status"].Value = "Readiness error"
+        return [pscustomobject]@{
+            Status = "Readiness error"
+            Output = $_.Exception.Message
+        }
+    }
+}
+
+function Check-SlaveRowReadiness {
+    param(
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [bool]$ShowOutput
+    )
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    Capture-Settings
+    $rowIndex = $Row.Index
+    $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
+    $checkerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
+    $hostName = [string]$Row.Cells["Host"].Value
+    $vdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
+    $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
+    $target = ""
+    if ($targets.Count -gt 0) {
+        $target = [string]$targets[0].Target
+    } else {
+        $target = Get-DefaultTestTargetForOs ([string]$Row.Cells["OsType"].Value)
+    }
+    Update-SlaveRowStatus $rowIndex "Checking..."
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
+        Get-SlaveReadinessResult $hostName $vdbenchPath $target $checker $checkerTemplate
+    } -OnComplete {
+        param($result, $errorRecord)
+        if ($null -ne $errorRecord) {
+            Update-SlaveRowStatus $rowIndex "Readiness error"
+            if ($ShowOutput) {
+                Show-Warning $errorRecord.Exception.Message
+            }
+            return
+        }
+        Update-SlaveRowStatus $rowIndex ([string]$result.Status)
         if ($ShowOutput) {
-            Show-Warning $_.Exception.Message
+            if ([string]$result.Status -eq "Readiness checker missing") {
+                Show-Warning "Readiness checker path is missing or does not exist."
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$result.Output)) {
+                Show-Info ([string]$result.Output) "Readiness output"
+            }
         }
     }
 }
 
 function Check-AllSlaveReadiness {
     Capture-Settings
+    $workRows = @()
     foreach ($row in $script:SlaveGrid.Rows) {
         if ($row.IsNewRow) {
             continue
         }
-        Check-SlaveRowReadiness $row $false
+        $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $row))
+        $target = ""
+        if ($targets.Count -gt 0) {
+            $target = [string]$targets[0].Target
+        } else {
+            $target = Get-DefaultTestTargetForOs ([string]$row.Cells["OsType"].Value)
+        }
+        $workRows += [pscustomobject]@{
+            Index = $row.Index
+            Host = [string]$row.Cells["Host"].Value
+            VdbenchPath = [string]$row.Cells["VdbenchPath"].Value
+            Target = $target
+        }
+        Update-SlaveRowStatus $row.Index "Checking..."
+    }
+    if ($workRows.Count -eq 0) {
+        return
+    }
+    $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
+    $checkerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
+        $results = @{}
+        foreach ($item in $workRows) {
+            $results[[string]$item.Index] = Get-SlaveReadinessResult $item.Host $item.VdbenchPath $item.Target $checker $checkerTemplate
+        }
+        return $results
+    } -OnComplete {
+        param($result, $errorRecord)
+        if ($null -ne $errorRecord) {
+            Show-Warning ("Readiness check failed: " + $errorRecord.Exception.Message)
+            return
+        }
+        foreach ($key in @($result.Keys)) {
+            Update-SlaveRowStatus ([int]$key) ([string]$result[$key].Status)
+        }
     }
 }
 function Pick-TargetForSelectedSlave {
@@ -460,7 +587,7 @@ function Pick-TargetForSelectedSlave {
         return
     }
     try {
-        $targets = @(Get-SlaveTargetInventory $row)
+        $targets = @(Get-SlaveTargetInventory $row -Force)
         $selected = Select-TargetsFromList $targets (Get-SlaveRowTargets $row) "Select slave test targets"
         if ($null -ne $selected) {
             Set-SlaveRowTargets $row $selected
@@ -545,15 +672,17 @@ function Set-TargetGridRows {
         [System.Windows.Forms.DataGridView]$Grid,
         [object[]]$Targets
     )
-    $Grid.Rows.Clear()
-    foreach ($target in @(Normalize-TargetEntries $Targets)) {
-        $idx = $Grid.Rows.Add()
-        $row = $Grid.Rows[$idx]
-        $row.Cells["Selected"].Value = [bool](Get-PropertyValue $target "Selected" $false)
-        $row.Cells["Kind"].Value = [string](Get-PropertyValue $target "Kind" "")
-        $row.Cells["Target"].Value = [string](Get-PropertyValue $target "Target" "")
-        $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $target "CreateFile" $false)
-        $row.Cells["Description"].Value = [string](Get-PropertyValue $target "Description" "")
+    Invoke-GridBatchUpdate $Grid {
+        $Grid.Rows.Clear()
+        foreach ($target in @(Normalize-TargetEntries $Targets)) {
+            $idx = $Grid.Rows.Add()
+            $row = $Grid.Rows[$idx]
+            $row.Cells["Selected"].Value = [bool](Get-PropertyValue $target "Selected" $false)
+            $row.Cells["Kind"].Value = [string](Get-PropertyValue $target "Kind" "")
+            $row.Cells["Target"].Value = [string](Get-PropertyValue $target "Target" "")
+            $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $target "CreateFile" $false)
+            $row.Cells["Description"].Value = [string](Get-PropertyValue $target "Description" "")
+        }
     }
 }
 
@@ -674,6 +803,7 @@ function Select-TargetsFromList {
 }
 
 function Refresh-LocalHostTab {
+    param([switch]$ForceInventory)
     if ($null -eq $script:LocalHostInfoBox) {
         return
     }
@@ -724,7 +854,7 @@ function Refresh-LocalHostTab {
         if ($null -ne $script:CurrentProfile) {
             $existing = @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @())
         }
-        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory) $existing)
+        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory -Force:$ForceInventory) $existing)
         $script:RefreshingLocalTargets = $true
         try {
             Set-TargetGridRows $script:LocalHostTargetGrid $targets
@@ -735,14 +865,16 @@ function Refresh-LocalHostTab {
             $script:RefreshingLocalTargets = $false
         }
     } catch {
-        $script:LocalHostTargetGrid.Rows.Clear()
-        $idx = $script:LocalHostTargetGrid.Rows.Add()
-        $row = $script:LocalHostTargetGrid.Rows[$idx]
-        $row.Cells["Selected"].Value = $false
-        $row.Cells["Kind"].Value = "Error"
-        $row.Cells["Target"].Value = ""
-        $row.Cells["CreateFile"].Value = $false
-        $row.Cells["Description"].Value = $_.Exception.Message
+        Invoke-GridBatchUpdate $script:LocalHostTargetGrid {
+            $script:LocalHostTargetGrid.Rows.Clear()
+            $idx = $script:LocalHostTargetGrid.Rows.Add()
+            $row = $script:LocalHostTargetGrid.Rows[$idx]
+            $row.Cells["Selected"].Value = $false
+            $row.Cells["Kind"].Value = "Error"
+            $row.Cells["Target"].Value = ""
+            $row.Cells["CreateFile"].Value = $false
+            $row.Cells["Description"].Value = $_.Exception.Message
+        }
     }
 }
 
@@ -807,8 +939,7 @@ function Update-RunModeTabs {
 }
 
 function Build-LocalHostTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Local Host"
+    $tab = New-MainTabPage "Local Host" "Local"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -821,7 +952,7 @@ function Build-LocalHostTab {
 
     $toolbar = New-FlowToolbar
     $refreshButton = New-Button "Refresh targets" 10 8 120 28
-    $refreshButton.Add_Click({ Refresh-LocalHostTab })
+    $refreshButton.Add_Click({ Refresh-LocalHostTab -ForceInventory })
     $toolbar.Controls.Add($refreshButton)
 
     $applyButton = New-Button "Save selections" 138 8 120 28
@@ -889,8 +1020,7 @@ function Build-LocalHostTab {
 }
 
 function Build-MasterSlaveTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Master / Slave"
+    $tab = New-MainTabPage "Master / Slave" "Slaves"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1164,8 +1294,7 @@ function Refresh-ProfileList {
 }
 
 function Build-ProfileTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Profile Builder"
+    $tab = New-MainTabPage "Profile Builder" "Profile"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1277,8 +1406,7 @@ function Build-ProfileTab {
     return $tab
 }
 function Build-PreviewTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Config Preview"
+    $tab = New-MainTabPage "Config Preview" "Preview"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1346,8 +1474,7 @@ function Open-CurrentRunFolder {
 }
 
 function Build-RunTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Run Monitor"
+    $tab = New-MainTabPage "Run Monitor" "Run"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1419,12 +1546,14 @@ function Refresh-Reports {
     if (-not $script:ReportsGrid) {
         return
     }
-    $script:ReportsGrid.Rows.Clear()
-    foreach ($state in Get-RunStates) {
-        $idx = $script:ReportsGrid.Rows.Add()
-        $row = $script:ReportsGrid.Rows[$idx]
-        foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
-            $row.Cells[$name].Value = [string](Get-PropertyValue $state $name "")
+    Invoke-GridBatchUpdate $script:ReportsGrid {
+        $script:ReportsGrid.Rows.Clear()
+        foreach ($state in Get-RunStates) {
+            $idx = $script:ReportsGrid.Rows.Add()
+            $row = $script:ReportsGrid.Rows[$idx]
+            foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
+                $row.Cells[$name].Value = [string](Get-PropertyValue $state $name "")
+            }
         }
     }
 }
@@ -1507,8 +1636,7 @@ function Show-SelectedRunLog {
 }
 
 function Build-ReportsTab {
-    $tab = New-Object System.Windows.Forms.TabPage
-    $tab.Text = "Status / Reports"
+    $tab = New-MainTabPage "Status / Reports" "Reports"
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1577,6 +1705,8 @@ function Build-MainForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Vdbench UI - Portable Manager"
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
+    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF -ArgumentList 96, 96
     $form.Size = New-Object System.Drawing.Size -ArgumentList 1280, 820
     $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1100, 700
 
@@ -1620,6 +1750,7 @@ function Build-MainForm {
     $tabs.TabPages.Add((Build-PreviewTab)) | Out-Null
     $tabs.TabPages.Add((Build-RunTab)) | Out-Null
     $tabs.TabPages.Add((Build-ReportsTab)) | Out-Null
+    Enable-MainTabToolTips $tabs
 
     $tabs.Add_DrawItem({
         param($sender, $eventArgs)
@@ -1673,7 +1804,7 @@ function Build-MainForm {
         if ($null -eq $selected) {
             return
         }
-        $title = [string]$selected.Text
+        $title = Get-MainTabFullTitle $selected
         if ($title -eq "Config Preview") {
             Refresh-ConfigPreview
         }
@@ -1687,9 +1818,20 @@ function Build-MainForm {
     })
 
     $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 250
+    $timer.Interval = 500
+    $script:UiRefreshTimer = $timer
     $timer.Add_Tick({
-        Flush-RunLog
+        $activeRun = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
+        if ($activeRun) {
+            if ($script:UiRefreshTimer.Interval -ne 250) {
+                $script:UiRefreshTimer.Interval = 250
+            }
+            Flush-RunLog
+            return
+        }
+        if ($script:UiRefreshTimer.Interval -ne 500) {
+            $script:UiRefreshTimer.Interval = 500
+        }
         if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
             if (-not $script:RunFinishedNotified) {
                 $script:RunFinishedNotified = $true

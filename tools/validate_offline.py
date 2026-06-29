@@ -325,6 +325,12 @@ def main() -> int:
     assert "TextRenderer]::DrawText" in ui_tabs_module
     assert "tabs.Add_SelectedIndexChanged({\n        param($sender, $eventArgs)" in ui_tabs_module.replace("\r\n", "\n")
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Get-CachedTargetInventory" in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
+    assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Start-BackgroundUiWork" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
+    assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module
     assert "SlaveUser" not in settings
     assert "BLOCKER: enabled slave" in config_module
     assert "Initialize-TestFilesForRun" in runner_module

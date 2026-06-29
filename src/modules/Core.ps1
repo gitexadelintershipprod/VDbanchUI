@@ -194,3 +194,28 @@ function Expand-ReadinessCheckerArguments {
     }
     return $expanded
 }
+
+function Initialize-DpiAwareness {
+    if ($script:DpiAwarenessInitialized) {
+        return
+    }
+    $script:DpiAwarenessInitialized = $true
+    try {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class VdbenchDpiHelper {
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+    [DllImport("shcore.dll")]
+    public static extern int SetProcessDpiAwareness(int value);
+}
+"@ -ErrorAction Stop | Out-Null
+        try {
+            [void][VdbenchDpiHelper]::SetProcessDpiAwareness(2)
+        } catch {
+            [void][VdbenchDpiHelper]::SetProcessDPIAware()
+        }
+    } catch {
+    }
+}

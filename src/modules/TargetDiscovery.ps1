@@ -32,7 +32,36 @@ function Convert-TargetInventoryOutput {
     return @($items)
 }
 
-function Get-LocalTargetInventory {
+$script:TargetInventoryCache = @{}
+$script:TargetInventoryCacheTtlSeconds = 45
+
+function Clear-TargetInventoryCache {
+    $script:TargetInventoryCache = @{}
+}
+
+function Get-CachedTargetInventory {
+    param(
+        [string]$CacheKey,
+        [scriptblock]$Loader,
+        [switch]$Force
+    )
+    $now = [datetime]::UtcNow
+    if (-not $Force -and $script:TargetInventoryCache.ContainsKey($CacheKey)) {
+        $entry = $script:TargetInventoryCache[$CacheKey]
+        $ageSeconds = ($now - $entry.At).TotalSeconds
+        if ($ageSeconds -lt $script:TargetInventoryCacheTtlSeconds) {
+            return @($entry.Items)
+        }
+    }
+    $items = @(& $Loader)
+    $script:TargetInventoryCache[$CacheKey] = @{
+        At = $now
+        Items = @($items)
+    }
+    return @($items)
+}
+
+function Get-LocalTargetInventoryCore {
     $items = @()
     try {
         foreach ($disk in @(Get-CimInstance Win32_DiskDrive -ErrorAction Stop | Sort-Object Index)) {
@@ -70,6 +99,11 @@ function Get-LocalTargetInventory {
 
     $items += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs "Windows") "Raw/file target; create/overwrite is controlled by the target checkbox."
     return @($items | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Target) })
+}
+
+function Get-LocalTargetInventory {
+    param([switch]$Force)
+    return @(Get-CachedTargetInventory "local" { Get-LocalTargetInventoryCore } -Force:$Force)
 }
 
 function Invoke-CapturedProcess {
@@ -117,13 +151,16 @@ function Test-HostLooksLocal {
 }
 
 function Get-SlaveTargetInventory {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    param(
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [switch]$Force
+    )
     if ($null -eq $Row -or $Row.IsNewRow) {
         return @()
     }
     $hostName = [string]$Row.Cells["Host"].Value
     if (Test-HostLooksLocal $hostName) {
-        return Get-LocalTargetInventory
+        return @(Get-LocalTargetInventory -Force:$Force)
     }
 
     $systemName = [string]$Row.Cells["SshAlias"].Value
@@ -135,6 +172,18 @@ function Get-SlaveTargetInventory {
     }
 
     $osType = [string]$Row.Cells["OsType"].Value
+    $cacheKey = ("remote|{0}|{1}" -f $systemName.ToLowerInvariant(), $osType)
+    return @(Get-CachedTargetInventory $cacheKey {
+        Get-RemoteSlaveTargetInventoryCore -SystemName $systemName -OsType $osType -Row $Row
+    } -Force:$Force)
+}
+
+function Get-RemoteSlaveTargetInventoryCore {
+    param(
+        [string]$SystemName,
+        [string]$OsType,
+        [System.Windows.Forms.DataGridViewRow]$Row
+    )
     $sshParts = New-Object System.Collections.Generic.List[string]
     $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
     if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
@@ -153,9 +202,9 @@ function Get-SlaveTargetInventory {
     [void]$sshParts.Add("BatchMode=yes")
     [void]$sshParts.Add("-o")
     [void]$sshParts.Add("ConnectTimeout=8")
-    [void]$sshParts.Add((Quote-ProcessArgument $systemName))
+    [void]$sshParts.Add((Quote-ProcessArgument $SystemName))
 
-    if ($osType -eq "Linux") {
+    if ($OsType -eq "Linux") {
         $remoteScript = 'for d in /sys/block/*; do name=${d##*/}; case "$name" in loop*|ram*) continue;; esac; size=$(cat "$d/size" 2>/dev/null); bytes=$((size*512)); echo "Raw disk|/dev/$name|bytes=$bytes"; done; if command -v findmnt >/dev/null 2>&1; then findmnt -rn -o TARGET,SOURCE,FSTYPE | while read target source fstype; do echo "Filesystem|$target|$source $fstype"; done; fi'
         [void]$sshParts.Add("sh")
         [void]$sshParts.Add("-lc")
@@ -173,7 +222,7 @@ function Get-SlaveTargetInventory {
         throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
     }
     $targets = @(Convert-TargetInventoryOutput $result.StdOut)
-    $targets += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs $osType) "Raw/file target; create/overwrite is controlled by the target checkbox."
+    $targets += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs $OsType) "Raw/file target; create/overwrite is controlled by the target checkbox."
     if ($targets.Count -eq 0) {
         throw "Remote discovery returned no targets."
     }

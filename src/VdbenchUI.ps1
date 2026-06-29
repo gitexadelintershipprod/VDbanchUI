@@ -14,7 +14,6 @@ try {
 } catch {
     $script:ChartAvailable = $false
 }
-[System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:AppRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $script:ConfigRoot = Join-Path $script:AppRoot "config"
@@ -64,9 +63,15 @@ $script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
 $script:AppToolTip = $null
 $script:RunFinishedNotified = $false
+$script:MainTabToolTipText = ""
+$script:UiRefreshTimer = $null
+$script:DpiAwarenessInitialized = $false
 
 $script:ModuleRoot = Join-Path (Split-Path -Parent $PSCommandPath) "modules"
 . (Join-Path $script:ModuleRoot "Import-AppModules.ps1") -ModuleRoot $script:ModuleRoot
+
+Initialize-DpiAwareness
+[System.Windows.Forms.Application]::EnableVisualStyles()
 
 try {
     if ($SelfTest) {
