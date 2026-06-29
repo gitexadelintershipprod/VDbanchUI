@@ -260,16 +260,17 @@ function Schedule-SlaveReadinessCheck {
     }
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1500
-    $capturedIndex = $RowIndex
+    $timer.Tag = $RowIndex
     $timer.Add_Tick({
         param($sender, $eventArgs)
         $sender.Stop()
         $sender.Dispose()
-        [void]$script:SlaveReadinessTimers.Remove([string]$capturedIndex)
-        if ($null -eq $script:SlaveGrid -or $capturedIndex -lt 0 -or $capturedIndex -ge $script:SlaveGrid.Rows.Count) {
+        $rowIndex = [int]$sender.Tag
+        [void]$script:SlaveReadinessTimers.Remove([string]$rowIndex)
+        if ($null -eq $script:SlaveGrid -or $rowIndex -lt 0 -or $rowIndex -ge $script:SlaveGrid.Rows.Count) {
             return
         }
-        $row = $script:SlaveGrid.Rows[$capturedIndex]
+        $row = $script:SlaveGrid.Rows[$rowIndex]
         if (-not $row.IsNewRow) {
             Start-SlaveReadinessCheck -Row $row
         }
