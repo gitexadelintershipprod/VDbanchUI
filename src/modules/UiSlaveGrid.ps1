@@ -195,16 +195,19 @@ function Start-SlavePingCheck {
     if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
-    $pingRowIndex = $Row.Index
-    $pingHostName = [string]$Row.Cells["Host"].Value
-    Update-SlaveRowPing $pingRowIndex "Pinging..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
-        Get-SlavePingStatus $pingHostName
+    $pingContext = @{
+        RowIndex = $Row.Index
+        HostName = [string]$Row.Cells["Host"].Value
+    }
+    Update-SlaveRowPing $pingContext.RowIndex "Pinging..."
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $pingContext -Work {
+        param($Context)
+        Get-SlavePingStatus $Context.HostName
     } -OnComplete {
-        param($result, $workError)
-        $status = if ($null -ne $workError) { "Ping error: " + $workError.Exception.Message } else { [string]$result }
+        param($Result, $WorkError, $Context)
+        $status = if ($null -ne $WorkError) { "Ping error: " + $WorkError.Exception.Message } else { [string]$Result }
         $checkedAt = (Get-Date).ToString("o")
-        Update-SlaveRowPing $pingRowIndex $status $checkedAt
+        Update-SlaveRowPing $Context.RowIndex $status $checkedAt
     }
 }
 
@@ -217,32 +220,35 @@ function Start-SlaveReadinessCheck {
         return
     }
     Capture-Settings
-    $readyRowIndex = $Row.Index
-    $readyShowOutput = $ShowOutput
-    $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
-    $checkerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
-    $readyHostName = [string]$Row.Cells["Host"].Value
-    $readyVdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
-    $readyTarget = Get-SlaveReadinessTargetForRow $Row
-    Update-SlaveRowReadiness $readyRowIndex "Checking..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
-        Get-SlaveReadinessResult $readyHostName $readyVdbenchPath $readyTarget $checker $checkerTemplate
+    $readyContext = @{
+        RowIndex = $Row.Index
+        ShowOutput = $ShowOutput
+        HostName = [string]$Row.Cells["Host"].Value
+        VdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
+        Target = Get-SlaveReadinessTargetForRow $Row
+        Checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
+        CheckerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
+    }
+    Update-SlaveRowReadiness $readyContext.RowIndex "Checking..."
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $readyContext -Work {
+        param($Context)
+        Get-SlaveReadinessResult $Context.HostName $Context.VdbenchPath $Context.Target $Context.Checker $Context.CheckerTemplate
     } -OnComplete {
-        param($result, $workError)
+        param($Result, $WorkError, $Context)
         $checkedAt = (Get-Date).ToString("o")
-        if ($null -ne $workError) {
-            Update-SlaveRowReadiness $readyRowIndex "Error" $checkedAt $workError.Exception.Message
-            if ($readyShowOutput) {
-                Show-Warning $workError.Exception.Message
+        if ($null -ne $WorkError) {
+            Update-SlaveRowReadiness $Context.RowIndex "Error" $checkedAt $WorkError.Exception.Message
+            if ($Context.ShowOutput) {
+                Show-Warning $WorkError.Exception.Message
             }
             return
         }
-        Update-SlaveRowReadiness $readyRowIndex ([string]$result.Status) $checkedAt ([string]$result.Output)
-        if ($readyShowOutput) {
-            if ([string]$result.Status -eq "Checker missing") {
+        Update-SlaveRowReadiness $Context.RowIndex ([string]$Result.Status) $checkedAt ([string]$Result.Output)
+        if ($Context.ShowOutput) {
+            if ([string]$Result.Status -eq "Checker missing") {
                 Show-Warning "Readiness checker path is missing or does not exist."
-            } elseif (-not [string]::IsNullOrWhiteSpace([string]$result.Output)) {
-                Show-Info ([string]$result.Output) "Readiness output"
+            } elseif (-not [string]::IsNullOrWhiteSpace([string]$Result.Output)) {
+                Show-Info ([string]$Result.Output) "Readiness output"
             }
         }
         Refresh-ConfigPreview

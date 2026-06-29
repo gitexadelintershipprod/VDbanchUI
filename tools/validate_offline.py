@@ -345,7 +345,12 @@ def main() -> int:
     assert "Invoke-BackgroundUiCompletions" in ui_helpers_module
     assert "BackgroundUiCompletionQueue" in ui_helpers_module
     assert "BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions })" in ui_helpers_module
+    assert "[hashtable]$Context = @{}" in ui_helpers_module
     assert "if ($null -ne $errorRecord)" not in ui_helpers_module
+    assert "readyRowIndex" not in ui_slave_module
+    assert "pingRowIndex" not in ui_slave_module
+    assert "-Context $readyContext" in ui_slave_module
+    assert "param($Result, $WorkError, $Context)" in ui_slave_module
     assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
     assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
     assert "SlaveReadinessTimerRows" in ui_slave_module

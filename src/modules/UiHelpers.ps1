@@ -185,9 +185,9 @@ function Invoke-BackgroundUiCompletions {
     while ($script:BackgroundUiCompletionQueue.Count -gt 0) {
         $item = $script:BackgroundUiCompletionQueue.Dequeue()
         if ($null -ne $item.Error) {
-            & $item.OnComplete $null $item.Error
+            & $item.OnComplete $null $item.Error $item.Context
         } else {
-            & $item.OnComplete $item.Result $null
+            & $item.OnComplete $item.Result $null $item.Context
         }
     }
 }
@@ -196,14 +196,15 @@ function Start-BackgroundUiWork {
     param(
         [System.Windows.Forms.Control]$Owner,
         [scriptblock]$Work,
-        [scriptblock]$OnComplete
+        [scriptblock]$OnComplete,
+        [hashtable]$Context = @{}
     )
     if ($null -eq $Owner) {
         try {
-            $result = & $Work
-            & $OnComplete $result $null
+            $result = & $Work $Context
+            & $OnComplete $result $null $Context
         } catch {
-            & $OnComplete $null $_
+            & $OnComplete $null $_ $Context
         }
         return
     }
@@ -211,6 +212,7 @@ function Start-BackgroundUiWork {
         Work = $Work
         OnComplete = $OnComplete
         Owner = $Owner
+        Context = $Context
     }
     $jobId = [guid]::NewGuid().ToString()
     $script:BackgroundUiPackages[$jobId] = $package
@@ -221,7 +223,7 @@ function Start-BackgroundUiWork {
         param($sender, $eventArgs)
         $id = [string]$eventArgs.Argument
         $pkg = $script:BackgroundUiPackages[$id]
-        $eventArgs.Result = & $pkg.Work
+        $eventArgs.Result = & $pkg.Work $pkg.Context
     })
     $worker.Add_RunWorkerCompleted({
         param($sender, $eventArgs)
@@ -240,6 +242,7 @@ function Start-BackgroundUiWork {
             OnComplete = $pkg.OnComplete
             Error = $workError
             Result = $workResult
+            Context = $pkg.Context
         })
         $owner = $pkg.Owner
         $owner.BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions }) | Out-Null
