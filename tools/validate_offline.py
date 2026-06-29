@@ -311,6 +311,8 @@ def main() -> int:
     assert "function Build-MasterSlaveTab" in ui_slave_module
     assert "function Browse-SlaveTargetsForRow" in ui_slave_module
     assert "function Start-SlaveReadinessCheck" in ui_slave_module
+    assert "$timer.Tag = $RowIndex" in ui_slave_module
+    assert "capturedIndex" not in ui_slave_module
     assert 'New-Button "Test ping"' not in ui_slave_module
     assert 'New-Button "Pick target"' not in ui_slave_module
     assert "function Set-SelectedSlavePrivateKey" not in ui_tabs_module
