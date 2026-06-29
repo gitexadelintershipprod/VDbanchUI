@@ -60,6 +60,7 @@ $script:LocalHostTab = $null
 $script:MasterSlaveTab = $null
 $script:LocalHostInfoBox = $null
 $script:LocalHostTargetGrid = $null
+$script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
 $script:AppToolTip = $null
 $script:RunFinishedNotified = $false

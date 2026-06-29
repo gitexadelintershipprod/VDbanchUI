@@ -60,6 +60,7 @@ function Invoke-AppSelfTest {
         Set-PropertyValue $script:Settings "RunMode" "Single local run"
 
         $script:CurrentProfile = New-DefaultProfile "SelfTest-Raw" "Raw/block"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Test file" -Target "C:\vdbench\testfile.dat" -Selected $true))
         Set-ProfileParamValue $script:CurrentProfile "storage.dedupratio" "2"
         Set-ProfileParamEnabled $script:CurrentProfile "storage.dedupratio" $false
         $raw = Build-VdbenchConfig
@@ -68,13 +69,13 @@ function Invoke-AppSelfTest {
         Assert-SelfTestContains $raw.Text "rd=rd1,wd=wd1,elapsed=300,warmup=30,interval=1,iorate=max" "raw run line"
         Assert-SelfTestContains $raw.Text "* disabled: dedupratio=2" "disabled parameter rendering"
 
-        Set-ProfileParamValue $script:CurrentProfile "storage.lun" "\\.\PhysicalDrive1"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Raw disk" -Target "\\.\PhysicalDrive1" -Selected $true))
         $rawRisk = Build-VdbenchConfig
         Assert-SelfTestContains (($rawRisk.Warnings -join "`n")) "RISK: local target '\\.\PhysicalDrive1' looks like a raw physical device." "raw risk warning"
-        Set-ProfileParamValue $script:CurrentProfile "storage.lun" "\\.\E:"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Raw disk" -Target "\\.\E:" -Selected $true))
         $rawVolumeRisk = Build-VdbenchConfig
         Assert-SelfTestContains (($rawVolumeRisk.Warnings -join "`n")) "RISK: local target '\\.\E:' looks like a raw physical device." "raw volume risk warning"
-        Set-ProfileParamValue $script:CurrentProfile "storage.lun" "C:\vdbench\testfile.dat"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Test file" -Target "C:\vdbench\testfile.dat" -Selected $true))
 
         Set-PropertyValue $script:Settings "RunMode" "Master/Slave distributed run"
         $script:Slaves = @(
@@ -85,6 +86,7 @@ function Invoke-AppSelfTest {
                 OsType = "Linux"
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/dev/sdb"
+                Targets = @((New-TargetSelection -Kind "Raw disk" -Target "/dev/sdb" -Selected $true))
                 SshAlias = "test-001"
                 PrivateKey = ""
                 Status = "Self-test"
@@ -94,12 +96,13 @@ function Invoke-AppSelfTest {
         $distributed = Build-VdbenchConfig
         Assert-SelfTestContains $distributed.Text "hd=default,shell=ssh" "distributed host defaults"
         Assert-SelfTestContains $distributed.Text "hd=test-001,system=test-001,vdbench=/opt/vdbench" "distributed host line"
-        Assert-SelfTestContains $distributed.Text "sd=sd_test_001,host=test-001,lun=/dev/sdb" "distributed storage line"
+        Assert-SelfTestContains $distributed.Text "sd=sd_test_001_1,host=test-001,lun=/dev/sdb" "distributed storage line"
         Assert-SelfTestContains $distributed.Text "wd=wd1,sd=sd*" "distributed workload fanout"
         Assert-SelfTestContains (($distributed.Warnings -join "`n")) "RISK: slave 'test-001' target '/dev/sdb' looks like a raw physical device." "distributed raw risk warning"
 
         Set-PropertyValue $script:Settings "RunMode" "Single local run"
         $script:CurrentProfile = New-DefaultProfile "SelfTest-Filesystem" "Filesystem"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Filesystem" -Target "C:\vdbench\fs_test" -Selected $true))
         $fs = Build-VdbenchConfig
         Assert-SelfTestContains $fs.Text "fsd=fsd1,anchor=C:\vdbench\fs_test" "filesystem definition"
         Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1,operation=read" "filesystem workload"
@@ -114,6 +117,7 @@ function Invoke-AppSelfTest {
                 OsType = "Linux"
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/mnt/test"
+                Targets = @((New-TargetSelection -Kind "Filesystem" -Target "/mnt/test" -Selected $true))
                 SshAlias = "test-002"
                 PrivateKey = ""
                 Status = "Self-test"
@@ -122,11 +126,11 @@ function Invoke-AppSelfTest {
         )
         $script:CurrentProfile = New-DefaultProfile "SelfTest-Filesystem-Distributed" "Filesystem"
         $fsDistributed = Build-VdbenchConfig
-        Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002,host=test-002,anchor=/mnt/test" "distributed filesystem definition"
+        Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002_1,host=test-002,anchor=/mnt/test" "distributed filesystem definition"
         Assert-SelfTestContains $fsDistributed.Text "fwd=fwd1,fsd=fsd*" "distributed filesystem workload fanout"
 
         Set-PropertyValue $script:Settings "RunMode" "Single local run"
-        Set-ProfileParamValue $script:CurrentProfile "fsd.anchor" "C:\"
+        $script:CurrentProfile.LocalTargets = @((New-TargetSelection -Kind "Filesystem" -Target "C:\" -Selected $true))
         Set-ProfileParamValue $script:CurrentProfile "run.format" "yes"
         $fsRisk = Build-VdbenchConfig
         $fsRiskWarnings = $fsRisk.Warnings -join "`n"

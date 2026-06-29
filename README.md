@@ -94,15 +94,19 @@ The ZIP is written under `dist\` and excludes runtime state such as `data`, `run
 1. Open `Settings / Paths`.
 2. Confirm `VdbenchRoot`, `MasterVdbenchBat`, `ReportsRoot`, SSH paths, and readiness checker.
 3. Open `Master / Slave`.
-4. Add slaves, OS type, Vdbench path, SSH alias, and test target. Use `Pick target`
-   to discover local targets or remote slave targets over SSH.
-5. Open `Profile Builder`.
-6. Create or edit a profile. Use `Pick target` to fill `storage.lun` or
-   `fsd.anchor`, and use the `?` buttons for parameter help.
-7. Disable optional parameters by clearing the `Enabled` checkbox. Disabled values are preserved and rendered as comments in the generated config.
-8. Review `Config Preview`.
-9. Use `Run Monitor` -> `Config only` to create a `.parm` and run folder without starting Vdbench.
-10. Start the real run from `Run Monitor` -> `Start`.
+4. For single local runs, open `Local Host`, select one or more targets with the
+   `Use` checkbox, and optionally enable `Create/overwrite file` for a test-file
+   target.
+5. For master/slave runs, open `Master / Slave`, add hosts, run ping/readiness
+   checks, then use `Pick target` to select one or more targets per enabled host.
+6. Open `Profile Builder`.
+7. Create or edit a profile and use the `?` buttons for parameter help. Target
+   paths are selected from `Local Host` or `Master / Slave`, not from the profile
+   parameter list.
+8. Disable optional parameters by clearing the `Enabled` checkbox. Disabled values are preserved and rendered as comments in the generated config.
+9. Review `Config Preview`.
+10. Use `Run Monitor` -> `Config only` to create a `.parm` and run folder without starting Vdbench.
+11. Start the real run from `Run Monitor` -> `Start`.
 
 ## Safe Smoke Test
 

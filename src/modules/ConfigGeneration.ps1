@@ -154,15 +154,19 @@ function Add-TargetRiskWarnings {
     if ($TestKind -eq "Raw/block") {
         if ($Distributed) {
             foreach ($slave in @(Get-EnabledSlaves)) {
-                $target = [string](Get-PropertyValue $slave "TestTarget" "")
-                if (Test-RawDeviceTarget $target) {
-                    [void]$Warnings.Add(("RISK: slave '{0}' target '{1}' looks like a raw physical device." -f $slave.Name, $target))
+                foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "raw")) {
+                    $targetPath = [string](Get-PropertyValue $target "Target" "")
+                    if (Test-RawDeviceTarget $targetPath) {
+                        [void]$Warnings.Add(("RISK: slave '{0}' target '{1}' looks like a raw physical device." -f $slave.Name, $targetPath))
+                    }
                 }
             }
         } else {
-            $target = Get-ProfileParamValue $script:CurrentProfile "storage.lun" ""
-            if (Test-RawDeviceTarget $target) {
-                [void]$Warnings.Add(("RISK: local target '{0}' looks like a raw physical device." -f $target))
+            foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "raw")) {
+                $targetPath = [string](Get-PropertyValue $target "Target" "")
+                if (Test-RawDeviceTarget $targetPath) {
+                    [void]$Warnings.Add(("RISK: local target '{0}' looks like a raw physical device." -f $targetPath))
+                }
             }
         }
     } elseif ($TestKind -eq "Filesystem") {
@@ -172,15 +176,19 @@ function Add-TargetRiskWarnings {
         }
         if ($Distributed) {
             foreach ($slave in @(Get-EnabledSlaves)) {
-                $target = [string](Get-PropertyValue $slave "TestTarget" "")
-                if (Test-FilesystemRootTarget $target) {
-                    [void]$Warnings.Add(("RISK: slave '{0}' filesystem target '{1}' looks like a root drive/path." -f $slave.Name, $target))
+                foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "fs")) {
+                    $targetPath = [string](Get-PropertyValue $target "Target" "")
+                    if (Test-FilesystemRootTarget $targetPath) {
+                        [void]$Warnings.Add(("RISK: slave '{0}' filesystem target '{1}' looks like a root drive/path." -f $slave.Name, $targetPath))
+                    }
                 }
             }
         } else {
-            $target = Get-ProfileParamValue $script:CurrentProfile "fsd.anchor" ""
-            if (Test-FilesystemRootTarget $target) {
-                [void]$Warnings.Add(("RISK: filesystem anchor '{0}' looks like a root drive/path." -f $target))
+            foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "fs")) {
+                $targetPath = [string](Get-PropertyValue $target "Target" "")
+                if (Test-FilesystemRootTarget $targetPath) {
+                    [void]$Warnings.Add(("RISK: filesystem anchor '{0}' looks like a root drive/path." -f $targetPath))
+                }
             }
         }
     }
@@ -194,6 +202,50 @@ function Get-RiskWarnings {
 function Get-EnabledSlaves {
     Capture-SlaveGrid
     return @($script:Slaves | Where-Object { [bool]$_.Enabled })
+}
+
+function Get-ConfigTargetCategory {
+    param([string]$TestKind)
+    if ($TestKind -eq "Filesystem") {
+        return "fs"
+    }
+    return "raw"
+}
+
+function Add-TargetSelectionWarnings {
+    param(
+        [System.Collections.Generic.List[string]]$Warnings,
+        [string]$TestKind,
+        [bool]$Distributed
+    )
+    $category = Get-ConfigTargetCategory $TestKind
+    if ($Distributed) {
+        foreach ($slave in @(Get-EnabledSlaves)) {
+            $selected = @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()))
+            if ($selected.Count -eq 0) {
+                [void]$Warnings.Add(("BLOCKER: enabled slave '{0}' has no selected target." -f $slave.Name))
+                continue
+            }
+            foreach ($target in $selected) {
+                $targetCategory = Get-TargetCategory $target
+                if ($targetCategory -ne $category) {
+                    [void]$Warnings.Add(("BLOCKER: slave '{0}' target '{1}' is {2}, but the profile expects {3} targets." -f $slave.Name, $target.Target, $targetCategory, $category))
+                }
+            }
+        }
+    } else {
+        $selected = @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()))
+        if ($selected.Count -eq 0) {
+            [void]$Warnings.Add("BLOCKER: local run has no selected target in the Local Host tab.")
+            return
+        }
+        foreach ($target in $selected) {
+            $targetCategory = Get-TargetCategory $target
+            if ($targetCategory -ne $category) {
+                [void]$Warnings.Add(("BLOCKER: local target '{0}' is {1}, but the profile expects {2} targets." -f $target.Target, $targetCategory, $category))
+            }
+        }
+    }
 }
 
 function Add-ManualLines {
@@ -237,6 +289,9 @@ function Build-VdbenchConfig {
             continue
         }
         $key = [string]$def.Key
+        if (@("storage.lun", "fsd.anchor") -contains $key) {
+            continue
+        }
         $value = Get-ProfileParamValue $script:CurrentProfile $key ""
         if (-not (Get-ProfileParamEnabled $script:CurrentProfile $key)) {
             [void]$warnings.Add(("Required parameter is disabled: {0}" -f $def.Label))
@@ -245,6 +300,7 @@ function Build-VdbenchConfig {
         }
     }
     Add-ParameterValidationWarnings $warnings $testKind
+    Add-TargetSelectionWarnings $warnings $testKind $distributed
     Add-TargetRiskWarnings $warnings $testKind $distributed
 
     [void]$lines.Add("* Generated by Vdbench UI")
@@ -307,15 +363,36 @@ function Build-VdbenchConfig {
         if ($distributed) {
             $slaves = @(Get-EnabledSlaves)
             foreach ($slave in $slaves) {
-                $parts = New-Object System.Collections.Generic.List[string]
                 $safeName = ([string]$slave.Name) -replace "[^A-Za-z0-9_]", "_"
-                [void]$parts.Add(("sd=sd_{0}" -f $safeName))
-                [void]$parts.Add(("host={0}" -f $slave.Name))
-                if ([string]::IsNullOrWhiteSpace([string]$slave.TestTarget)) {
-                    [void]$warnings.Add("Enabled slave '$($slave.Name)' has no TestTarget.")
-                } else {
-                    [void]$parts.Add(("lun={0}" -f $slave.TestTarget))
+                $targets = @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "raw")
+                $targetIndex = 0
+                foreach ($target in $targets) {
+                    $targetIndex++
+                    $parts = New-Object System.Collections.Generic.List[string]
+                    [void]$parts.Add(("sd=sd_{0}_{1}" -f $safeName, $targetIndex))
+                    [void]$parts.Add(("host={0}" -f $slave.Name))
+                    [void]$parts.Add(("lun={0}" -f ([string]$target.Target)))
+                    foreach ($def in Get-DefinitionsForLine "storage" $testKind) {
+                        if ($def.Key -eq "storage.lun") {
+                            continue
+                        }
+                        Add-EnabledParameter $parts $disabled $def "storage"
+                    }
+                    [void]$lines.Add(($parts -join ","))
                 }
+            }
+        } else {
+            $targets = @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "raw")
+            $targetIndex = 0
+            foreach ($target in $targets) {
+                $targetIndex++
+                $name = $sdName
+                if ($targets.Count -gt 1) {
+                    $name = ("{0}_{1}" -f $sdName, $targetIndex)
+                }
+                $parts = New-Object System.Collections.Generic.List[string]
+                [void]$parts.Add(("sd={0}" -f $name))
+                [void]$parts.Add(("lun={0}" -f ([string]$target.Target)))
                 foreach ($def in Get-DefinitionsForLine "storage" $testKind) {
                     if ($def.Key -eq "storage.lun") {
                         continue
@@ -324,13 +401,6 @@ function Build-VdbenchConfig {
                 }
                 [void]$lines.Add(($parts -join ","))
             }
-        } else {
-            $parts = New-Object System.Collections.Generic.List[string]
-            [void]$parts.Add(("sd={0}" -f $sdName))
-            foreach ($def in Get-DefinitionsForLine "storage" $testKind) {
-                Add-EnabledParameter $parts $disabled $def "storage"
-            }
-            [void]$lines.Add(($parts -join ","))
         }
         [void]$lines.Add("")
 
@@ -338,6 +408,8 @@ function Build-VdbenchConfig {
         $wdParts = New-Object System.Collections.Generic.List[string]
         [void]$wdParts.Add(("wd={0}" -f $wdName))
         if ($distributed) {
+            [void]$wdParts.Add("sd=sd*")
+        } elseif (@(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "raw").Count -gt 1) {
             [void]$wdParts.Add("sd=sd*")
         } else {
             [void]$wdParts.Add(("sd={0}" -f $sdName))
@@ -365,15 +437,36 @@ function Build-VdbenchConfig {
         if ($distributed) {
             $slaves = @(Get-EnabledSlaves)
             foreach ($slave in $slaves) {
-                $parts = New-Object System.Collections.Generic.List[string]
                 $safeName = ([string]$slave.Name) -replace "[^A-Za-z0-9_]", "_"
-                [void]$parts.Add(("fsd=fsd_{0}" -f $safeName))
-                [void]$parts.Add(("host={0}" -f $slave.Name))
-                if ([string]::IsNullOrWhiteSpace([string]$slave.TestTarget)) {
-                    [void]$warnings.Add("Enabled slave '$($slave.Name)' has no TestTarget.")
-                } else {
-                    [void]$parts.Add(("anchor={0}" -f $slave.TestTarget))
+                $targets = @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "fs")
+                $targetIndex = 0
+                foreach ($target in $targets) {
+                    $targetIndex++
+                    $parts = New-Object System.Collections.Generic.List[string]
+                    [void]$parts.Add(("fsd=fsd_{0}_{1}" -f $safeName, $targetIndex))
+                    [void]$parts.Add(("host={0}" -f $slave.Name))
+                    [void]$parts.Add(("anchor={0}" -f ([string]$target.Target)))
+                    foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
+                        if ($def.Key -eq "fsd.anchor") {
+                            continue
+                        }
+                        Add-EnabledParameter $parts $disabled $def "fsd"
+                    }
+                    [void]$lines.Add(($parts -join ","))
                 }
+            }
+        } else {
+            $targets = @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "fs")
+            $targetIndex = 0
+            foreach ($target in $targets) {
+                $targetIndex++
+                $name = $fsdName
+                if ($targets.Count -gt 1) {
+                    $name = ("{0}_{1}" -f $fsdName, $targetIndex)
+                }
+                $parts = New-Object System.Collections.Generic.List[string]
+                [void]$parts.Add(("fsd={0}" -f $name))
+                [void]$parts.Add(("anchor={0}" -f ([string]$target.Target)))
                 foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
                     if ($def.Key -eq "fsd.anchor") {
                         continue
@@ -382,13 +475,6 @@ function Build-VdbenchConfig {
                 }
                 [void]$lines.Add(($parts -join ","))
             }
-        } else {
-            $parts = New-Object System.Collections.Generic.List[string]
-            [void]$parts.Add(("fsd={0}" -f $fsdName))
-            foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
-                Add-EnabledParameter $parts $disabled $def "fsd"
-            }
-            [void]$lines.Add(($parts -join ","))
         }
         [void]$lines.Add("")
 
@@ -396,6 +482,8 @@ function Build-VdbenchConfig {
         $fwdParts = New-Object System.Collections.Generic.List[string]
         [void]$fwdParts.Add(("fwd={0}" -f $fwdName))
         if ($distributed) {
+            [void]$fwdParts.Add("fsd=fsd*")
+        } elseif (@(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "fs").Count -gt 1) {
             [void]$fwdParts.Add("fsd=fsd*")
         } else {
             [void]$fwdParts.Add(("fsd={0}" -f $fsdName))
