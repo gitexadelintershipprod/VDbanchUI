@@ -1606,6 +1606,8 @@ function Build-MainForm {
     $tabs.Dock = [System.Windows.Forms.DockStyle]::Fill
     $tabs.Multiline = $true
     $tabs.DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed
+    $tabs.ItemSize = New-Object System.Drawing.Size -ArgumentList 118, 28
+    $tabs.Padding = New-Object System.Drawing.Point -ArgumentList 8, 4
     $layout.Controls.Add($tabs, 0, 1)
     $script:MainTabControl = $tabs
 
@@ -1621,10 +1623,16 @@ function Build-MainForm {
 
     $tabs.Add_DrawItem({
         param($sender, $eventArgs)
-        $page = $sender.TabPages[$eventArgs.Index]
+        $index = $eventArgs.Index
+        $page = $sender.TabPages[$index]
         $disabled = Test-RunModeTabDisabled $page
+        $selected = ($sender.SelectedIndex -eq $index)
+        $tabRect = $sender.GetTabRect($index)
+        $graphics = $eventArgs.Graphics
         $backColor = if ($disabled) {
             [System.Drawing.Color]::FromArgb(220, 220, 220)
+        } elseif ($selected) {
+            [System.Drawing.SystemColors]::Window
         } else {
             [System.Drawing.SystemColors]::Control
         }
@@ -1634,21 +1642,21 @@ function Build-MainForm {
             [System.Drawing.SystemColors]::ControlText
         }
         $backBrush = New-Object System.Drawing.SolidBrush $backColor
-        $eventArgs.Graphics.FillRectangle($backBrush, $eventArgs.Bounds)
+        $graphics.FillRectangle($backBrush, $tabRect)
         $backBrush.Dispose()
-        $textBrush = New-Object System.Drawing.SolidBrush $foreColor
-        $format = New-Object System.Drawing.StringFormat
-        $format.Alignment = [System.Drawing.StringAlignment]::Center
-        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $textBounds = [System.Drawing.RectangleF]::new(
-            [single]$eventArgs.Bounds.X,
-            [single]$eventArgs.Bounds.Y,
-            [single]$eventArgs.Bounds.Width,
-            [single]$eventArgs.Bounds.Height
-        )
-        $eventArgs.Graphics.DrawString($page.Text, $page.Font, $textBrush, $textBounds, $format)
-        $format.Dispose()
-        $textBrush.Dispose()
+        if ($selected) {
+            $borderPen = New-Object System.Drawing.Pen ([System.Drawing.SystemColors]::ControlDark)
+            $graphics.DrawLine($borderPen, $tabRect.Left, $tabRect.Bottom - 1, $tabRect.Right, $tabRect.Bottom - 1)
+            $borderPen.Dispose()
+        }
+        $textRect = $tabRect
+        $textRect.Inflate(-4, -2)
+        $textFlags = [System.Windows.Forms.TextFormatFlags]::HorizontalCenter `
+            -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter `
+            -bor [System.Windows.Forms.TextFormatFlags]::EndEllipsis `
+            -bor [System.Windows.Forms.TextFormatFlags]::SingleLine `
+            -bor [System.Windows.Forms.TextFormatFlags]::NoPadding
+        [System.Windows.Forms.TextRenderer]::DrawText($graphics, $page.Text, $sender.Font, $textRect, $foreColor, $textFlags)
     })
 
     $tabs.Add_Selecting({
@@ -1660,11 +1668,21 @@ function Build-MainForm {
 
     $tabs.Add_SelectedIndexChanged({
         param($sender, $eventArgs)
-        Refresh-ConfigPreview
-        Refresh-Reports
         Update-RunModeIndicator
-        if (-not (Is-DistributedMode) -and $sender.SelectedTab -eq $script:LocalHostTab) {
-            Refresh-LocalHostTab
+        $selected = $sender.SelectedTab
+        if ($null -eq $selected) {
+            return
+        }
+        $title = [string]$selected.Text
+        if ($title -eq "Config Preview") {
+            Refresh-ConfigPreview
+        }
+        if ($title -eq "Status / Reports") {
+            Refresh-Reports
+        }
+        if (-not (Is-DistributedMode) -and $selected -eq $script:LocalHostTab) {
+            $deferRefresh = [System.Action]{ Refresh-LocalHostTab }
+            $sender.BeginInvoke($deferRefresh) | Out-Null
         }
     })
 
