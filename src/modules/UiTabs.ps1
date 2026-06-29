@@ -124,10 +124,33 @@ function Build-SettingsTab {
     Validate-SettingsPaths
     return $tab
 }
+function Apply-SlaveGridRowDefaults {
+    param(
+        $Row,
+        [switch]$RefreshSshAlias
+    )
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    $osType = [string]$Row.Cells["OsType"].Value
+    if ([string]::IsNullOrWhiteSpace($osType)) {
+        $osType = "Windows"
+        $Row.Cells["OsType"].Value = $osType
+    }
+    $Row.Cells["User"].Value = Get-DefaultSlaveUserForOs $osType
+    $Row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs $osType
+    $Row.Cells["TestTarget"].Value = Get-DefaultTestTargetForOs $osType
+    $name = [string]$Row.Cells["Name"].Value
+    $hostName = [string]$Row.Cells["Host"].Value
+    if ($RefreshSshAlias -or [string]::IsNullOrWhiteSpace([string]$Row.Cells["SshAlias"].Value)) {
+        $Row.Cells["SshAlias"].Value = Get-DefaultSshAliasForSlave $name $hostName
+    }
+}
+
 function Build-SlaveGrid {
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $grid.AllowUserToAddRows = $true
+    $grid.AllowUserToAddRows = $false
     $grid.AllowUserToDeleteRows = $true
     $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
     $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
@@ -193,7 +216,7 @@ function Build-SlaveGrid {
             return
         }
         $columnName = $sender.Columns[$eventArgs.ColumnIndex].Name
-        if ($columnName -ne "OsType") {
+        if (@("OsType", "Name", "Host") -notcontains $columnName) {
             return
         }
         Capture-Settings
@@ -201,7 +224,8 @@ function Build-SlaveGrid {
         if ($row.IsNewRow) {
             return
         }
-        $row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs ([string]$row.Cells["OsType"].Value)
+        $refreshSshAlias = @("Name", "Host") -contains $columnName
+        Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$refreshSshAlias
     })
     return $grid
 }
@@ -209,10 +233,14 @@ function Build-SlaveGrid {
 function Populate-SlaveGrid {
     $script:SlaveGrid.Rows.Clear()
     foreach ($slave in @($script:Slaves)) {
+        if (-not (Test-SlaveHasHost $slave)) {
+            continue
+        }
         $idx = $script:SlaveGrid.Rows.Add()
         $row = $script:SlaveGrid.Rows[$idx]
+        $normalized = Apply-SlaveDefaults $slave
         foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "TestTarget", "SshAlias", "PrivateKey", "Status", "Notes")) {
-            $row.Cells[$col].Value = Get-PropertyValue $slave $col ""
+            $row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
         }
     }
 }
@@ -228,10 +256,13 @@ function Capture-SlaveGrid {
         }
         $name = [string]$row.Cells["Name"].Value
         $hostName = [string]$row.Cells["Host"].Value
-        if ([string]::IsNullOrWhiteSpace($name) -and [string]::IsNullOrWhiteSpace($hostName)) {
+        if ([string]::IsNullOrWhiteSpace($hostName)) {
             continue
         }
-        $items += [pscustomobject]@{
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            $name = $hostName
+        }
+        $items += Apply-SlaveDefaults ([pscustomobject]@{
             Enabled = [bool]$row.Cells["Enabled"].Value
             Name = $name
             Host = $hostName
@@ -243,7 +274,7 @@ function Capture-SlaveGrid {
             PrivateKey = [string]$row.Cells["PrivateKey"].Value
             Status = [string]$row.Cells["Status"].Value
             Notes = [string]$row.Cells["Notes"].Value
-        }
+        })
     }
     $script:Slaves = @($items)
 }
@@ -449,9 +480,7 @@ function Build-MasterSlaveTab {
         $row.Cells["Name"].Value = "slave-" + ($idx + 1)
         $row.Cells["Host"].Value = "host-or-ip"
         $row.Cells["OsType"].Value = "Windows"
-        $row.Cells["User"].Value = ""
-        $row.Cells["VdbenchPath"].Value = Get-DefaultVdbenchPathForOs "Windows"
-        $row.Cells["TestTarget"].Value = "C:\vdbench\testfile.dat"
+        Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$true
         $row.Cells["Status"].Value = "Not checked"
     })
     $toolbar.Controls.Add($addButton)
@@ -508,7 +537,7 @@ function Build-MasterSlaveTab {
     Set-ControlToolTip $clearKeyButton "Clear the per-slave private key override and use the Settings private key."
     $toolbar.Controls.Add($clearKeyButton)
 
-    $note = New-Label "TestTarget = disk/device/directory per slave. Disabled rows are omitted. Key override blank = Settings private key." 0 0 760 24
+    $note = New-Label "TestTarget = disk/device/directory per slave. SshAlias auto-fills from Name/Host. User defaults: Windows=administrator, Linux=root. Use Add slave to create rows." 0 0 900 24
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
