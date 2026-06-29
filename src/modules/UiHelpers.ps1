@@ -199,16 +199,22 @@ function Start-BackgroundUiWork {
         OnComplete = $OnComplete
         Owner = $Owner
     }
+    $jobId = [guid]::NewGuid().ToString()
+    $script:BackgroundUiPackages[$jobId] = $package
     $worker = New-Object System.ComponentModel.BackgroundWorker
+    $worker.Tag = $jobId
     $worker.Add_DoWork({
         param($sender, $eventArgs)
-        $pkg = $script:BackgroundUiPackages[$eventArgs.Argument]
+        $id = [string]$sender.Tag
+        $pkg = $script:BackgroundUiPackages[$id]
         $eventArgs.Result = & $pkg.Work
     })
     $worker.Add_RunWorkerCompleted({
         param($sender, $eventArgs)
-        $pkg = $script:BackgroundUiPackages[$eventArgs.Argument]
-        [void]$script:BackgroundUiPackages.Remove($eventArgs.Argument)
+        # RunWorkerCompletedEventArgs has no Argument property (unlike DoWorkEventArgs).
+        $id = [string]$sender.Tag
+        $pkg = $script:BackgroundUiPackages[$id]
+        [void]$script:BackgroundUiPackages.Remove($id)
         $result = $eventArgs.Result
         $errorRecord = $eventArgs.Error
         $onComplete = $pkg.OnComplete
@@ -222,7 +228,5 @@ function Start-BackgroundUiWork {
         }) | Out-Null
         $sender.Dispose()
     })
-    $jobId = [guid]::NewGuid().ToString()
-    $script:BackgroundUiPackages[$jobId] = $package
-    $worker.RunWorkerAsync($jobId)
+    $worker.RunWorkerAsync() | Out-Null
 }
