@@ -292,7 +292,10 @@ def main() -> int:
     assert '"User", "VdbenchPath"' in ui_tabs_module
     assert '"SlaveUser"' not in ui_tabs_module
 
-    assert "Get-DefaultVdbenchPathForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "Get-DefaultSlaveUserForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "Get-DefaultSshAliasForSlave" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "AllowUserToAddRows = $false" in ui_tabs_module
+    assert "Apply-SlaveGridRowDefaults" in ui_tabs_module
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SlaveUser" not in settings
 

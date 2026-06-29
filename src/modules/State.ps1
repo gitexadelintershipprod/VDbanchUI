@@ -74,27 +74,84 @@ function Get-DefaultVdbenchPathForOs {
     return [string](Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
 }
 
-function Normalize-SlaveEntry {
-    param([object]$Item)
-    $osType = [string](Get-PropertyValue $Item "OsType" "Windows")
-    $defaultPath = Get-DefaultVdbenchPathForOs $osType
-    $vdbenchPath = [string](Get-PropertyValue $Item "VdbenchPath" "")
+function Get-DefaultSlaveUserForOs {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "root"
+    }
+    return "administrator"
+}
+
+function Get-DefaultTestTargetForOs {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "/dev/sdb"
+    }
+    return "C:\vdbench\testfile.dat"
+}
+
+function Get-DefaultSshAliasForSlave {
+    param(
+        [string]$Name,
+        [string]$HostName
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Name)) {
+        return $Name.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($HostName)) {
+        return $HostName.Trim()
+    }
+    return ""
+}
+
+function Test-SlaveHasHost {
+    param([object]$Slave)
+    $hostName = [string](Get-PropertyValue $Slave "Host" "")
+    return -not [string]::IsNullOrWhiteSpace($hostName)
+}
+
+function Apply-SlaveDefaults {
+    param([object]$Slave)
+    $osType = [string](Get-PropertyValue $Slave "OsType" "Windows")
+    $name = [string](Get-PropertyValue $Slave "Name" "")
+    $hostName = [string](Get-PropertyValue $Slave "Host" "")
+    $user = [string](Get-PropertyValue $Slave "User" "")
+    $vdbenchPath = [string](Get-PropertyValue $Slave "VdbenchPath" "")
+    $testTarget = [string](Get-PropertyValue $Slave "TestTarget" "")
+    $sshAlias = [string](Get-PropertyValue $Slave "SshAlias" "")
+    if ([string]::IsNullOrWhiteSpace($user)) {
+        $user = Get-DefaultSlaveUserForOs $osType
+    }
     if ([string]::IsNullOrWhiteSpace($vdbenchPath)) {
-        $vdbenchPath = $defaultPath
+        $vdbenchPath = Get-DefaultVdbenchPathForOs $osType
+    }
+    if ([string]::IsNullOrWhiteSpace($testTarget)) {
+        $testTarget = Get-DefaultTestTargetForOs $osType
+    }
+    if ([string]::IsNullOrWhiteSpace($sshAlias)) {
+        $sshAlias = Get-DefaultSshAliasForSlave $name $hostName
     }
     return [pscustomobject]@{
-        Enabled = [bool](Get-PropertyValue $Item "Enabled" $true)
-        Name = [string](Get-PropertyValue $Item "Name" "")
-        Host = [string](Get-PropertyValue $Item "Host" "")
+        Enabled = [bool](Get-PropertyValue $Slave "Enabled" $true)
+        Name = $name
+        Host = $hostName
         OsType = $osType
-        User = [string](Get-PropertyValue $Item "User" "")
+        User = $user
         VdbenchPath = $vdbenchPath
-        TestTarget = [string](Get-PropertyValue $Item "TestTarget" "")
-        SshAlias = [string](Get-PropertyValue $Item "SshAlias" "")
-        PrivateKey = [string](Get-PropertyValue $Item "PrivateKey" (Get-PropertyValue $script:Settings "PrivateKey" ""))
-        Status = [string](Get-PropertyValue $Item "Status" "Not checked")
-        Notes = [string](Get-PropertyValue $Item "Notes" "")
+        TestTarget = $testTarget
+        SshAlias = $sshAlias
+        PrivateKey = [string](Get-PropertyValue $Slave "PrivateKey" (Get-PropertyValue $script:Settings "PrivateKey" ""))
+        Status = [string](Get-PropertyValue $Slave "Status" "Not checked")
+        Notes = [string](Get-PropertyValue $Slave "Notes" "")
     }
+}
+
+function Normalize-SlaveEntry {
+    param([object]$Item)
+    if (-not (Test-SlaveHasHost $Item)) {
+        return $null
+    }
+    return Apply-SlaveDefaults $Item
 }
 
 function Initialize-AppState {
@@ -117,23 +174,26 @@ function Initialize-AppState {
     $loadedSlaves = @(Read-JsonFile $script:SlavesPath @())
     $script:Slaves = @()
     foreach ($slave in $loadedSlaves) {
-        $script:Slaves += Normalize-SlaveEntry $slave
+        $normalized = Normalize-SlaveEntry $slave
+        if ($null -ne $normalized) {
+            $script:Slaves += $normalized
+        }
     }
     if ($script:Slaves.Count -eq 0) {
         $script:Slaves = @(
-            [pscustomobject]@{
+            Apply-SlaveDefaults ([pscustomobject]@{
                 Enabled = $true
                 Name = "test-001"
                 Host = "test-001"
                 OsType = "Windows"
                 User = ""
-                VdbenchPath = (Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
-                TestTarget = "C:\vdbench\testfile.dat"
-                SshAlias = "test-001"
+                VdbenchPath = ""
+                TestTarget = ""
+                SshAlias = ""
                 PrivateKey = (Get-PropertyValue $script:Settings "PrivateKey" "")
                 Status = "Not checked"
                 Notes = ""
-            }
+            })
         )
         Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
     }
