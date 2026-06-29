@@ -458,6 +458,8 @@ function Build-LocalHostTab {
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
     Refresh-LocalHostTab
     return $tab
+}
+
 function Show-ParameterHelp {
     param([object]$Definition)
     $message = @(
