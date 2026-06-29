@@ -181,11 +181,26 @@ $script:BackgroundUiPackages = @{}
 $script:BackgroundUiWorkerJobs = @{}
 $script:BackgroundUiCompletionQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
 
+function Get-BackgroundUiErrorMessage {
+    param($ErrorObject)
+    if ($null -eq $ErrorObject) {
+        return $null
+    }
+    $candidate = $ErrorObject
+    if ($null -ne $ErrorObject.PSObject.Properties["Exception"] -and $null -ne $ErrorObject.Exception) {
+        $candidate = $ErrorObject.Exception
+    }
+    if ($null -ne $candidate.PSObject.Properties["Message"]) {
+        return [string]$candidate.Message
+    }
+    return [string]$candidate
+}
+
 function Invoke-BackgroundUiCompletions {
     while ($script:BackgroundUiCompletionQueue.Count -gt 0) {
         $item = $script:BackgroundUiCompletionQueue.Dequeue()
-        if ($null -ne $item.Error) {
-            & $item.OnComplete $null $item.Error $item.Context
+        if ($null -ne $item.ErrorMessage) {
+            & $item.OnComplete $null $item.ErrorMessage $item.Context
         } else {
             & $item.OnComplete $item.Result $null $item.Context
         }
@@ -204,7 +219,7 @@ function Start-BackgroundUiWork {
             $result = & $Work $Context
             & $OnComplete $result $null $Context
         } catch {
-            & $OnComplete $null $_ $Context
+            & $OnComplete $null (Get-BackgroundUiErrorMessage $_) $Context
         }
         return
     }
@@ -234,13 +249,16 @@ function Start-BackgroundUiWork {
         $pkg = $script:BackgroundUiPackages[$id]
         [void]$script:BackgroundUiPackages.Remove($id)
         $workError = $eventArgs.Error
+        $workErrorMessage = $null
         $workResult = $null
         if ($null -eq $workError) {
             $workResult = $eventArgs.Result
+        } else {
+            $workErrorMessage = Get-BackgroundUiErrorMessage $workError
         }
         [void]$script:BackgroundUiCompletionQueue.Enqueue([pscustomobject]@{
             OnComplete = $pkg.OnComplete
-            Error = $workError
+            ErrorMessage = $workErrorMessage
             Result = $workResult
             Context = $pkg.Context
         })
