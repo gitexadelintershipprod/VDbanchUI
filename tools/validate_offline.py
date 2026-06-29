@@ -342,6 +342,10 @@ def main() -> int:
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "$script:BackgroundUiWorkerJobs" in ui_helpers_module
     assert "$worker.Tag" not in ui_helpers_module
+    assert "Invoke-BackgroundUiCompletions" in ui_helpers_module
+    assert "BackgroundUiCompletionQueue" in ui_helpers_module
+    assert "BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions })" in ui_helpers_module
+    assert "if ($null -ne $errorRecord)" not in ui_helpers_module
     assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
     assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
     assert "SlaveReadinessTimerRows" in ui_slave_module

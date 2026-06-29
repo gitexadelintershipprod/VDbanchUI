@@ -195,16 +195,16 @@ function Start-SlavePingCheck {
     if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
-    $rowIndex = $Row.Index
-    $hostName = [string]$Row.Cells["Host"].Value
-    Update-SlaveRowPing $rowIndex "Pinging..."
+    $pingRowIndex = $Row.Index
+    $pingHostName = [string]$Row.Cells["Host"].Value
+    Update-SlaveRowPing $pingRowIndex "Pinging..."
     Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
-        Get-SlavePingStatus $hostName
+        Get-SlavePingStatus $pingHostName
     } -OnComplete {
-        param($result, $errorRecord)
-        $status = if ($null -ne $errorRecord) { "Ping error: " + $errorRecord.Exception.Message } else { [string]$result }
+        param($result, $workError)
+        $status = if ($null -ne $workError) { "Ping error: " + $workError.Exception.Message } else { [string]$result }
         $checkedAt = (Get-Date).ToString("o")
-        Update-SlaveRowPing $rowIndex $status $checkedAt
+        Update-SlaveRowPing $pingRowIndex $status $checkedAt
     }
 }
 
@@ -217,27 +217,28 @@ function Start-SlaveReadinessCheck {
         return
     }
     Capture-Settings
-    $rowIndex = $Row.Index
+    $readyRowIndex = $Row.Index
+    $readyShowOutput = $ShowOutput
     $checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
     $checkerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
-    $hostName = [string]$Row.Cells["Host"].Value
-    $vdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
-    $target = Get-SlaveReadinessTargetForRow $Row
-    Update-SlaveRowReadiness $rowIndex "Checking..."
+    $readyHostName = [string]$Row.Cells["Host"].Value
+    $readyVdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
+    $readyTarget = Get-SlaveReadinessTargetForRow $Row
+    Update-SlaveRowReadiness $readyRowIndex "Checking..."
     Start-BackgroundUiWork -Owner $script:SlaveGrid -Work {
-        Get-SlaveReadinessResult $hostName $vdbenchPath $target $checker $checkerTemplate
+        Get-SlaveReadinessResult $readyHostName $readyVdbenchPath $readyTarget $checker $checkerTemplate
     } -OnComplete {
-        param($result, $errorRecord)
+        param($result, $workError)
         $checkedAt = (Get-Date).ToString("o")
-        if ($null -ne $errorRecord) {
-            Update-SlaveRowReadiness $rowIndex "Error" $checkedAt $errorRecord.Exception.Message
-            if ($ShowOutput) {
-                Show-Warning $errorRecord.Exception.Message
+        if ($null -ne $workError) {
+            Update-SlaveRowReadiness $readyRowIndex "Error" $checkedAt $workError.Exception.Message
+            if ($readyShowOutput) {
+                Show-Warning $workError.Exception.Message
             }
             return
         }
-        Update-SlaveRowReadiness $rowIndex ([string]$result.Status) $checkedAt ([string]$result.Output)
-        if ($ShowOutput) {
+        Update-SlaveRowReadiness $readyRowIndex ([string]$result.Status) $checkedAt ([string]$result.Output)
+        if ($readyShowOutput) {
             if ([string]$result.Status -eq "Checker missing") {
                 Show-Warning "Readiness checker path is missing or does not exist."
             } elseif (-not [string]::IsNullOrWhiteSpace([string]$result.Output)) {

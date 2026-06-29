@@ -179,6 +179,18 @@ function Invoke-GridBatchUpdate {
 
 $script:BackgroundUiPackages = @{}
 $script:BackgroundUiWorkerJobs = @{}
+$script:BackgroundUiCompletionQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+
+function Invoke-BackgroundUiCompletions {
+    while ($script:BackgroundUiCompletionQueue.Count -gt 0) {
+        $item = $script:BackgroundUiCompletionQueue.Dequeue()
+        if ($null -ne $item.Error) {
+            & $item.OnComplete $null $item.Error
+        } else {
+            & $item.OnComplete $item.Result $null
+        }
+    }
+}
 
 function Start-BackgroundUiWork {
     param(
@@ -219,20 +231,18 @@ function Start-BackgroundUiWork {
         [void]$script:BackgroundUiWorkerJobs.Remove($workerKey)
         $pkg = $script:BackgroundUiPackages[$id]
         [void]$script:BackgroundUiPackages.Remove($id)
-        $errorRecord = $eventArgs.Error
-        $result = $null
-        if ($null -eq $errorRecord) {
-            $result = $eventArgs.Result
+        $workError = $eventArgs.Error
+        $workResult = $null
+        if ($null -eq $workError) {
+            $workResult = $eventArgs.Result
         }
-        $onComplete = $pkg.OnComplete
+        [void]$script:BackgroundUiCompletionQueue.Enqueue([pscustomobject]@{
+            OnComplete = $pkg.OnComplete
+            Error = $workError
+            Result = $workResult
+        })
         $owner = $pkg.Owner
-        $owner.BeginInvoke([System.Action]{
-            if ($null -ne $errorRecord) {
-                & $onComplete $null $errorRecord
-            } else {
-                & $onComplete $result $null
-            }
-        }) | Out-Null
+        $owner.BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions }) | Out-Null
         $sender.Dispose()
     })
     $worker.RunWorkerAsync($jobId) | Out-Null
