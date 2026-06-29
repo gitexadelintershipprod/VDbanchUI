@@ -13,3 +13,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run offline validator
         run: python3 tools/validate_offline.py
+
+  windows-portable-verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run full portable verification on Windows
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Verify-Portable.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -50,6 +50,7 @@ REQUIRED_SETTINGS = {
 
 REQUIRED_MODULES = [
     "Core.ps1",
+    "Import-AppModules.ps1",
     "Metrics.ps1",
     "ProcessRunner.ps1",
     "State.ps1",
@@ -262,15 +263,32 @@ def main() -> int:
     config_module = (MODULE_ROOT / "ConfigGeneration.ps1").read_text(encoding="utf-8")
     assert "function Build-VdbenchConfig" in config_module
     assert "function Add-ParameterValidationWarnings" in config_module
+    assert "function Get-CleanConfigText" in config_module
+    assert "function Show-ConfigPreviewConfirmation" in config_module
+    assert "function Update-RunModeIndicator" in config_module
 
     runner_module = (MODULE_ROOT / "Runner.ps1").read_text(encoding="utf-8")
     assert "function Stop-ProcessTree" in (MODULE_ROOT / "ProcessRunner.ps1").read_text(encoding="utf-8")
     assert "Stop-ProcessTree -Process" in runner_module
     assert "capturedRunId" in runner_module
+    assert "Config warnings" not in runner_module
+    assert "Risk confirmation" not in runner_module
 
     metrics_module = (MODULE_ROOT / "Metrics.ps1").read_text(encoding="utf-8")
     assert "function Get-MetricDataLine" in metrics_module
     assert "Test-MetricHeaderLine" in metrics_module
+
+    ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
+    assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
+    assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module
+    assert "function Set-SelectedSlavePrivateKey" in ui_tabs_module
+    assert "function Clear-SelectedSlavePrivateKey" in ui_tabs_module
+    assert 'col.ReadOnly = $true' in ui_tabs_module and '"PrivateKey"' in ui_tabs_module
+    assert "No log available for selected run." in ui_tabs_module
+    assert "No config available for selected run." in ui_tabs_module
+
+    assert "Get-DefaultVdbenchPathForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
 
     self_test_module = (MODULE_ROOT / "SelfTest.ps1").read_text(encoding="utf-8")
     assert "Use-SelfTestPaths" in self_test_module

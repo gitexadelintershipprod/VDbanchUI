@@ -55,10 +55,13 @@ $script:ReportsGrid = $null
 $script:ReportDetailBox = $null
 $script:ActiveStdoutPath = $null
 $script:ActiveStderrPath = $null
+$script:MainTabControl = $null
+$script:RunModeIndicator = $null
+$script:AppToolTip = $null
+$script:RunFinishedNotified = $false
 
 $script:ModuleRoot = Join-Path (Split-Path -Parent $PSCommandPath) "modules"
-. (Join-Path $script:ModuleRoot "Core.ps1")
-Import-AppModules $script:ModuleRoot
+. (Join-Path $script:ModuleRoot "Import-AppModules.ps1") -ModuleRoot $script:ModuleRoot
 
 try {
     if ($SelfTest) {

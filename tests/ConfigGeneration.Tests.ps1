@@ -23,8 +23,7 @@ BeforeAll {
     $script:ConfigPreviewBox = $null
 
     $moduleRoot = Join-Path $script:AppRoot "src\modules"
-    . (Join-Path $moduleRoot "Core.ps1")
-    Import-AppModules $moduleRoot
+    . (Join-Path $moduleRoot "Import-AppModules.ps1") -ModuleRoot $moduleRoot
 }
 
 Describe "Golden config snippets" {

@@ -202,21 +202,9 @@ function Start-VdbenchRun {
     Capture-SlaveGrid
     Capture-ProfileEditor
     $built = Build-VdbenchConfig
-    $riskWarnings = @(Get-RiskWarnings $built)
-    if ($riskWarnings.Count -gt 0) {
-        $riskMessage = "This run has risk warnings:" + [Environment]::NewLine + (($riskWarnings | ForEach-Object { "- " + $_ }) -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine + "Continue with this Vdbench run?"
-        if (-not (Ask-YesNo $riskMessage "Risk confirmation")) {
-            return
-        }
-    }
-    if ($built.Warnings.Count -gt 0) {
-        $message = "Config has warnings:" + [Environment]::NewLine + (($built.Warnings | ForEach-Object { "- " + $_ }) -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine + "Start anyway?"
-        if (-not (Ask-YesNo $message "Config warnings")) {
-            return
-        }
-    }
-    if ([bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true)) {
-        if (-not (Ask-YesNo "Review Config Preview before running. Start Vdbench now?" "Start run")) {
+    $mustReviewConfig = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true) -or ($built.Warnings.Count -gt 0)
+    if ($mustReviewConfig) {
+        if (-not (Show-ConfigPreviewConfirmation $built)) {
             return
         }
     }
@@ -235,6 +223,7 @@ function Start-VdbenchRun {
     $stderrPath = [string]$context.StderrPath
     $script:CurrentRunId = $runId
     $script:KillRequested = $false
+    $script:RunFinishedNotified = $false
     Save-CurrentProfile
     $commandText = ("`"{0}`" -f `"{1}`" -o `"{2}`"" -f $masterBat, $parmPath, $runDir)
     Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)
