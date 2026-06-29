@@ -17,25 +17,35 @@ Global settings define the master-side paths and defaults:
 - `SshConfig`
 - `PrivateKey`
 
+SSH private keys are managed outside the Master / Slave grid (Settings path reference only).
+
 ## Slave Inventory
 
 Each slave entry contains:
 
-- `Enabled`
+- `Enabled` (Use) — only available after `ReadinessStatus = Ready`
 - `Name`
 - `Host`
 - `OsType`
 - `VdbenchPath`
 - `Targets` (one or more selected raw/file/filesystem targets)
 - `SshAlias`
-- `PrivateKey`
-- `Status`
+- `ReadinessStatus` — `Pending`, `Checking`, `Ready`, `Failed`, `Error`, `Checker missing`
+- `ReadinessCheckedAt` — ISO timestamp of the last readiness check
+- `ReadinessOutput` — optional checker output text
+- `PingStatus` / `PingCheckedAt` — per-row ICMP diagnostics
 - `Notes`
 
-The `Pick target` action populates `Targets` from discovered host inventory. Local
-targets are selected in the `Local Host` tab for single-host runs. Remote slave targets
-are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
-Each enabled host must have at least one selected target before a run can start.
+### Per-row workflow
+
+1. Add a host row — readiness starts automatically in the background.
+2. When readiness is `Ready`, the **Use** checkbox can be enabled.
+3. Click **Browse** on the row to discover disks/filesystems, create folders, and select targets (including test file create/overwrite).
+4. **Ping** and **Re-check** are available on each row independently.
+5. Save the inventory to persist `slaves.json`.
+
+Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
+Each enabled host must pass readiness and have at least one selected target before a run can start.
 
 ## Generated Vdbench Shape
 

@@ -190,10 +190,7 @@ function Get-RemoteSlaveTargetInventoryCore {
         [void]$sshParts.Add("-F")
         [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
     }
-    $privateKey = [string]$Row.Cells["PrivateKey"].Value
-    if ([string]::IsNullOrWhiteSpace($privateKey)) {
-        $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    }
+    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
     if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
         [void]$sshParts.Add("-i")
         [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
@@ -227,6 +224,116 @@ function Get-RemoteSlaveTargetInventoryCore {
         throw "Remote discovery returned no targets."
     }
     return $targets
+}
+
+function Prompt-HostPathEntry {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    $osType = [string]$Row.Cells["OsType"].Value
+    $defaultPath = if ($osType -eq "Linux") { "/mnt/test" } else { "C:\vdbench\test" }
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "Add target path"
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 560, 130
+    $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dialog.MaximizeBox = $false
+    $dialog.MinimizeBox = $false
+    $label = New-Label "Path on host:" 12 14 80 22
+    $box = New-TextBox $defaultPath 96 12 440 24
+    $dialog.Controls.Add($label)
+    $dialog.Controls.Add($box)
+    $ok = New-Button "OK" 360 52 75 28
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Button "Cancel" 441 52 75 28
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dialog.Controls.Add($ok)
+    $dialog.Controls.Add($cancel)
+    $dialog.AcceptButton = $ok
+    $dialog.CancelButton = $cancel
+    if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
+        return ""
+    }
+    return [string]$box.Text.Trim()
+}
+
+function Prompt-HostFolderPath {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    $osType = [string]$Row.Cells["OsType"].Value
+    $defaultPath = if ($osType -eq "Linux") { "/mnt/vdbench-test" } else { "C:\vdbench\fs_test" }
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "New folder on host"
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 560, 130
+    $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dialog.MaximizeBox = $false
+    $dialog.MinimizeBox = $false
+    $label = New-Label "Folder path:" 12 14 80 22
+    $box = New-TextBox $defaultPath 96 12 440 24
+    $dialog.Controls.Add($label)
+    $dialog.Controls.Add($box)
+    $ok = New-Button "Create" 360 52 75 28
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Button "Cancel" 441 52 75 28
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dialog.Controls.Add($ok)
+    $dialog.Controls.Add($cancel)
+    $dialog.AcceptButton = $ok
+    $dialog.CancelButton = $cancel
+    if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
+        return ""
+    }
+    return [string]$box.Text.Trim()
+}
+
+function New-HostFolderPath {
+    param(
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [string]$Path
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Folder path is required."
+    }
+    $hostName = [string]$Row.Cells["Host"].Value
+    if (Test-HostLooksLocal $hostName) {
+        if (-not (Test-Path -LiteralPath $Path)) {
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+        }
+        return
+    }
+    $systemName = [string]$Row.Cells["SshAlias"].Value
+    if ([string]::IsNullOrWhiteSpace($systemName)) {
+        $systemName = $hostName
+    }
+    $osType = [string]$Row.Cells["OsType"].Value
+    $sshParts = New-Object System.Collections.Generic.List[string]
+    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
+    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
+        [void]$sshParts.Add("-F")
+        [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
+    }
+    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
+        [void]$sshParts.Add("-i")
+        [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
+    }
+    [void]$sshParts.Add("-o")
+    [void]$sshParts.Add("BatchMode=yes")
+    [void]$sshParts.Add((Quote-ProcessArgument $systemName))
+    if ($osType -eq "Linux") {
+        $remoteScript = "mkdir -p " + (Quote-ProcessArgument $Path)
+        [void]$sshParts.Add("sh")
+        [void]$sshParts.Add("-lc")
+        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
+    } else {
+        $remoteScript = "New-Item -ItemType Directory -Path " + (Quote-ProcessArgument $Path) + " -Force | Out-Null"
+        [void]$sshParts.Add("powershell.exe")
+        [void]$sshParts.Add("-NoProfile")
+        [void]$sshParts.Add("-Command")
+        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
+    }
+    $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
+    if ($result.ExitCode -ne 0) {
+        throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
+    }
 }
 function Select-TargetFromList {
     param(

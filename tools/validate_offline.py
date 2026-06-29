@@ -56,6 +56,7 @@ REQUIRED_MODULES = [
     "State.ps1",
     "UiHelpers.ps1",
     "TargetDiscovery.ps1",
+    "UiSlaveGrid.ps1",
     "UiTabs.ps1",
     "ConfigGeneration.ps1",
     "Runner.ps1",
@@ -303,16 +304,20 @@ def main() -> int:
     ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
     assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module
-    assert "function Set-SelectedSlavePrivateKey" in ui_tabs_module
-    assert "function Clear-SelectedSlavePrivateKey" in ui_tabs_module
-    assert 'col.ReadOnly = $true' in ui_tabs_module and '"PrivateKey"' in ui_tabs_module
+    ui_slave_module = (MODULE_ROOT / "UiSlaveGrid.ps1").read_text(encoding="utf-8")
+    assert "function Build-MasterSlaveTab" in ui_slave_module
+    assert "function Browse-SlaveTargetsForRow" in ui_slave_module
+    assert "function Start-SlaveReadinessCheck" in ui_slave_module
+    assert 'New-Button "Test ping"' not in ui_slave_module
+    assert 'New-Button "Pick target"' not in ui_slave_module
+    assert "function Set-SelectedSlavePrivateKey" not in ui_tabs_module
     assert "No log available for selected run." in ui_tabs_module
     assert "No config available for selected run." in ui_tabs_module
     assert "$layout.Controls.Add($tabs, 0, 1)" in ui_tabs_module
-    assert '"User", "VdbenchPath"' in ui_tabs_module
+    assert '"User", "VdbenchPath"' in ui_slave_module
     assert '"SlaveUser"' not in ui_tabs_module
 
-    assert "Get-DefaultSlaveUserForOs" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Test-SlaveReadinessReady" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Get-DefaultSshAliasForSlave" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "AllowUserToAddRows = $false" in ui_tabs_module
     assert "function Build-LocalHostTab" in ui_tabs_module
