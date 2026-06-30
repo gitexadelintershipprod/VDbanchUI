@@ -228,27 +228,35 @@ function Resolve-RunTestKind {
         }
     }
     if ($categories.Count -eq 0) {
-        return [pscustomobject]@{
+        $resolved = [pscustomobject]@{
             TestKind = $null
             Error = "No targets selected for the current run mode."
         }
+        Write-DebugLog ("Resolve-RunTestKind: testKind=; error={0}" -f $resolved.Error)
+        return $resolved
     }
     if ($categories.Count -gt 1) {
-        return [pscustomobject]@{
+        $resolved = [pscustomobject]@{
             TestKind = $null
             Error = "BLOCKER: mixed raw and filesystem targets in the same run."
         }
+        Write-DebugLog ("Resolve-RunTestKind: testKind=; error={0}" -f $resolved.Error)
+        return $resolved
     }
     if ($categories[0] -eq "fs") {
-        return [pscustomobject]@{
+        $resolved = [pscustomobject]@{
             TestKind = "Filesystem"
             Error = $null
         }
+        Write-DebugLog ("Resolve-RunTestKind: testKind={0}" -f $resolved.TestKind)
+        return $resolved
     }
-    return [pscustomobject]@{
+    $resolved = [pscustomobject]@{
         TestKind = "Raw/block"
         Error = $null
     }
+    Write-DebugLog ("Resolve-RunTestKind: testKind={0}" -f $resolved.TestKind)
+    return $resolved
 }
 
 function Get-ConfigTargetCategory {

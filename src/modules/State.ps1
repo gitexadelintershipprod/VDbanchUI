@@ -99,9 +99,67 @@ function Sync-CommonProfileParameters {
             Set-ProfileParamEnabled $Profile $mirrorKey $commonEnabled
         }
     }
+    Set-ProfileParamEnabled $Profile "storage.threads" $false
+}
+
+function Get-ProfileEditorContext {
+    if (Get-Command Capture-LocalHostTargets -ErrorAction SilentlyContinue) {
+        Capture-LocalHostTargets
+    }
+    if (Get-Command Capture-SlaveGrid -ErrorAction SilentlyContinue) {
+        Capture-SlaveGrid
+    }
+    $resolved = Resolve-RunTestKind
+    $locked = $false
+    $message = ""
+    $testKind = [string]$resolved.TestKind
+    if ([string]::IsNullOrWhiteSpace($testKind)) {
+        $locked = $true
+        $errorText = [string]$resolved.Error
+        if ($errorText -like "*mixed raw and filesystem*") {
+            $message = "Mixed raw and filesystem targets are not allowed. Adjust selections on the Local Host or Master/Slave tab."
+        } elseif ($errorText -like "*No targets selected*") {
+            $message = "Select a target on the Local Host or Master/Slave tab to edit profile parameters."
+        } elseif (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $message = $errorText
+        } else {
+            $message = "Select a target on the Local Host or Master/Slave tab to edit profile parameters."
+        }
+    }
+    $visibleSections = @("General")
+    if (-not $locked) {
+        if ($testKind -eq "Raw/block") {
+            $visibleSections += "Raw / SD"
+        } elseif ($testKind -eq "Filesystem") {
+            $visibleSections += "Filesystem"
+        }
+    }
+    return [pscustomobject]@{
+        Locked = $locked
+        Message = $message
+        TestKind = $testKind
+        VisibleSections = $visibleSections
+        Resolved = $resolved
+    }
+}
+
+function Test-ProfileEditorLocked {
+    return [bool](Get-ProfileEditorContext).Locked
+}
+
+function Notify-ProfileTargetContextChanged {
+    param([string]$Source = "unknown")
+    Write-DebugLog ("Profile target context changed: source={0}" -f $Source)
+    if (Get-Command Refresh-ProfileEditor -ErrorAction SilentlyContinue) {
+        Refresh-ProfileEditor -ChangeSource $Source
+    }
 }
 
 function Initialize-NewDraftProfile {
+    if ($script:ProfileEditorLocked) {
+        Write-DebugLog "Initialize-NewDraftProfile skipped because profile editor is locked"
+        return
+    }
     $script:CurrentProfile = New-DefaultProfile "New-Profile"
     if ($script:ProfileNameBox) {
         Refresh-ProfileEditor
@@ -643,6 +701,10 @@ function Load-ProfileByName {
 }
 
 function Save-CurrentProfile {
+    if ($script:ProfileEditorLocked) {
+        Show-Warning "Select a target before saving a profile."
+        return
+    }
     if ($null -eq $script:CurrentProfile) {
         return
     }

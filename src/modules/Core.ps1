@@ -162,18 +162,112 @@ function Invoke-CapturedProcess {
     }
 }
 
+function Get-AppLogLevelRank {
+    param([string]$Level)
+    $normalized = ([string]$Level).ToUpperInvariant()
+    switch ($normalized) {
+        "DEBUG" { return 0 }
+        "INFO" { return 1 }
+        "WARN" { return 2 }
+        "ERROR" { return 3 }
+        default { return 1 }
+    }
+}
+
+function Get-AppLogMinLevel {
+    $configured = "DEBUG"
+    if ($null -ne $script:Settings) {
+        $configured = [string](Get-PropertyValue $script:Settings "LogLevel" "DEBUG")
+    }
+    if ([string]::IsNullOrWhiteSpace($configured)) {
+        $configured = "DEBUG"
+    }
+    return $configured.ToUpperInvariant()
+}
+
+function Format-AppLogException {
+    param([System.Exception]$Exception)
+    if ($null -eq $Exception) {
+        return ""
+    }
+    $parts = New-Object System.Collections.Generic.List[string]
+    $current = $Exception
+    $depth = 0
+    while ($null -ne $current -and $depth -lt 6) {
+        $prefix = if ($depth -eq 0) { "Exception" } else { ("Inner[{0}]" -f $depth) }
+        [void]$parts.Add(("{0}: {1}" -f $prefix, $current.GetType().FullName))
+        [void]$parts.Add(("{0}: {1}" -f $prefix, $current.Message))
+        if (-not [string]::IsNullOrWhiteSpace($current.StackTrace)) {
+            [void]$parts.Add(("{0} stack:" -f $prefix))
+            [void]$parts.Add($current.StackTrace)
+        }
+        $current = $current.InnerException
+        $depth++
+    }
+    return ($parts -join [Environment]::NewLine)
+}
+
 function Write-AppLog {
     param(
         [string]$Message,
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+        [System.Exception]$Exception = $null
     )
     try {
         Ensure-Directory $script:LogRoot
-        $line = ("{0} [{1}] {2}" -f (Get-Date).ToString("o"), $Level, $Message)
-        $logPath = Join-Path $script:LogRoot "app.log"
+        $normalizedLevel = ([string]$Level).ToUpperInvariant()
+        $minLevel = Get-AppLogMinLevel
+        if ((Get-AppLogLevelRank $normalizedLevel) -lt (Get-AppLogLevelRank $minLevel)) {
+            return
+        }
+
+        $line = ("{0} [{1}] {2}" -f (Get-Date).ToString("o"), $normalizedLevel, $Message)
+        if ($null -ne $Exception) {
+            $formatted = Format-AppLogException $Exception
+            if (-not [string]::IsNullOrWhiteSpace($formatted)) {
+                $line += [Environment]::NewLine + $formatted
+            }
+        }
+
+        $logName = if ($normalizedLevel -eq "DEBUG") { "debug.log" } else { "app.log" }
+        $logPath = Join-Path $script:LogRoot $logName
         [System.IO.File]::AppendAllText($logPath, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
     } catch {
     }
+}
+
+function Write-DebugLog {
+    param(
+        [string]$Message,
+        [System.Exception]$Exception = $null
+    )
+    Write-AppLog $Message "DEBUG" $Exception
+}
+
+function Register-AppExceptionLogging {
+    if ($script:AppExceptionLoggingRegistered) {
+        return
+    }
+    $script:AppExceptionLoggingRegistered = $true
+    [System.Windows.Forms.Application]::Add_ThreadException({
+        param($sender, $eventArgs)
+        try {
+            Write-AppLog ("UI thread exception: {0}" -f $eventArgs.Exception.Message) "ERROR" $eventArgs.Exception
+        } catch {
+        }
+    })
+    [System.AppDomain]::CurrentDomain.add_UnhandledException({
+        param($sender, $eventArgs)
+        try {
+            if ($eventArgs.ExceptionObject -is [System.Exception]) {
+                $ex = [System.Exception]$eventArgs.ExceptionObject
+                Write-AppLog ("Unhandled domain exception: {0}" -f $ex.Message) "ERROR" $ex
+            } else {
+                Write-AppLog ("Unhandled domain exception: {0}" -f $eventArgs.ExceptionObject) "ERROR"
+            }
+        } catch {
+        }
+    })
 }
 
 function Expand-ReadinessCheckerArguments {

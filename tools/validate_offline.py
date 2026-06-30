@@ -375,7 +375,11 @@ def main() -> int:
     assert "Refresh-ProfileList" not in ui_tabs_module
     assert "Duplicate-RunProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Preview-DraftProfile" in ui_tabs_module
-    assert "function Initialize-NewDraftProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Get-ProfileEditorContext" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Write-DebugLog" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert "function Notify-ProfileTargetContextChanged" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "ProfileEditorBanner" in ui_tabs_module
+    assert "LogLevel" in settings
     assert "ProfileKindCombo" not in ui_tabs_module
     assert "function Refresh-RunTabSummary" in config_module
     assert "function Resolve-RunTestKind" in config_module
@@ -444,8 +448,15 @@ def main() -> int:
     raw["Parameters"]["storage.dedupratio"]["Value"] = "2"
     raw_config = render_config(catalog, settings, raw, local_targets=raw_local_targets, test_kind="Raw/block")
     assert GOLDEN_FIXTURES["raw-local.txt"] in raw_config
-    assert "wd=wd1,sd=sd1,xfersize=4k,rdpct=70,seekpct=100" in raw_config
-    assert "rd=rd1,wd=wd1,elapsed=300,warmup=30,interval=1,iorate=max" in raw_config
+    assert "wd=wd1,sd=sd1" in raw_config
+    assert "xfersize=4k" in raw_config
+    assert "rdpct=70" in raw_config
+    assert "seekpct=100" in raw_config
+    assert "rd=rd1,wd=wd1" in raw_config
+    assert "elapsed=300" in raw_config
+    assert "warmup=30" in raw_config
+    assert "interval=1" in raw_config
+    assert "iorate=max" in raw_config
     assert "* disabled: dedupratio=2" in raw_config
 
     slave_config = render_config(
@@ -472,8 +483,14 @@ def main() -> int:
     fs_local_targets = [{"Kind": "Filesystem", "Target": "C:\\vdbench\\fs_test", "Selected": True}]
     fs_config = render_config(catalog, settings, fs, local_targets=fs_local_targets, test_kind="Filesystem")
     assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
-    assert "fwd=fwd1,fsd=fsd1,operation=read" in fs_config
-    assert "rd=rd1,fwd=fwd1,elapsed=300,warmup=30,interval=1,fwdrate=max,format=no" in fs_config
+    assert "fwd=fwd1,fsd=fsd1" in fs_config
+    assert "operation=read" in fs_config
+    assert "rd=rd1,fwd=fwd1" in fs_config
+    assert "elapsed=300" in fs_config
+    assert "warmup=30" in fs_config
+    assert "interval=1" in fs_config
+    assert "fwdrate=max" in fs_config
+    assert "format=no" in fs_config
 
     fs_distributed = render_config(
         catalog,

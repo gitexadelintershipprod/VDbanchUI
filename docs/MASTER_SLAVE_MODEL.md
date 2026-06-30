@@ -16,6 +16,11 @@ Profiles store workload parameters only. They no longer store `TestKind` or `Loc
 - The **Profile** tab is create-only: it starts with a blank draft and does not load saved profiles.
 - Shared workload fields (`common.xfersize`, `common.threads`, `common.rate`) replace duplicate raw/filesystem entries in the editor.
 - Saving a profile writes it to `profiles/` and resets the draft for the next new profile.
+- Profile parameters are grouped into **General**, **Raw / SD**, and **Filesystem**.
+- The editor is locked until a target is selected on **Local Host** or **Master / Slave**; derived test kind controls whether Raw / SD or Filesystem parameters are shown.
+- `storage.threads` is hidden from the editor; use **Workload threads** in General (mapped to `wd=` / `fwd=`).
+- Changing target type while the Profile tab is open shows a warning to review parameters.
+- Detailed UI diagnostics are written to `logs/debug.log` when `LogLevel` is `DEBUG`.
 
 ## Run Tab
 
