@@ -352,7 +352,12 @@ def main() -> int:
     assert "function Build-MasterSlaveTab" in ui_slave_module
     assert "function Browse-SlaveTargetsForRow" in ui_slave_module
     assert "function Start-SlaveReadinessCheck" in ui_slave_module
-    assert "SlaveReadinessTimerRows" in ui_slave_module
+    assert "function Show-AddSlaveDialog" in ui_slave_module
+    assert "function Reset-SlaveRowReadiness" in ui_slave_module
+    assert "Schedule-SlaveReadinessCheck" not in ui_slave_module
+    assert "SlaveReadinessTimerRows" not in ui_slave_module
+    assert "Readiness runs automatically" not in ui_slave_module
+    assert '@{ Name = "Readiness"; Text = "Readiness" }' in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
     assert "capturedIndex" not in ui_slave_module
     assert 'New-Button "Test ping"' not in ui_slave_module
@@ -413,7 +418,6 @@ def main() -> int:
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
     assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
-    assert "SlaveReadinessTimerRows" in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module

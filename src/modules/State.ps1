@@ -403,7 +403,7 @@ function Resolve-SlaveReadinessStatus {
         return "Checking"
     }
     if ([string]::IsNullOrWhiteSpace($legacy) -or $legacy -eq "Not checked") {
-        return "Pending"
+        return "Not checked"
     }
     return $legacy
 }
@@ -877,7 +877,7 @@ function Import-SlaveInventory {
                 continue
             }
             $normalizedItem = Normalize-SlaveEntry $item
-            $normalizedItem.ReadinessStatus = "Pending"
+            $normalizedItem.ReadinessStatus = "Not checked"
             $normalizedItem.ReadinessCheckedAt = ""
             $normalized += $normalizedItem
         }

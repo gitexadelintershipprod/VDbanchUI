@@ -1,5 +1,3 @@
-$script:SlaveReadinessTimers = @{}
-$script:SlaveReadinessTimerRows = @{}
 $script:SlaveGridRefreshing = $false
 
 function Get-SlaveRowState {
@@ -255,44 +253,80 @@ function Start-SlaveReadinessCheck {
     }
 }
 
-function Schedule-SlaveReadinessCheck {
-    param([int]$RowIndex)
-    if ($null -eq $script:SlaveGrid) {
+function Reset-SlaveRowReadiness {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
-    $key = [string]$RowIndex
-    if ($script:SlaveReadinessTimers.ContainsKey($key)) {
-        $oldTimer = $script:SlaveReadinessTimers[$key]
-        [void]$script:SlaveReadinessTimerRows.Remove([string]$oldTimer.GetHashCode())
-        $oldTimer.Stop()
-        $oldTimer.Dispose()
-        [void]$script:SlaveReadinessTimers.Remove($key)
+    $Row.Cells["Readiness"].Value = "Not checked"
+    $Row.Cells["CheckedAt"].Value = ""
+    $state = Get-SlaveRowState $Row
+    $state.ReadinessCheckedAt = ""
+    $state.ReadinessOutput = ""
+    Sync-SlaveRowEnabledState $Row
+}
+
+function Show-AddSlaveDialog {
+    $nextIndex = 1
+    if ($null -ne $script:SlaveGrid) {
+        $nextIndex = $script:SlaveGrid.Rows.Count + 1
     }
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 1500
-    $script:SlaveReadinessTimerRows[[string]$timer.GetHashCode()] = $RowIndex
-    $timer.Add_Tick({
-        param($sender, $eventArgs)
-        $sender.Stop()
-        $timerKey = [string]$sender.GetHashCode()
-        if (-not $script:SlaveReadinessTimerRows.ContainsKey($timerKey)) {
-            $sender.Dispose()
-            return
-        }
-        $rowIndex = [int]$script:SlaveReadinessTimerRows[$timerKey]
-        [void]$script:SlaveReadinessTimerRows.Remove($timerKey)
-        [void]$script:SlaveReadinessTimers.Remove([string]$rowIndex)
-        $sender.Dispose()
-        if ($null -eq $script:SlaveGrid -or $rowIndex -lt 0 -or $rowIndex -ge $script:SlaveGrid.Rows.Count) {
-            return
-        }
-        $row = $script:SlaveGrid.Rows[$rowIndex]
-        if (-not $row.IsNewRow) {
-            Start-SlaveReadinessCheck -Row $row
-        }
-    })
-    $script:SlaveReadinessTimers[$key] = $timer
-    $timer.Start()
+    $defaultName = "slave-$nextIndex"
+
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "Add slave host"
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 520, 210
+    $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dialog.MaximizeBox = $false
+    $dialog.MinimizeBox = $false
+
+    $hostLabel = New-Label "Host / IP:" 16 18 80 22
+    $hostBox = New-TextBox "" 104 16 380 24
+    $nameLabel = New-Label "Name:" 16 52 80 22
+    $nameBox = New-TextBox $defaultName 104 50 380 24
+    $osLabel = New-Label "OS:" 16 86 80 22
+    $osBox = New-Object System.Windows.Forms.ComboBox
+    $osBox.Location = New-Object System.Drawing.Point -ArgumentList 104, 84
+    $osBox.Size = New-Object System.Drawing.Size -ArgumentList 160, 24
+    $osBox.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    [void]$osBox.Items.Add("Windows")
+    [void]$osBox.Items.Add("Linux")
+    $osBox.SelectedIndex = 0
+
+    $dialog.Controls.AddRange(@($hostLabel, $hostBox, $nameLabel, $nameBox, $osLabel, $osBox))
+
+    $ok = New-Button "Add" 320 126 75 28
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Button "Cancel" 401 126 75 28
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dialog.Controls.AddRange(@($ok, $cancel))
+    $dialog.AcceptButton = $ok
+    $dialog.CancelButton = $cancel
+
+    if ($null -ne $script:Form) {
+        $dialogResult = $dialog.ShowDialog($script:Form)
+    } else {
+        $dialogResult = $dialog.ShowDialog()
+    }
+    if ($dialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
+        return $null
+    }
+
+    $hostName = [string]$hostBox.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($hostName)) {
+        Show-Warning "Host / IP is required."
+        return $null
+    }
+    $name = [string]$nameBox.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        $name = $hostName
+    }
+    return @{
+        Host = $hostName
+        Name = $name
+        OsType = [string]$osBox.SelectedItem
+    }
 }
 
 function Apply-SlaveGridRowDefaults {
@@ -326,7 +360,7 @@ function Set-SlaveGridRowFromSlave {
     foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "Notes")) {
         $Row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
     }
-    $Row.Cells["Readiness"].Value = [string](Get-PropertyValue $normalized "ReadinessStatus" "")
+    $Row.Cells["Readiness"].Value = [string](Get-PropertyValue $normalized "ReadinessStatus" "Not checked")
     $Row.Cells["CheckedAt"].Value = Format-SlaveCheckedAt ([string](Get-PropertyValue $normalized "ReadinessCheckedAt" ""))
     $Row.Cells["PingStatus"].Value = [string](Get-PropertyValue $normalized "PingStatus" "")
     $Row.Cells["PingAt"].Value = Format-SlaveCheckedAt ([string](Get-PropertyValue $normalized "PingCheckedAt" ""))
@@ -356,7 +390,7 @@ function Build-SlaveGrid {
     foreach ($name in @("Name", "Host")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
-        $col.HeaderText = $name
+        $col.HeaderText = if ($name -eq "Host") { "Host / IP" } else { $name }
         $grid.Columns.Add($col) | Out-Null
     }
 
@@ -386,7 +420,7 @@ function Build-SlaveGrid {
 
     foreach ($button in @(
             @{ Name = "Browse"; Text = "Browse" },
-            @{ Name = "Recheck"; Text = "Re-check" },
+            @{ Name = "Readiness"; Text = "Readiness" },
             @{ Name = "Ping"; Text = "Ping" }
         )) {
         $col = New-Object System.Windows.Forms.DataGridViewButtonColumn
@@ -460,9 +494,8 @@ function Build-SlaveGrid {
             Capture-Settings
             $refreshSshAlias = @("Name", "Host") -contains $columnName
             Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$refreshSshAlias
-            $row.Cells["Enabled"].Value = $false
             if (@("Host", "OsType", "VdbenchPath", "Name") -contains $columnName) {
-                Schedule-SlaveReadinessCheck $row.Index
+                Reset-SlaveRowReadiness $row
             }
         }
     })
@@ -478,7 +511,7 @@ function Build-SlaveGrid {
             "Browse" {
                 Browse-SlaveTargetsForRow $row
             }
-            "Recheck" {
+            "Readiness" {
                 Start-SlaveReadinessCheck -Row $row -ShowOutput:$true
             }
             "Ping" {
@@ -505,14 +538,6 @@ function Populate-SlaveGrid {
         }
     } finally {
         $script:SlaveGridRefreshing = $false
-    }
-    foreach ($row in $script:SlaveGrid.Rows) {
-        if ($row.IsNewRow) {
-            continue
-        }
-        if (-not (Test-SlaveRowReady $row)) {
-            Schedule-SlaveReadinessCheck $row.Index
-        }
     }
 }
 
@@ -727,19 +752,23 @@ function Browse-SlaveTargetsForRow {
 
 function Add-NewSlaveRow {
     Capture-Settings
+    $details = Show-AddSlaveDialog
+    if ($null -eq $details) {
+        return
+    }
     $idx = $script:SlaveGrid.Rows.Add()
     $row = $script:SlaveGrid.Rows[$idx]
     $row.Cells["Enabled"].Value = $false
-    $row.Cells["Name"].Value = "slave-" + ($idx + 1)
-    $row.Cells["Host"].Value = "host-or-ip"
-    $row.Cells["OsType"].Value = "Windows"
-    $row.Cells["Readiness"].Value = "Pending"
+    $row.Cells["Name"].Value = [string]$details.Name
+    $row.Cells["Host"].Value = [string]$details.Host
+    $row.Cells["OsType"].Value = [string]$details.OsType
+    $row.Cells["Readiness"].Value = "Not checked"
     $row.Cells["CheckedAt"].Value = ""
     $row.Cells["PingStatus"].Value = ""
     $row.Cells["PingAt"].Value = ""
     Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$true
     Set-SlaveRowTargets $row @()
-    Schedule-SlaveReadinessCheck $row.Index
+    $script:SlaveGrid.CurrentCell = $row.Cells["Host"]
 }
 
 function Build-MasterSlaveTab {
@@ -781,7 +810,7 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Readiness runs automatically per host. Use is allowed only after Ready; browse targets on each row. Test file rows support create/overwrite." 0 0 900 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness on each row to verify the host before enabling Use or browsing targets." 0 0 900 36
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
