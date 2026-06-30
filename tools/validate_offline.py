@@ -357,7 +357,9 @@ def main() -> int:
     assert "Schedule-SlaveReadinessCheck" not in ui_slave_module
     assert "SlaveReadinessTimerRows" not in ui_slave_module
     assert "Readiness runs automatically" not in ui_slave_module
-    assert '@{ Name = "Readiness"; Text = "Readiness" }' in ui_slave_module
+    assert "function Invoke-SlavePingBackgroundWork" in ui_slave_module
+    assert "function Invoke-SlaveReadinessBackgroundWork" in ui_slave_module
+    assert '@{ Name = "ReadinessRun"; Text = "Readiness" }' in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
     assert "capturedIndex" not in ui_slave_module
     assert 'New-Button "Test ping"' not in ui_slave_module
@@ -400,24 +402,22 @@ def main() -> int:
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Get-CachedTargetInventory" in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
     assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "function Start-BackgroundUiWork" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "$script:BackgroundUiWorkerJobs" in ui_helpers_module
-    assert "$worker.Tag" not in ui_helpers_module
-    assert "Invoke-BackgroundUiCompletions" in ui_helpers_module
-    assert "BackgroundUiCompletionQueue" in ui_helpers_module
-    assert "BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions })" in ui_helpers_module
-    assert "[hashtable]$Context = @{}" in ui_helpers_module
+    assert "function Start-BackgroundUiWork" in ui_helpers_module
     assert "function Initialize-BackgroundRunspace" in ui_helpers_module
     assert "Invoke-BackgroundUiWorkItem" in ui_helpers_module
-    assert "if ($null -ne $errorRecord)" not in ui_helpers_module
+    assert "BackgroundUiWorkerJobs" not in ui_helpers_module
+    assert "BackgroundUiCompletionQueue" not in ui_helpers_module
+    assert "BackgroundWorker" not in ui_helpers_module
+    assert "$ps.BeginInvoke()" in ui_helpers_module
+    assert "CommandName" in ui_helpers_module
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
     assert "-Context $readyContext" in ui_slave_module
+    assert 'CommandName "Invoke-SlaveReadinessBackgroundWork"' in ui_slave_module
+    assert 'CommandName "Invoke-SlavePingBackgroundWork"' in ui_slave_module
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
-    assert "RunWorkerCompletedEventArgs has no Argument" in ui_helpers_module
-    assert "BackgroundUiPackages[$eventArgs.Argument]" not in ui_helpers_module
     assert "$timer.Tag" not in ui_slave_module
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module

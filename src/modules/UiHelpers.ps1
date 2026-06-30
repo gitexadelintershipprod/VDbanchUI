@@ -177,9 +177,6 @@ function Invoke-GridBatchUpdate {
     }
 }
 
-$script:BackgroundUiPackages = @{}
-$script:BackgroundUiWorkerJobs = @{}
-$script:BackgroundUiCompletionQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
 $script:BackgroundRunspace = $null
 $script:BackgroundRunspaceLock = New-Object object
 
@@ -272,27 +269,24 @@ function Get-BackgroundUiErrorMessage {
     return [string]$candidate
 }
 
-function Invoke-BackgroundUiCompletions {
-    while ($script:BackgroundUiCompletionQueue.Count -gt 0) {
-        $item = $script:BackgroundUiCompletionQueue.Dequeue()
-        if ($null -ne $item.ErrorMessage) {
-            & $item.OnComplete $null $item.ErrorMessage $item.Context
-        } else {
-            & $item.OnComplete $item.Result $null $item.Context
-        }
-    }
-}
-
 function Start-BackgroundUiWork {
     param(
         [System.Windows.Forms.Control]$Owner,
-        [scriptblock]$Work,
         [scriptblock]$OnComplete,
-        [hashtable]$Context = @{}
+        [hashtable]$Context = @{},
+        [scriptblock]$Work = $null,
+        [string]$CommandName = ""
     )
+    if ([string]::IsNullOrWhiteSpace($CommandName) -and $null -eq $Work) {
+        throw "Start-BackgroundUiWork requires -Work or -CommandName."
+    }
     if ($null -eq $Owner) {
         try {
-            $result = & $Work $Context
+            if (-not [string]::IsNullOrWhiteSpace($CommandName)) {
+                $result = & $CommandName $Context
+            } else {
+                $result = & $Work $Context
+            }
             & $OnComplete $result $null $Context
         } catch {
             & $OnComplete $null (Get-BackgroundUiErrorMessage $_) $Context
@@ -302,49 +296,45 @@ function Start-BackgroundUiWork {
     if ($null -eq $script:BackgroundRunspace) {
         Initialize-BackgroundRunspace
     }
-    $package = [pscustomobject]@{
-        Work = $Work
-        OnComplete = $OnComplete
-        Owner = $Owner
-        Context = $Context
-        BackgroundRunspace = $script:BackgroundRunspace
+    $ps = [powershell]::Create()
+    $ps.Runspace = $script:BackgroundRunspace
+    if (-not [string]::IsNullOrWhiteSpace($CommandName)) {
+        [void]$ps.AddCommand($CommandName).AddParameter("Context", $Context)
+    } else {
+        [void]$ps.AddScript({
+            param($Work, $Context)
+            & $Work $Context
+        }).AddArgument($Work).AddArgument($Context)
     }
-    $jobId = [guid]::NewGuid().ToString()
-    $script:BackgroundUiPackages[$jobId] = $package
-    $worker = New-Object System.ComponentModel.BackgroundWorker
-    $workerKey = [string]$worker.GetHashCode()
-    $script:BackgroundUiWorkerJobs[$workerKey] = $jobId
-    $worker.Add_DoWork({
+    Write-DebugLog ("Background UI work started: {0}" -f ($(if ($CommandName) { $CommandName } else { "scriptblock" })))
+    $async = $ps.BeginInvoke()
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 100
+    $timer.Add_Tick({
         param($sender, $eventArgs)
-        $id = [string]$eventArgs.Argument
-        $pkg = $script:BackgroundUiPackages[$id]
-        $eventArgs.Result = Invoke-BackgroundUiWorkItem -Work $pkg.Work -Context $pkg.Context -Runspace $pkg.BackgroundRunspace
-    })
-    $worker.Add_RunWorkerCompleted({
-        param($sender, $eventArgs)
-        # RunWorkerCompletedEventArgs has no Argument property (unlike DoWorkEventArgs).
-        $workerKey = [string]$sender.GetHashCode()
-        $id = [string]$script:BackgroundUiWorkerJobs[$workerKey]
-        [void]$script:BackgroundUiWorkerJobs.Remove($workerKey)
-        $pkg = $script:BackgroundUiPackages[$id]
-        [void]$script:BackgroundUiPackages.Remove($id)
-        $workError = $eventArgs.Error
-        $workErrorMessage = $null
-        $workResult = $null
-        if ($null -eq $workError) {
-            $workResult = $eventArgs.Result
-        } else {
-            $workErrorMessage = Get-BackgroundUiErrorMessage $workError
+        if (-not $async.IsCompleted) {
+            return
         }
-        [void]$script:BackgroundUiCompletionQueue.Enqueue([pscustomobject]@{
-            OnComplete = $pkg.OnComplete
-            ErrorMessage = $workErrorMessage
-            Result = $workResult
-            Context = $pkg.Context
-        })
-        $owner = $pkg.Owner
-        $owner.BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions }) | Out-Null
+        $sender.Stop()
         $sender.Dispose()
+        $workResult = $null
+        $workErrorMessage = $null
+        try {
+            $workResult = $ps.EndInvoke($async)
+            if ($ps.HadErrors) {
+                $workErrorMessage = @($ps.Streams.Error | ForEach-Object { $_.ToString() }) -join "; "
+            }
+        } catch {
+            $workErrorMessage = Get-BackgroundUiErrorMessage $_
+        } finally {
+            $ps.Dispose()
+        }
+        Write-DebugLog ("Background UI work finished: error={0}" -f [bool]$workErrorMessage)
+        if ($null -ne $workErrorMessage) {
+            & $OnComplete $null $workErrorMessage $Context
+        } else {
+            & $OnComplete $workResult $null $Context
+        }
     })
-    $worker.RunWorkerAsync($jobId) | Out-Null
+    $timer.Start()
 }

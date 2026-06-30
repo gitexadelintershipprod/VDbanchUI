@@ -144,7 +144,8 @@ function Get-SlaveReadinessResult {
         [string]$VdbenchPath,
         [string]$Target,
         [string]$Checker,
-        [string]$CheckerTemplate
+        [string]$CheckerTemplate,
+        [bool]$ShowCheckerWindow = $false
     )
     if ([string]::IsNullOrWhiteSpace($Checker) -or -not (Test-Path -LiteralPath $Checker)) {
         return [pscustomobject]@{
@@ -156,13 +157,25 @@ function Get-SlaveReadinessResult {
     $psi.FileName = "powershell.exe"
     $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target
     $quotedChecker = Quote-ProcessArgument $Checker
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
+    if ($ShowCheckerWindow) {
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -NoExit -File $quotedChecker $checkerArgs"
+        $psi.CreateNoWindow = $false
+    } else {
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
+        $psi.CreateNoWindow = $true
+    }
     $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = -not $ShowCheckerWindow
+    $psi.RedirectStandardError = -not $ShowCheckerWindow
     try {
         $p = [System.Diagnostics.Process]::Start($psi)
+        if ($ShowCheckerWindow) {
+            $p.WaitForExit()
+            return [pscustomobject]@{
+                Status = if ($p.ExitCode -eq 0) { "Ready" } else { "Failed" }
+                Output = "Readiness checker ran in a separate PowerShell window (exit code $($p.ExitCode))."
+            }
+        }
         $out = $p.StandardOutput.ReadToEnd()
         $err = $p.StandardError.ReadToEnd()
         $p.WaitForExit()
@@ -188,6 +201,22 @@ function Get-SlaveReadinessTargetForRow {
     return Get-DefaultTestTargetForOs ([string]$Row.Cells["OsType"].Value)
 }
 
+function Invoke-SlavePingBackgroundWork {
+    param([hashtable]$Context)
+    Get-SlavePingStatus $Context.HostName
+}
+
+function Invoke-SlaveReadinessBackgroundWork {
+    param([hashtable]$Context)
+    Get-SlaveReadinessResult `
+        $Context.HostName `
+        $Context.VdbenchPath `
+        $Context.Target `
+        $Context.Checker `
+        $Context.CheckerTemplate `
+        ([bool]$Context.ShowCheckerWindow)
+}
+
 function Start-SlavePingCheck {
     param([System.Windows.Forms.DataGridViewRow]$Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
@@ -197,11 +226,9 @@ function Start-SlavePingCheck {
         RowIndex = $Row.Index
         HostName = [string]$Row.Cells["Host"].Value
     }
+    Write-DebugLog ("Ping check started for host={0} row={1}" -f $pingContext.HostName, $pingContext.RowIndex)
     Update-SlaveRowPing $pingContext.RowIndex "Pinging..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $pingContext -Work {
-        param($Context)
-        Get-SlavePingStatus $Context.HostName
-    } -OnComplete {
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $pingContext -CommandName "Invoke-SlavePingBackgroundWork" -OnComplete {
         param($Result, $ErrorMessage, $Context)
         $status = if ($null -ne $ErrorMessage) { "Ping error: " + $ErrorMessage } else { [string]$Result }
         $checkedAt = (Get-Date).ToString("o")
@@ -221,17 +248,16 @@ function Start-SlaveReadinessCheck {
     $readyContext = @{
         RowIndex = $Row.Index
         ShowOutput = $ShowOutput
+        ShowCheckerWindow = $ShowOutput
         HostName = [string]$Row.Cells["Host"].Value
         VdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
         Target = Get-SlaveReadinessTargetForRow $Row
         Checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
         CheckerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
     }
+    Write-DebugLog ("Readiness check started for host={0} row={1} checker={2}" -f $readyContext.HostName, $readyContext.RowIndex, $readyContext.Checker)
     Update-SlaveRowReadiness $readyContext.RowIndex "Checking..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $readyContext -Work {
-        param($Context)
-        Get-SlaveReadinessResult $Context.HostName $Context.VdbenchPath $Context.Target $Context.Checker $Context.CheckerTemplate
-    } -OnComplete {
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $readyContext -CommandName "Invoke-SlaveReadinessBackgroundWork" -OnComplete {
         param($Result, $ErrorMessage, $Context)
         $checkedAt = (Get-Date).ToString("o")
         if ($null -ne $ErrorMessage) {
@@ -420,7 +446,7 @@ function Build-SlaveGrid {
 
     foreach ($button in @(
             @{ Name = "Browse"; Text = "Browse" },
-            @{ Name = "Readiness"; Text = "Readiness" },
+            @{ Name = "ReadinessRun"; Text = "Readiness" },
             @{ Name = "Ping"; Text = "Ping" }
         )) {
         $col = New-Object System.Windows.Forms.DataGridViewButtonColumn
@@ -507,11 +533,14 @@ function Build-SlaveGrid {
         }
         $columnName = $sender.Columns[$eventArgs.ColumnIndex].Name
         $row = $sender.Rows[$eventArgs.RowIndex]
+        if ($row.IsNewRow) {
+            return
+        }
         switch ($columnName) {
             "Browse" {
                 Browse-SlaveTargetsForRow $row
             }
-            "Readiness" {
+            "ReadinessRun" {
                 Start-SlaveReadinessCheck -Row $row -ShowOutput:$true
             }
             "Ping" {
