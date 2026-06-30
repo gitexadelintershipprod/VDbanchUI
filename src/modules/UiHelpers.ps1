@@ -180,6 +180,82 @@ function Invoke-GridBatchUpdate {
 $script:BackgroundUiPackages = @{}
 $script:BackgroundUiWorkerJobs = @{}
 $script:BackgroundUiCompletionQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+$script:BackgroundRunspace = $null
+$script:BackgroundRunspaceLock = New-Object object
+
+function Initialize-BackgroundRunspace {
+    if ($null -ne $script:BackgroundRunspace) {
+        return
+    }
+    $script:BackgroundRunspace = [runspacefactory]::CreateRunspace()
+    $script:BackgroundRunspace.Open()
+
+    $ps = [powershell]::Create()
+    $ps.Runspace = $script:BackgroundRunspace
+    try {
+        $initScript = @"
+Set-StrictMode -Version 2.0
+`$ErrorActionPreference = 'Stop'
+`$script:AppRoot = '$([string]$script:AppRoot -replace "'", "''")'
+`$script:ConfigRoot = '$([string]$script:ConfigRoot -replace "'", "''")'
+`$script:DataRoot = '$([string]$script:DataRoot -replace "'", "''")'
+`$script:ProfileRoot = '$([string]$script:ProfileRoot -replace "'", "''")'
+`$script:RunStateRoot = '$([string]$script:RunStateRoot -replace "'", "''")'
+`$script:LogRoot = '$([string]$script:LogRoot -replace "'", "''")'
+`$script:SettingsPath = '$([string]$script:SettingsPath -replace "'", "''")'
+`$script:SlavesPath = '$([string]$script:SlavesPath -replace "'", "''")'
+`$script:LocalHostTargetsPath = '$([string]$script:LocalHostTargetsPath -replace "'", "''")'
+`$script:CatalogPath = '$([string]$script:CatalogPath -replace "'", "''")'
+`$script:ModuleRoot = '$([string]$script:ModuleRoot -replace "'", "''")'
+`$script:Settings = `$null
+`$script:Slaves = @()
+`$script:LocalHostTargets = @()
+`$script:Catalog = @()
+"@
+        [void]$ps.AddScript($initScript)
+        foreach ($moduleName in @(
+            "Core.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
+            "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1"
+        )) {
+            $modulePath = (Join-Path $script:ModuleRoot $moduleName) -replace "'", "''"
+            [void]$ps.AddScript(". '$modulePath'")
+        }
+        $null = $ps.Invoke()
+        if ($ps.HadErrors) {
+            $errors = @($ps.Streams.Error | ForEach-Object { $_.ToString() })
+            throw ("Background runspace initialization failed: {0}" -f ($errors -join "; "))
+        }
+        Write-DebugLog "Background runspace initialized"
+    } finally {
+        $ps.Dispose()
+    }
+}
+
+function Invoke-BackgroundUiWorkItem {
+    param(
+        [scriptblock]$Work,
+        [hashtable]$Context,
+        $Runspace = $null
+    )
+    if ($null -eq $Runspace) {
+        if ($null -eq $script:BackgroundRunspace) {
+            Initialize-BackgroundRunspace
+        }
+        $Runspace = $script:BackgroundRunspace
+    }
+    [System.Threading.Monitor]::Enter($script:BackgroundRunspaceLock)
+    try {
+        $previous = [runspace]::DefaultRunspace
+        try {
+            [runspace]::DefaultRunspace = $Runspace
+            return & $Work $Context
+        } finally {
+            [runspace]::DefaultRunspace = $previous
+        }
+    } finally {
+        [System.Threading.Monitor]::Exit($script:BackgroundRunspaceLock)
+    }
+}
 
 function Get-BackgroundUiErrorMessage {
     param($ErrorObject)
@@ -223,11 +299,15 @@ function Start-BackgroundUiWork {
         }
         return
     }
+    if ($null -eq $script:BackgroundRunspace) {
+        Initialize-BackgroundRunspace
+    }
     $package = [pscustomobject]@{
         Work = $Work
         OnComplete = $OnComplete
         Owner = $Owner
         Context = $Context
+        BackgroundRunspace = $script:BackgroundRunspace
     }
     $jobId = [guid]::NewGuid().ToString()
     $script:BackgroundUiPackages[$jobId] = $package
@@ -238,7 +318,7 @@ function Start-BackgroundUiWork {
         param($sender, $eventArgs)
         $id = [string]$eventArgs.Argument
         $pkg = $script:BackgroundUiPackages[$id]
-        $eventArgs.Result = & $pkg.Work $pkg.Context
+        $eventArgs.Result = Invoke-BackgroundUiWorkItem -Work $pkg.Work -Context $pkg.Context -Runspace $pkg.BackgroundRunspace
     })
     $worker.Add_RunWorkerCompleted({
         param($sender, $eventArgs)

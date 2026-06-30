@@ -403,7 +403,8 @@ def main() -> int:
     assert "BackgroundUiCompletionQueue" in ui_helpers_module
     assert "BeginInvoke([System.Action]{ Invoke-BackgroundUiCompletions })" in ui_helpers_module
     assert "[hashtable]$Context = @{}" in ui_helpers_module
-    assert "function Get-BackgroundUiErrorMessage" in ui_helpers_module
+    assert "function Initialize-BackgroundRunspace" in ui_helpers_module
+    assert "Invoke-BackgroundUiWorkItem" in ui_helpers_module
     assert "if ($null -ne $errorRecord)" not in ui_helpers_module
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module

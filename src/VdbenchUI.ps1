@@ -95,6 +95,7 @@ try {
         Write-AppLog "Starting Vdbench UI"
         Write-DebugLog ("AppRoot={0}; LogRoot={1}" -f $script:AppRoot, $script:LogRoot)
         Initialize-AppState
+        Initialize-BackgroundRunspace
         $script:Form = Build-MainForm
         Write-DebugLog "Main form built"
         Refresh-ConfigPreview
