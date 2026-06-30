@@ -1,3 +1,16 @@
+function Assert-SelfTestContainsAll {
+    param(
+        [string]$Text,
+        [string[]]$ExpectedParts,
+        [string]$Name
+    )
+    foreach ($part in $ExpectedParts) {
+        if ($Text -notlike ("*" + $part + "*")) {
+            throw ("Self-test failed: {0}. Missing: {1}" -f $Name, $part)
+        }
+    }
+}
+
 function Assert-SelfTestContains {
     param(
         [string]$Text,
@@ -68,8 +81,19 @@ function Invoke-AppSelfTest {
         Set-ProfileParamEnabled $script:CurrentProfile "storage.dedupratio" $false
         $raw = Build-VdbenchConfig
         Assert-SelfTestContains $raw.Text "sd=sd1,lun=C:\vdbench\testfile.dat" "raw storage line"
-        Assert-SelfTestContains $raw.Text "wd=wd1,sd=sd1,xfersize=4k,rdpct=70,seekpct=100" "raw workload line"
-        Assert-SelfTestContains $raw.Text "rd=rd1,wd=wd1,elapsed=300,warmup=30,interval=1,iorate=max" "raw run line"
+        Assert-SelfTestContainsAll $raw.Text @(
+            "wd=wd1,sd=sd1",
+            "xfersize=4k",
+            "rdpct=70",
+            "seekpct=100"
+        ) "raw workload line"
+        Assert-SelfTestContainsAll $raw.Text @(
+            "rd=rd1,wd=wd1",
+            "elapsed=300",
+            "warmup=30",
+            "interval=1",
+            "iorate=max"
+        ) "raw run line"
         Assert-SelfTestContains $raw.Text "* disabled: dedupratio=2" "disabled parameter rendering"
 
         $script:LocalHostTargets = @((New-TargetSelection -Kind "Raw disk" -Target "\\.\PhysicalDrive1" -Selected $true))
@@ -108,8 +132,16 @@ function Invoke-AppSelfTest {
         $script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target "C:\vdbench\fs_test" -Selected $true))
         $fs = Build-VdbenchConfig
         Assert-SelfTestContains $fs.Text "fsd=fsd1,anchor=C:\vdbench\fs_test" "filesystem definition"
-        Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1,operation=read" "filesystem workload"
-        Assert-SelfTestContains $fs.Text "rd=rd1,fwd=fwd1,elapsed=300,warmup=30,interval=1,fwdrate=max,format=no" "filesystem run"
+        Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1" "filesystem workload"
+        Assert-SelfTestContains $fs.Text "operation=read" "filesystem workload operation"
+        Assert-SelfTestContainsAll $fs.Text @(
+            "rd=rd1,fwd=fwd1",
+            "elapsed=300",
+            "warmup=30",
+            "interval=1",
+            "fwdrate=max",
+            "format=no"
+        ) "filesystem run"
 
         Set-PropertyValue $script:Settings "RunMode" "Master/Slave distributed run"
         $script:Slaves = @(
