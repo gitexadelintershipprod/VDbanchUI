@@ -64,9 +64,55 @@ function Ensure-ProfileCatalogKeys {
     if ($null -eq $Profile.PSObject.Properties["AdvancedDisabled"]) {
         $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
     }
-    if ($null -eq $Profile.PSObject.Properties["AdvancedDisabled"]) {
-        $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
+    Sync-CommonProfileParameters $Profile
+}
+
+$script:CommonParameterMirrors = @{
+    "common.xfersize" = @("workload.xfersize", "fwd.xfersize")
+    "common.threads" = @("workload.threads", "fwd.threads")
+    "common.rate" = @("run.iorate", "run.fwdrate")
+}
+
+function Sync-CommonProfileParameters {
+    param([object]$Profile)
+    if ($null -eq $Profile) {
+        return
     }
+    foreach ($commonKey in $script:CommonParameterMirrors.Keys) {
+        $mirrors = @($script:CommonParameterMirrors[$commonKey])
+        $commonValue = Get-ProfileParamValue $Profile $commonKey ""
+        $commonEnabled = Get-ProfileParamEnabled $Profile $commonKey
+        if ([string]::IsNullOrWhiteSpace($commonValue)) {
+            foreach ($mirrorKey in $mirrors) {
+                $mirrorValue = Get-ProfileParamValue $Profile $mirrorKey ""
+                if (-not [string]::IsNullOrWhiteSpace($mirrorValue)) {
+                    $commonValue = $mirrorValue
+                    $commonEnabled = Get-ProfileParamEnabled $Profile $mirrorKey
+                    Set-ProfileParamValue $Profile $commonKey $commonValue
+                    Set-ProfileParamEnabled $Profile $commonKey $commonEnabled
+                    break
+                }
+            }
+        }
+        foreach ($mirrorKey in $mirrors) {
+            Set-ProfileParamValue $Profile $mirrorKey $commonValue
+            Set-ProfileParamEnabled $Profile $mirrorKey $commonEnabled
+        }
+    }
+}
+
+function Initialize-NewDraftProfile {
+    $script:CurrentProfile = New-DefaultProfile "New-Profile"
+    if ($script:ProfileNameBox) {
+        Refresh-ProfileEditor
+    }
+}
+
+function Get-SelectedLibraryProfileName {
+    if ($null -eq $script:RunProfileSelector) {
+        return ""
+    }
+    return [string]$script:RunProfileSelector.Text
 }
 
 function Get-LocalHostTargetStore {
@@ -98,10 +144,7 @@ function Import-LocalHostTargetsFromProfiles {
 }
 
 function Get-RunProfile {
-    if ($null -ne $script:RunProfile) {
-        return $script:RunProfile
-    }
-    return $script:CurrentProfile
+    return $script:RunProfile
 }
 
 function Get-RunProfileName {
@@ -449,7 +492,7 @@ function Ensure-DefaultProfiles {
         $profileObject = New-DefaultProfile "Default-4K-Random-Read" "Raw/block"
         Set-ProfileParamValue $profileObject "workload.rdpct" "100"
         Set-ProfileParamValue $profileObject "workload.seekpct" "100"
-        Set-ProfileParamValue $profileObject "workload.xfersize" "4k"
+        Set-ProfileParamValue $profileObject "common.xfersize" "4k"
         Write-JsonFile $rawPath $profileObject
     }
 
@@ -458,7 +501,7 @@ function Ensure-DefaultProfiles {
         $profileObject = New-DefaultProfile "Default-70-30-Random-Mix" "Raw/block"
         Set-ProfileParamValue $profileObject "workload.rdpct" "70"
         Set-ProfileParamValue $profileObject "workload.seekpct" "100"
-        Set-ProfileParamValue $profileObject "workload.xfersize" "4k"
+        Set-ProfileParamValue $profileObject "common.xfersize" "4k"
         Write-JsonFile $mixPath $profileObject
     }
 
@@ -605,16 +648,26 @@ function Save-CurrentProfile {
     }
     Ensure-ProfileCatalogKeys $script:CurrentProfile
     Capture-ProfileEditor
+    Sync-CommonProfileParameters $script:CurrentProfile
     if ($null -ne $script:CurrentProfile.PSObject.Properties["LocalTargets"]) {
         $script:CurrentProfile.PSObject.Properties.Remove("LocalTargets")
     }
     if ($null -ne $script:CurrentProfile.PSObject.Properties["TestKind"]) {
         $script:CurrentProfile.PSObject.Properties.Remove("TestKind")
     }
+    $savedName = [string]$script:CurrentProfile.Name
+    if ([string]::IsNullOrWhiteSpace($savedName)) {
+        Show-Warning "Enter a profile name before saving."
+        return
+    }
     $script:CurrentProfile.UpdatedAt = (Get-Date).ToString("o")
-    Write-JsonFile (Get-ProfilePath $script:CurrentProfile.Name) $script:CurrentProfile
-    Refresh-ProfileList
+    Write-JsonFile (Get-ProfilePath $savedName) $script:CurrentProfile
     Refresh-RunProfileList
+    if ($script:RunProfileSelector) {
+        $script:RunProfileSelector.Text = $savedName
+        Sync-RunProfileFromSelector
+    }
+    Initialize-NewDraftProfile
 }
 
 function Open-ProfileFolder {
@@ -623,13 +676,13 @@ function Open-ProfileFolder {
     }
 }
 
-function Duplicate-CurrentProfile {
-    if ($null -eq $script:CurrentProfile) {
-        Show-Warning "No profile is loaded."
+function Duplicate-RunProfile {
+    $profile = Get-RunProfile
+    if ($null -eq $profile) {
+        Show-Warning "Select a run profile to duplicate."
         return
     }
-    Capture-ProfileEditor
-    $copy = Copy-ObjectJson $script:CurrentProfile
+    $copy = Copy-ObjectJson $profile
     $baseName = [string]$copy.Name
     if ([string]::IsNullOrWhiteSpace($baseName)) {
         $baseName = "Profile"
@@ -638,25 +691,30 @@ function Duplicate-CurrentProfile {
     $copy.CreatedAt = (Get-Date).ToString("o")
     $copy.UpdatedAt = (Get-Date).ToString("o")
     Ensure-ProfileCatalogKeys $copy
+    Sync-CommonProfileParameters $copy
     Write-JsonFile (Get-ProfilePath $copy.Name) $copy
-    $script:CurrentProfile = $copy
-    Refresh-ProfileList
-    $script:ProfileSelector.Text = [string]$copy.Name
-    Refresh-ProfileEditor
+    Refresh-RunProfileList
+    if ($script:RunProfileSelector) {
+        $script:RunProfileSelector.Text = [string]$copy.Name
+        Sync-RunProfileFromSelector
+    }
+    Refresh-RunTabSummary
+    Refresh-ConfigPreview
 }
 
-function Export-CurrentProfile {
-    if ($null -eq $script:CurrentProfile) {
-        Show-Warning "No profile is loaded."
+function Export-RunProfile {
+    $profile = Get-RunProfile
+    if ($null -eq $profile) {
+        Show-Warning "Select a run profile to export."
         return
     }
-    Capture-ProfileEditor
-    Ensure-ProfileCatalogKeys $script:CurrentProfile
+    Sync-CommonProfileParameters $profile
+    Ensure-ProfileCatalogKeys $profile
     $dialog = New-Object System.Windows.Forms.SaveFileDialog
     $dialog.Filter = "Profile JSON (*.json)|*.json|All files (*.*)|*.*"
-    $dialog.FileName = (Sanitize-FileName $script:CurrentProfile.Name) + ".json"
+    $dialog.FileName = (Sanitize-FileName $profile.Name) + ".json"
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Write-JsonFile $dialog.FileName $script:CurrentProfile
+        Write-JsonFile $dialog.FileName $profile
     }
 }
 
@@ -693,20 +751,22 @@ function Import-Profile {
         }
         $importedProfile.UpdatedAt = (Get-Date).ToString("o")
         Write-JsonFile (Get-ProfilePath $importedProfile.Name) $importedProfile
-        $script:CurrentProfile = $importedProfile
-        Refresh-ProfileList
         Refresh-RunProfileList
-        $script:ProfileSelector.Text = [string]$importedProfile.Name
-        Refresh-ProfileEditor
+        if ($script:RunProfileSelector) {
+            $script:RunProfileSelector.Text = [string]$importedProfile.Name
+            Sync-RunProfileFromSelector
+        }
+        Refresh-RunTabSummary
+        Refresh-ConfigPreview
     } catch {
         Show-Warning ("Profile import failed: " + $_.Exception.Message)
     }
 }
 
 function Delete-SelectedProfile {
-    $name = [string]$script:ProfileSelector.Text
+    $name = Get-SelectedLibraryProfileName
     if ([string]::IsNullOrWhiteSpace($name)) {
-        Show-Warning "Select a profile to delete."
+        Show-Warning "Select a run profile to delete."
         return
     }
     $path = Get-ProfilePath $name
@@ -718,19 +778,17 @@ function Delete-SelectedProfile {
         return
     }
     Remove-Item -LiteralPath $path -Force
-    Refresh-ProfileList
     Refresh-RunProfileList
-    $names = Get-ProfileNames
-    if ($names.Count -gt 0) {
-        $script:CurrentProfile = Load-ProfileByName $names[0]
-        $script:RunProfile = $script:CurrentProfile
-        $script:ProfileSelector.Text = $names[0]
-    } else {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile"
-        $script:RunProfile = $script:CurrentProfile
-        $script:ProfileSelector.Text = ""
-    }
-    Refresh-ProfileEditor
+    Refresh-RunTabSummary
+    Refresh-ConfigPreview
+    Update-RunModeIndicator
+}
+
+function Reload-RunProfile {
+    Sync-RunProfileFromSelector
+    Refresh-RunTabSummary
+    Refresh-ConfigPreview
+    Update-RunModeIndicator
 }
 
 function Export-SlaveInventory {

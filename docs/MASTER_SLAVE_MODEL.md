@@ -13,9 +13,16 @@ The UI separates profile parameters, host/target inventory, and run orchestratio
 
 Profiles store workload parameters only. They no longer store `TestKind` or `LocalTargets`.
 
+- The **Profile** tab is create-only: it starts with a blank draft and does not load saved profiles.
+- Shared workload fields (`common.xfersize`, `common.threads`, `common.rate`) replace duplicate raw/filesystem entries in the editor.
+- Saving a profile writes it to `profiles/` and resets the draft for the next new profile.
+
 ## Run Tab
 
-The **Run** tab selects the profile to execute and shows a summary of mode, derived test kind, and selected targets before start.
+The **Run** tab is the profile library and execution orchestrator:
+
+- Select, reload, delete, duplicate, import, export, and open the profiles folder.
+- Choose which saved profile to execute and review mode, derived test kind, and selected targets before start.
 
 ## Settings
 

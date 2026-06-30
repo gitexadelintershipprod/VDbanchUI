@@ -42,7 +42,6 @@ $script:LogQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[str
 $script:Form = $null
 $script:SettingsStatusBox = $null
 $script:SlaveGrid = $null
-$script:ProfileSelector = $null
 $script:ProfileNameBox = $null
 $script:ProfileParamTabs = $null
 $script:RunModeCombo = $null

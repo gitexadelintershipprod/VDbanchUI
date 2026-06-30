@@ -126,6 +126,37 @@ def add_params(parts: list[str], disabled: list[str], catalog: list[dict], profi
             disabled.append(f"* disabled: {name}={value} ({definition['Section']})")
 
 
+COMMON_MIRRORS = {
+    "common.xfersize": ["workload.xfersize", "fwd.xfersize"],
+    "common.threads": ["workload.threads", "fwd.threads"],
+    "common.rate": ["run.iorate", "run.fwdrate"],
+}
+
+
+def sync_common_parameters(profile: dict):
+    params = profile.setdefault("Parameters", {})
+    for common_key, mirrors in COMMON_MIRRORS.items():
+        item = params.get(common_key)
+        common_value = ""
+        common_enabled = False
+        if item:
+            common_value = str(item.get("Value") or "")
+            common_enabled = bool(item.get("Enabled"))
+        if not common_value.strip():
+            for mirror_key in mirrors:
+                mirror_item = params.get(mirror_key)
+                if not mirror_item:
+                    continue
+                mirror_value = str(mirror_item.get("Value") or "")
+                if mirror_value.strip():
+                    common_value = mirror_value
+                    common_enabled = bool(mirror_item.get("Enabled"))
+                    params[common_key] = {"Enabled": common_enabled, "Value": common_value}
+                    break
+        for mirror_key in mirrors:
+            params[mirror_key] = {"Enabled": common_enabled, "Value": common_value}
+
+
 def render_config(
     catalog: list[dict],
     settings: dict,
@@ -136,6 +167,7 @@ def render_config(
 ) -> str:
     if test_kind is None:
         test_kind = profile.get("TestKind", "Raw/block")
+    sync_common_parameters(profile)
     distributed = bool(slaves)
     disabled: list[str] = []
     lines: list[str] = [
@@ -339,6 +371,11 @@ def main() -> int:
     assert "function Update-RunModeTabs" in ui_tabs_module
     assert "$script:RunModeCombo" in ui_tabs_module
     assert 'New-Button "New raw"' not in ui_tabs_module
+    assert '$script:ProfileSelector' not in ui_tabs_module
+    assert "Refresh-ProfileList" not in ui_tabs_module
+    assert "Duplicate-RunProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Preview-DraftProfile" in ui_tabs_module
+    assert "function Initialize-NewDraftProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "ProfileKindCombo" not in ui_tabs_module
     assert "function Refresh-RunTabSummary" in config_module
     assert "function Resolve-RunTestKind" in config_module
