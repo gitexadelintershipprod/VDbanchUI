@@ -10,12 +10,15 @@ BeforeAll {
     $script:LogRoot = Join-Path $script:AppRoot "logs"
     $script:SettingsPath = Join-Path $script:DataRoot "settings.json"
     $script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+    $script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
     $script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
 
     $script:Settings = $null
     $script:Slaves = @()
+    $script:LocalHostTargets = @()
     $script:Catalog = @()
     $script:CurrentProfile = $null
+    $script:RunProfile = $null
     $script:ParameterControls = @{}
     $script:SettingsControls = @{}
     $script:RefreshingProfileEditor = $false
@@ -30,7 +33,9 @@ Describe "Golden config snippets" {
     It "renders raw local storage line" {
         $script:Settings = Read-JsonFile $script:SettingsPath (Read-JsonFile (Join-Path $script:ConfigRoot "default-settings.json") ([pscustomobject]@{}))
         $script:Catalog = @(Read-JsonFile $script:CatalogPath @())
-        $script:CurrentProfile = New-DefaultProfile "Pester-Raw" "Raw/block"
+        $script:CurrentProfile = New-DefaultProfile "Pester-Raw"
+        $script:RunProfile = $script:CurrentProfile
+        $script:LocalHostTargets = @((New-TargetSelection -Kind "Test file" -Target "C:\vdbench\testfile.dat" -Selected $true))
         $built = Build-VdbenchConfig
         $expected = Get-Content -LiteralPath (Join-Path $PSScriptRoot "fixtures\raw-local.txt") -Raw
         $built.Text | Should -Match ([regex]::Escape($expected.Trim()))
@@ -46,18 +51,21 @@ Describe "Golden config snippets" {
                 OsType = "Linux"
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/dev/sdb"
+                Targets = @((New-TargetSelection -Kind "Raw disk" -Target "/dev/sdb" -Selected $true))
                 SshAlias = "test-001"
                 ReadinessStatus = "Ready"
                 Notes = ""
             }
         )
+        $script:RunProfile = $script:CurrentProfile
         $built = Build-VdbenchConfig
         $expected = Get-Content -LiteralPath (Join-Path $PSScriptRoot "fixtures\raw-distributed.txt") -Raw
         $built.Text | Should -Match ([regex]::Escape($expected.Trim()))
     }
 
     It "renders distributed filesystem definition" {
-        $script:CurrentProfile = New-DefaultProfile "Pester-FS" "Filesystem"
+        $script:CurrentProfile = New-DefaultProfile "Pester-FS"
+        $script:RunProfile = $script:CurrentProfile
         $script:Slaves = @(
             [pscustomobject]@{
                 Enabled = $true
@@ -66,6 +74,7 @@ Describe "Golden config snippets" {
                 OsType = "Linux"
                 VdbenchPath = "/opt/vdbench"
                 TestTarget = "/mnt/test"
+                Targets = @((New-TargetSelection -Kind "Filesystem" -Target "/mnt/test" -Selected $true))
                 SshAlias = "test-002"
                 ReadinessStatus = "Ready"
                 Notes = ""

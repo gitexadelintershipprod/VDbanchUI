@@ -1,6 +1,21 @@
 # Master / Slave Model
 
-The UI treats distributed Vdbench execution as first-class state.
+The UI separates profile parameters, host/target inventory, and run orchestration.
+
+## Run Mode
+
+- **Run mode** (`Single local run` vs `Master/Slave distributed run`) is selected in the header.
+- Local mode uses targets from `data/localhost.json` on the **Local Host** tab.
+- Distributed mode uses enabled, ready slaves from `data/slaves.json` on the **Master / Slave** tab.
+- Raw vs filesystem test kind is derived from selected targets at run time (mixed targets are blocked).
+
+## Profile
+
+Profiles store workload parameters only. They no longer store `TestKind` or `LocalTargets`.
+
+## Run Tab
+
+The **Run** tab selects the profile to execute and shows a summary of mode, derived test kind, and selected targets before start.
 
 ## Settings
 

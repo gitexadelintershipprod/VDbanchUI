@@ -162,7 +162,7 @@ function New-RunMetadataMap {
         ExitCode = ""
         Profile = [string]$script:CurrentProfile.Name
         Mode = (Get-Mode)
-        TestKind = [string]$script:CurrentProfile.TestKind
+        TestKind = [string](Resolve-RunTestKind).TestKind
         RunDir = [string]$Context.RunDir
         ParmPath = [string]$Context.ParmPath
         StdoutPath = [string]$Context.StdoutPath
@@ -251,7 +251,7 @@ function Get-TestFilesToCreate {
         }
     } else {
         $owner = [pscustomobject]@{ Host = "localhost"; OsType = "Windows" }
-        foreach ($target in @(Get-SelectedTargetEntries @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @()) "raw")) {
+        foreach ($target in @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore) "raw")) {
             if ([string](Get-PropertyValue $target "Kind" "") -eq "Test file" -and [bool](Get-PropertyValue $target "CreateFile" $false)) {
                 $items += New-TestFileTarget $owner $target
             }
