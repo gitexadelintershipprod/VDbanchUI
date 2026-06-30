@@ -452,6 +452,7 @@ function Build-SlaveGrid {
             } else {
                 Capture-SlaveGrid
                 Refresh-ConfigPreview
+                Notify-ProfileTargetContextChanged "slave-enabled"
             }
             return
         }
@@ -717,6 +718,7 @@ function Browse-SlaveTargetsForRow {
             Set-SlaveRowTargets $Row $selected
             Capture-SlaveGrid
             Refresh-ConfigPreview
+            Notify-ProfileTargetContextChanged "slave-target-picker"
         }
     } catch {
         Show-Warning ("Target discovery failed: " + $_.Exception.Message)

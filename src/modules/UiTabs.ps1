@@ -319,6 +319,7 @@ function Apply-LocalHostTargetSelections {
     Capture-LocalHostTargets
     Refresh-ConfigPreview
     Refresh-RunTabSummary
+    Notify-ProfileTargetContextChanged "local-host-save"
     Show-Info "Local target selections saved."
 }
 
@@ -427,6 +428,7 @@ function Build-LocalHostTab {
             Capture-LocalHostTargets
             Refresh-ConfigPreview
             Refresh-RunTabSummary
+            Notify-ProfileTargetContextChanged "local-host-grid"
         }
     })
     $script:LocalHostTargetGrid.Add_CellDoubleClick({
@@ -437,6 +439,7 @@ function Build-LocalHostTab {
             Capture-LocalHostTargets
             Refresh-ConfigPreview
             Refresh-RunTabSummary
+            Notify-ProfileTargetContextChanged "local-host-grid-doubleclick"
         }
     })
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
@@ -460,11 +463,104 @@ function Show-ParameterHelp {
     Show-Info $message "Parameter help"
 }
 
+function Test-ProfileTabSelected {
+    if ($null -eq $script:MainTabControl) {
+        return $false
+    }
+    $selected = $script:MainTabControl.SelectedTab
+    if ($null -eq $selected) {
+        return $false
+    }
+    return (Get-MainTabFullTitle $selected) -eq "Profile Builder"
+}
+
+function Set-ProfileToolbarLockState {
+    param([bool]$Locked)
+    $script:ProfileEditorLocked = $Locked
+    foreach ($button in @($script:ProfileNewButton, $script:ProfileSaveButton, $script:ProfilePreviewButton)) {
+        if ($null -ne $button) {
+            $button.Enabled = -not $Locked
+        }
+    }
+    if ($null -ne $script:ProfileNameBox) {
+        $script:ProfileNameBox.Enabled = -not $Locked
+        if ($Locked) {
+            $script:ProfileNameBox.BackColor = [System.Drawing.SystemColors]::Control
+        } else {
+            $script:ProfileNameBox.BackColor = [System.Drawing.SystemColors]::Window
+        }
+    }
+}
+
+function Set-ProfileEditorBanner {
+    param(
+        [bool]$Locked,
+        [string]$Message
+    )
+    if ($null -eq $script:ProfileEditorBanner) {
+        return
+    }
+    if ($Locked) {
+        $script:ProfileEditorBanner.Text = [string]$Message
+        $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
+        $script:ProfileEditorBanner.Visible = $true
+    } else {
+        $script:ProfileEditorBanner.Text = ("Editing profile parameters for derived test kind: {0}" -f $script:ProfileEditorTestKind)
+        $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::DarkGreen
+        $script:ProfileEditorBanner.Visible = $true
+    }
+}
+
+function Add-ProfileEditorSectionTab {
+    param(
+        [string]$Section,
+        [bool]$ReadOnly
+    )
+    $tab = New-Object System.Windows.Forms.TabPage
+    $tab.Text = $Section
+    $panel = New-Object System.Windows.Forms.Panel
+    $panel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $panel.AutoScroll = $true
+    $tab.Controls.Add($panel)
+
+    $y = 16
+    $headers = @(
+        @{ Text = "State"; X = 12; W = 75 },
+        @{ Text = "Parameter"; X = 96; W = 210 },
+        @{ Text = "Help"; X = 310; W = 40 },
+        @{ Text = "Value"; X = 350; W = 220 },
+        @{ Text = "Vdbench"; X = 590; W = 120 },
+        @{ Text = "Line"; X = 720; W = 120 }
+    )
+    foreach ($header in $headers) {
+        $h = New-Label $header.Text $header.X $y $header.W
+        $h.Font = New-Object System.Drawing.Font -ArgumentList $h.Font, ([System.Drawing.FontStyle]::Bold)
+        $h.Enabled = -not $ReadOnly
+        $panel.Controls.Add($h)
+    }
+    $y += 30
+    foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section })) {
+        if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
+            continue
+        }
+        if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
+            continue
+        }
+        if (-not (Definition-AppliesToKind $def $script:ProfileEditorTestKind)) {
+            continue
+        }
+        Add-ParameterRow $panel $def $y -ReadOnly:$ReadOnly
+        $y += 32
+    }
+    $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
+}
+
 function Add-ParameterRow {
     param(
         [System.Windows.Forms.Panel]$Panel,
         [object]$Definition,
-        [int]$Y
+        [int]$Y,
+        [bool]$ReadOnly = $false
     )
     $key = [string]$Definition.Key
     $param = Get-ProfileParam $script:CurrentProfile $key
@@ -472,14 +568,17 @@ function Add-ParameterRow {
     $enabled = New-Object System.Windows.Forms.CheckBox
     $enabled.Text = "Enabled"
     $enabled.Checked = [bool]$param.Enabled
+    $enabled.Enabled = -not $ReadOnly
     $enabled.Location = New-Object System.Drawing.Point -ArgumentList 12, $Y
     $enabled.Size = New-Object System.Drawing.Size -ArgumentList 78, 24
     $Panel.Controls.Add($enabled)
 
     $label = New-Label ([string]$Definition.Label) 96 $Y 210
+    $label.Enabled = -not $ReadOnly
     $Panel.Controls.Add($label)
 
     $helpButton = New-Button "?" 310 ($Y - 1) 28 24
+    $helpButton.Enabled = -not $ReadOnly
     $helpButton.Tag = $Definition
     $helpButton.Add_Click({
         param($sender, $eventArgs)
@@ -498,6 +597,7 @@ function Add-ParameterRow {
     } else {
         $valueControl = New-TextBox ([string]$param.Value) 350 $Y 220
     }
+    $valueControl.Enabled = -not $ReadOnly
     $Panel.Controls.Add($valueControl)
 
     $vdName = New-Label ([string]$Definition.VdbenchName) 590 $Y 120
@@ -515,6 +615,9 @@ function Add-ParameterRow {
     }
 }
 function Capture-ProfileEditor {
+    if ($script:ProfileEditorLocked) {
+        return
+    }
     if ($null -eq $script:CurrentProfile) {
         return
     }
@@ -535,82 +638,99 @@ function Capture-ProfileEditor {
 }
 
 function Refresh-ProfileEditor {
-    if ($null -eq $script:CurrentProfile) {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile"
-    }
-    $script:RefreshingProfileEditor = $true
-    $script:ParameterControls = @{}
-    $script:ProfileNameBox.Text = [string]$script:CurrentProfile.Name
-    $script:ProfileParamTabs.TabPages.Clear()
+    param([string]$ChangeSource = "manual")
 
-    $sections = @($script:Catalog | Select-Object -ExpandProperty Section -Unique)
-    foreach ($section in $sections) {
-        $tab = New-Object System.Windows.Forms.TabPage
-        $tab.Text = $section
-        $panel = New-Object System.Windows.Forms.Panel
-        $panel.Dock = [System.Windows.Forms.DockStyle]::Fill
-        $panel.AutoScroll = $true
-        $tab.Controls.Add($panel)
-
-        $y = 16
-        $headers = @(
-            @{ Text = "State"; X = 12; W = 75 },
-            @{ Text = "Parameter"; X = 96; W = 210 },
-            @{ Text = "Help"; X = 310; W = 40 },
-            @{ Text = "Value"; X = 350; W = 220 },
-            @{ Text = "Vdbench"; X = 590; W = 120 },
-            @{ Text = "Line"; X = 720; W = 120 }
-        )
-        foreach ($header in $headers) {
-            $h = New-Label $header.Text $header.X $y $header.W
-            $h.Font = New-Object System.Drawing.Font -ArgumentList $h.Font, ([System.Drawing.FontStyle]::Bold)
-            $panel.Controls.Add($h)
+    Write-DebugLog ("Refresh-ProfileEditor start: source={0}" -f $ChangeSource)
+    try {
+        if ($null -eq $script:CurrentProfile) {
+            $script:CurrentProfile = New-DefaultProfile "New-Profile"
         }
-        $y += 30
-        foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section })) {
-            if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
-                continue
-            }
-            if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
-                continue
-            }
-            Add-ParameterRow $panel $def $y
-            $y += 32
+        if (-not $script:RefreshingProfileEditor -and -not $script:ProfileEditorLocked) {
+            Capture-ProfileEditor
         }
-        $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
+
+        $previousKind = [string]$script:ProfileEditorLastTestKind
+        $context = Get-ProfileEditorContext
+        $script:ProfileEditorLocked = [bool]$context.Locked
+        $script:ProfileEditorTestKind = [string]$context.TestKind
+        Write-DebugLog ("Profile editor context: locked={0}; testKind={1}; sections={2}; resolvedError={3}" -f $context.Locked, $context.TestKind, ($context.VisibleSections -join ","), [string]$context.Resolved.Error)
+
+        if (Test-ProfileTabSelected -and -not [string]::IsNullOrWhiteSpace($previousKind) -and -not [string]::IsNullOrWhiteSpace($context.TestKind) -and $previousKind -ne $context.TestKind) {
+            Show-Warning "Target type changed; review profile parameters." "Profile parameters"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($context.TestKind)) {
+            $script:ProfileEditorLastTestKind = [string]$context.TestKind
+        }
+
+        $script:RefreshingProfileEditor = $true
+        $script:ParameterControls = @{}
+        if ($script:ProfileNameBox) {
+            $script:ProfileNameBox.Text = [string]$script:CurrentProfile.Name
+        }
+        Set-ProfileToolbarLockState $context.Locked
+        Set-ProfileEditorBanner $context.Locked ([string]$context.Message)
+        if ($script:ProfileParamTabs) {
+            $script:ProfileParamTabs.TabPages.Clear()
+        }
+
+        if ($context.Locked) {
+            $lockedTab = New-Object System.Windows.Forms.TabPage
+            $lockedTab.Text = "Parameters"
+            $lockedPanel = New-Object System.Windows.Forms.Panel
+            $lockedPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $lockedPanel.AutoScroll = $true
+            $lockedTab.Controls.Add($lockedPanel)
+            $lockedLabel = New-Label ([string]$context.Message) 16 24 1040 80
+            $lockedLabel.ForeColor = [System.Drawing.Color]::Firebrick
+            $lockedLabel.Font = New-Object System.Drawing.Font -ArgumentList $lockedLabel.Font, ([System.Drawing.FontStyle]::Bold)
+            $lockedPanel.Controls.Add($lockedLabel)
+            $script:ProfileParamTabs.TabPages.Add($lockedTab) | Out-Null
+            $script:ProfileParamTabs.Enabled = $false
+        } else {
+            $script:ProfileParamTabs.Enabled = $true
+            foreach ($section in @($context.VisibleSections)) {
+                Add-ProfileEditorSectionTab $section $false
+            }
+
+            $advTab = New-Object System.Windows.Forms.TabPage
+            $advTab.Text = "Advanced manual lines"
+            $advPanel = New-Object System.Windows.Forms.Panel
+            $advPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $advPanel.AutoScroll = $true
+            $advTab.Controls.Add($advPanel)
+
+            $advPanel.Controls.Add((New-Label "Active manual Vdbench lines" 12 12 260))
+            $script:AdvancedActiveBox = New-Object System.Windows.Forms.TextBox
+            $script:AdvancedActiveBox.Multiline = $true
+            $script:AdvancedActiveBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
+            $script:AdvancedActiveBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
+            $script:AdvancedActiveBox.Text = [string](Get-PropertyValue $script:CurrentProfile "AdvancedActive" "")
+            $script:AdvancedActiveBox.Location = New-Object System.Drawing.Point -ArgumentList 12, 40
+            $script:AdvancedActiveBox.Size = New-Object System.Drawing.Size -ArgumentList 950, 190
+            $advPanel.Controls.Add($script:AdvancedActiveBox)
+
+            $advPanel.Controls.Add((New-Label "Disabled/commented manual lines" 12 250 260))
+            $script:AdvancedDisabledBox = New-Object System.Windows.Forms.TextBox
+            $script:AdvancedDisabledBox.Multiline = $true
+            $script:AdvancedDisabledBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
+            $script:AdvancedDisabledBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
+            $script:AdvancedDisabledBox.Text = [string](Get-PropertyValue $script:CurrentProfile "AdvancedDisabled" "")
+            $script:AdvancedDisabledBox.Location = New-Object System.Drawing.Point -ArgumentList 12, 278
+            $script:AdvancedDisabledBox.Size = New-Object System.Drawing.Size -ArgumentList 950, 190
+            $advPanel.Controls.Add($script:AdvancedDisabledBox)
+
+            $script:ProfileParamTabs.TabPages.Add($advTab) | Out-Null
+        }
+
+        $script:RefreshingProfileEditor = $false
+        Refresh-ConfigPreview
+        Update-RunModeIndicator
+        Write-DebugLog "Refresh-ProfileEditor completed"
+    } catch {
+        $script:RefreshingProfileEditor = $false
+        Write-AppLog ("Refresh-ProfileEditor failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        throw
     }
-
-    $advTab = New-Object System.Windows.Forms.TabPage
-    $advTab.Text = "Advanced manual lines"
-    $advPanel = New-Object System.Windows.Forms.Panel
-    $advPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $advPanel.AutoScroll = $true
-    $advTab.Controls.Add($advPanel)
-
-    $advPanel.Controls.Add((New-Label "Active manual Vdbench lines" 12 12 260))
-    $script:AdvancedActiveBox = New-Object System.Windows.Forms.TextBox
-    $script:AdvancedActiveBox.Multiline = $true
-    $script:AdvancedActiveBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
-    $script:AdvancedActiveBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
-    $script:AdvancedActiveBox.Text = [string](Get-PropertyValue $script:CurrentProfile "AdvancedActive" "")
-    $script:AdvancedActiveBox.Location = New-Object System.Drawing.Point -ArgumentList 12, 40
-    $script:AdvancedActiveBox.Size = New-Object System.Drawing.Size -ArgumentList 950, 190
-    $advPanel.Controls.Add($script:AdvancedActiveBox)
-
-    $advPanel.Controls.Add((New-Label "Disabled/commented manual lines" 12 250 260))
-    $script:AdvancedDisabledBox = New-Object System.Windows.Forms.TextBox
-    $script:AdvancedDisabledBox.Multiline = $true
-    $script:AdvancedDisabledBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
-    $script:AdvancedDisabledBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
-    $script:AdvancedDisabledBox.Text = [string](Get-PropertyValue $script:CurrentProfile "AdvancedDisabled" "")
-    $script:AdvancedDisabledBox.Location = New-Object System.Drawing.Point -ArgumentList 12, 278
-    $script:AdvancedDisabledBox.Size = New-Object System.Drawing.Size -ArgumentList 950, 190
-    $advPanel.Controls.Add($script:AdvancedDisabledBox)
-
-    $script:ProfileParamTabs.TabPages.Add($advTab) | Out-Null
-    $script:RefreshingProfileEditor = $false
-    Refresh-ConfigPreview
-    Update-RunModeIndicator
 }
 
 function Refresh-RunProfileList {
@@ -631,6 +751,10 @@ function Refresh-RunProfileList {
 }
 
 function Preview-DraftProfile {
+    if ($script:ProfileEditorLocked) {
+        Show-Warning "Select a target before previewing a draft profile."
+        return
+    }
     if ($null -eq $script:CurrentProfile) {
         return
     }
@@ -664,39 +788,44 @@ function Build-ProfileTab {
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.RowCount = 2
+    $container.RowCount = 3
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 60)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 28)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
     $toolbar = New-FlowToolbar
     $container.Controls.Add($toolbar, 0, 0)
 
-    $newButton = New-Button "New" 10 9 70 27
-    $newButton.Add_Click({ Initialize-NewDraftProfile })
-    $toolbar.Controls.Add($newButton)
+    $script:ProfileNewButton = New-Button "New" 10 9 70 27
+    $script:ProfileNewButton.Add_Click({ Initialize-NewDraftProfile })
+    $toolbar.Controls.Add($script:ProfileNewButton)
 
-    $saveButton = New-Button "Save profile" 88 9 105 27
-    $saveButton.Add_Click({ Save-CurrentProfile })
-    $toolbar.Controls.Add($saveButton)
+    $script:ProfileSaveButton = New-Button "Save profile" 88 9 105 27
+    $script:ProfileSaveButton.Add_Click({ Save-CurrentProfile })
+    $toolbar.Controls.Add($script:ProfileSaveButton)
 
-    $previewButton = New-Button "Preview draft" 201 9 110 27
-    $previewButton.Add_Click({ Preview-DraftProfile })
-    $toolbar.Controls.Add($previewButton)
+    $script:ProfilePreviewButton = New-Button "Preview draft" 201 9 110 27
+    $script:ProfilePreviewButton.Add_Click({ Preview-DraftProfile })
+    $toolbar.Controls.Add($script:ProfilePreviewButton)
 
     $toolbar.Controls.Add((New-Label "Name" 330 12 50))
     $script:ProfileNameBox = New-TextBox "" 382 9 360
     $toolbar.Controls.Add($script:ProfileNameBox)
 
-    $note = New-Label "Create new workload profiles here. Saved profiles are selected and managed on the Run tab." 10 38 1040 18
+    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 10 38 1040 18
     $toolbar.Controls.Add($note)
+
+    $script:ProfileEditorBanner = New-Label "Select a target to edit profile parameters." 10 4 1040 20
+    $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
+    $container.Controls.Add($script:ProfileEditorBanner, 0, 1)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl
     $script:ProfileParamTabs.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.Controls.Add($script:ProfileParamTabs, 0, 1)
+    $container.Controls.Add($script:ProfileParamTabs, 0, 2)
 
-    Initialize-NewDraftProfile
+    Refresh-ProfileEditor -ChangeSource "profile-tab-init"
     return $tab
 }
 function Build-PreviewTab {
@@ -1079,6 +1208,7 @@ function Build-MainForm {
         Sync-RunModeToSettings
         Update-RunModeIndicator
         Refresh-ConfigPreview
+        Notify-ProfileTargetContextChanged "run-mode"
     })
     $header.Controls.Add($script:RunModeCombo)
     $script:RunModeIndicator = New-Label "Profile: (none)  |  Test kind: (pending targets)" 322 8 900 20
@@ -1169,7 +1299,7 @@ function Build-MainForm {
             Refresh-RunTabSummary
         }
         if ($title -eq "Profile Builder") {
-            Initialize-NewDraftProfile
+            Refresh-ProfileEditor -ChangeSource "profile-tab-select"
         }
         if (-not (Is-DistributedMode) -and $selected -eq $script:LocalHostTab) {
             $deferRefresh = [System.Action]{ Refresh-LocalHostTab }

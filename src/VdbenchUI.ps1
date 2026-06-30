@@ -70,6 +70,14 @@ $script:RunFinishedNotified = $false
 $script:MainTabToolTipText = ""
 $script:UiRefreshTimer = $null
 $script:DpiAwarenessInitialized = $false
+$script:AppExceptionLoggingRegistered = $false
+$script:ProfileEditorLocked = $true
+$script:ProfileEditorTestKind = ""
+$script:ProfileEditorLastTestKind = ""
+$script:ProfileNewButton = $null
+$script:ProfileSaveButton = $null
+$script:ProfilePreviewButton = $null
+$script:ProfileEditorBanner = $null
 
 $script:ModuleRoot = Join-Path (Split-Path -Parent $PSCommandPath) "modules"
 . (Join-Path $script:ModuleRoot "Import-AppModules.ps1") -ModuleRoot $script:ModuleRoot
@@ -83,14 +91,19 @@ try {
         return
     }
     if (-not $NoGui) {
+        Register-AppExceptionLogging
         Write-AppLog "Starting Vdbench UI"
+        Write-DebugLog ("AppRoot={0}; LogRoot={1}" -f $script:AppRoot, $script:LogRoot)
         Initialize-AppState
         $script:Form = Build-MainForm
+        Write-DebugLog "Main form built"
         Refresh-ConfigPreview
+        Write-DebugLog "Entering UI message loop"
         [System.Windows.Forms.Application]::Run($script:Form)
+        Write-DebugLog "UI message loop exited"
     }
 } catch {
-    Write-AppLog ("Fatal error: {0}" -f $_.Exception.Message) "ERROR"
+    Write-AppLog ("Fatal error: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
     if (-not $NoGui -and -not $SelfTest) {
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Vdbench UI fatal error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     }
