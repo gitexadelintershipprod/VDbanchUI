@@ -66,7 +66,7 @@ Each slave entry contains:
 ### Per-row workflow
 
 1. Click **Add slave** and enter **Host / IP**, optional name, and OS.
-2. Click **Readiness** on the row to verify the host (not automatic).
+2. Click **Readiness** on the row to verify the host (opens a PowerShell window for the checker script).
 3. When readiness is `Ready`, the **Use** checkbox can be enabled.
 4. Click **Browse** on the row to discover disks/filesystems, create folders, and select targets (including test file create/overwrite).
 5. **Ping** is available on each row independently.
