@@ -57,7 +57,7 @@ Each slave entry contains:
 - `VdbenchPath`
 - `Targets` (one or more selected raw/file/filesystem targets)
 - `SshAlias`
-- `ReadinessStatus` — `Pending`, `Checking`, `Ready`, `Failed`, `Error`, `Checker missing`
+- `ReadinessStatus` — `Not checked`, `Checking...`, `Ready`, `Failed`, `Error`, `Checker missing` (legacy `Pending` may still appear from older inventories)
 - `ReadinessCheckedAt` — ISO timestamp of the last readiness check
 - `ReadinessOutput` — optional checker output text
 - `PingStatus` / `PingCheckedAt` — per-row ICMP diagnostics
@@ -65,11 +65,12 @@ Each slave entry contains:
 
 ### Per-row workflow
 
-1. Add a host row — readiness starts automatically in the background.
-2. When readiness is `Ready`, the **Use** checkbox can be enabled.
-3. Click **Browse** on the row to discover disks/filesystems, create folders, and select targets (including test file create/overwrite).
-4. **Ping** and **Re-check** are available on each row independently.
-5. Save the inventory to persist `slaves.json`.
+1. Click **Add slave** and enter **Host / IP**, optional name, and OS.
+2. Click **Readiness** on the row to verify the host (not automatic).
+3. When readiness is `Ready`, the **Use** checkbox can be enabled.
+4. Click **Browse** on the row to discover disks/filesystems, create folders, and select targets (including test file create/overwrite).
+5. **Ping** is available on each row independently.
+6. Save the inventory to persist `slaves.json`.
 
 Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
 Each enabled host must pass readiness and have at least one selected target before a run can start.
