@@ -571,6 +571,9 @@ function Refresh-ProfileEditor {
             if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
                 continue
             }
+            if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
+                continue
+            }
             Add-ParameterRow $panel $def $y
             $y += 32
         }
@@ -610,20 +613,6 @@ function Refresh-ProfileEditor {
     Update-RunModeIndicator
 }
 
-function Refresh-ProfileList {
-    if (-not $script:ProfileSelector) {
-        return
-    }
-    $current = [string]$script:ProfileSelector.Text
-    $script:ProfileSelector.Items.Clear()
-    foreach ($name in Get-ProfileNames) {
-        [void]$script:ProfileSelector.Items.Add($name)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($current)) {
-        $script:ProfileSelector.Text = $current
-    }
-}
-
 function Refresh-RunProfileList {
     if (-not $script:RunProfileSelector) {
         return
@@ -641,6 +630,35 @@ function Refresh-RunProfileList {
     Sync-RunProfileFromSelector
 }
 
+function Preview-DraftProfile {
+    if ($null -eq $script:CurrentProfile) {
+        return
+    }
+    Capture-ProfileEditor
+    Sync-CommonProfileParameters $script:CurrentProfile
+    try {
+        $built = Build-VdbenchConfig -UseDraftProfile
+        $script:LastBuiltConfig = $built
+        $prefix = ""
+        if ($built.Warnings.Count -gt 0) {
+            $prefix = ("* DRAFT PREVIEW WARNINGS" + [Environment]::NewLine)
+            foreach ($warning in $built.Warnings) {
+                $prefix += ("* - " + $warning + [Environment]::NewLine)
+            }
+            $prefix += [Environment]::NewLine
+        }
+        if ($script:ConfigPreviewBox) {
+            $script:ConfigPreviewBox.Text = $prefix + $built.Text
+        }
+        Select-MainTab "Config Preview"
+    } catch {
+        if ($script:ConfigPreviewBox) {
+            $script:ConfigPreviewBox.Text = "Draft preview error: " + $_.Exception.Message
+        }
+        Write-AppLog ("Draft preview error: {0}" -f $_.Exception.Message) "ERROR"
+    }
+}
+
 function Build-ProfileTab {
     $tab = New-MainTabPage "Profile Builder" "Profile"
 
@@ -648,88 +666,37 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 90)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 60)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
     $toolbar = New-FlowToolbar
     $container.Controls.Add($toolbar, 0, 0)
 
-    $toolbar.Controls.Add((New-Label "Profile" 10 12 60))
-    $script:ProfileSelector = New-ComboBox @() "" 72 10 230
-    $toolbar.Controls.Add($script:ProfileSelector)
-
-    $loadButton = New-Button "Load" 310 9 70 27
-    $loadButton.Add_Click({
-        $profile = Load-ProfileByName ([string]$script:ProfileSelector.Text)
-        if ($profile) {
-            $script:CurrentProfile = $profile
-            Refresh-ProfileEditor
-            Update-RunModeIndicator
-        }
-    })
-    $toolbar.Controls.Add($loadButton)
-
-    $newButton = New-Button "New" 388 9 70 27
-    $newButton.Add_Click({
-        $script:CurrentProfile = New-DefaultProfile "New-Profile"
-        Refresh-ProfileEditor
-    })
+    $newButton = New-Button "New" 10 9 70 27
+    $newButton.Add_Click({ Initialize-NewDraftProfile })
     $toolbar.Controls.Add($newButton)
 
-    $saveButton = New-Button "Save profile" 466 9 105 27
+    $saveButton = New-Button "Save profile" 88 9 105 27
     $saveButton.Add_Click({ Save-CurrentProfile })
     $toolbar.Controls.Add($saveButton)
 
-    $previewButton = New-Button "Refresh preview" 580 9 120 27
-    $previewButton.Add_Click({
-        Capture-ProfileEditor
-        Refresh-ConfigPreview
-    })
+    $previewButton = New-Button "Preview draft" 201 9 110 27
+    $previewButton.Add_Click({ Preview-DraftProfile })
     $toolbar.Controls.Add($previewButton)
 
-    $duplicateButton = New-Button "Duplicate" 710 9 90 27
-    $duplicateButton.Add_Click({ Duplicate-CurrentProfile })
-    $toolbar.Controls.Add($duplicateButton)
-
-    $deleteButton = New-Button "Delete" 808 9 80 27
-    $deleteButton.Add_Click({ Delete-SelectedProfile })
-    $toolbar.Controls.Add($deleteButton)
-
-    $folderButton = New-Button "Folder" 10 44 75 27
-    $folderButton.Add_Click({ Open-ProfileFolder })
-    $toolbar.Controls.Add($folderButton)
-
-    $importButton = New-Button "Import" 92 44 75 27
-    $importButton.Add_Click({ Import-Profile })
-    $toolbar.Controls.Add($importButton)
-
-    $exportButton = New-Button "Export" 174 44 75 27
-    $exportButton.Add_Click({ Export-CurrentProfile })
-    $toolbar.Controls.Add($exportButton)
-
-    $toolbar.Controls.Add((New-Label "Name" 260 46 50))
-    $script:ProfileNameBox = New-TextBox "" 312 44 360
+    $toolbar.Controls.Add((New-Label "Name" 330 12 50))
+    $script:ProfileNameBox = New-TextBox "" 382 9 360
     $toolbar.Controls.Add($script:ProfileNameBox)
 
-    $note = New-Label "Profile stores workload parameters only. Hosts, targets, and test kind are selected on the host tabs and Run tab." 10 78 1040 34
+    $note = New-Label "Create new workload profiles here. Saved profiles are selected and managed on the Run tab." 10 38 1040 18
     $toolbar.Controls.Add($note)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl
     $script:ProfileParamTabs.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.Controls.Add($script:ProfileParamTabs, 0, 1)
 
-    Refresh-ProfileList
-    $names = Get-ProfileNames
-    if ($names.Count -gt 0) {
-        $script:CurrentProfile = Load-ProfileByName $names[0]
-        $script:ProfileSelector.Text = $names[0]
-    } else {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile"
-    }
-    $script:RunProfile = $script:CurrentProfile
-    Refresh-ProfileEditor
-    Refresh-RunProfileList
+    Initialize-NewDraftProfile
     return $tab
 }
 function Build-PreviewTab {
@@ -808,7 +775,7 @@ function Build-RunTab {
     $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 150)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
@@ -849,13 +816,37 @@ function Build-RunTab {
     })
     $orchestrator.Controls.Add($script:RunProfileSelector)
 
-    $orchestrator.Controls.Add((New-Label "Run summary" 10 42 90))
+    $reloadButton = New-Button "Reload" 385 7 75 27
+    $reloadButton.Add_Click({ Reload-RunProfile })
+    $orchestrator.Controls.Add($reloadButton)
+
+    $deleteButton = New-Button "Delete" 10 40 75 27
+    $deleteButton.Add_Click({ Delete-SelectedProfile })
+    $orchestrator.Controls.Add($deleteButton)
+
+    $duplicateButton = New-Button "Duplicate" 92 40 85 27
+    $duplicateButton.Add_Click({ Duplicate-RunProfile })
+    $orchestrator.Controls.Add($duplicateButton)
+
+    $importButton = New-Button "Import" 184 40 75 27
+    $importButton.Add_Click({ Import-Profile })
+    $orchestrator.Controls.Add($importButton)
+
+    $exportButton = New-Button "Export" 266 40 75 27
+    $exportButton.Add_Click({ Export-RunProfile })
+    $orchestrator.Controls.Add($exportButton)
+
+    $folderButton = New-Button "Folder" 348 40 75 27
+    $folderButton.Add_Click({ Open-ProfileFolder })
+    $orchestrator.Controls.Add($folderButton)
+
+    $orchestrator.Controls.Add((New-Label "Run summary" 10 74 90))
     $script:RunSummaryBox = New-Object System.Windows.Forms.TextBox
     $script:RunSummaryBox.Multiline = $true
     $script:RunSummaryBox.ReadOnly = $true
     $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
     $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
-    $script:RunSummaryBox.Location = New-Object System.Drawing.Point -ArgumentList 10, 64
+    $script:RunSummaryBox.Location = New-Object System.Drawing.Point -ArgumentList 10, 96
     $script:RunSummaryBox.Size = New-Object System.Drawing.Size -ArgumentList 1120, 78
     $orchestrator.Controls.Add($script:RunSummaryBox)
 
@@ -1176,6 +1167,9 @@ function Build-MainForm {
         }
         if ($title -eq "Run Monitor") {
             Refresh-RunTabSummary
+        }
+        if ($title -eq "Profile Builder") {
+            Initialize-NewDraftProfile
         }
         if (-not (Is-DistributedMode) -and $selected -eq $script:LocalHostTab) {
             $deferRefresh = [System.Action]{ Refresh-LocalHostTab }

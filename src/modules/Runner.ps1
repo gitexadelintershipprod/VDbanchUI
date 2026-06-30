@@ -160,7 +160,7 @@ function New-RunMetadataMap {
         CompletedAt = ""
         Status = $Status
         ExitCode = ""
-        Profile = [string]$script:CurrentProfile.Name
+        Profile = Get-RunProfileName
         Mode = (Get-Mode)
         TestKind = [string](Resolve-RunTestKind).TestKind
         RunDir = [string]$Context.RunDir
@@ -177,7 +177,6 @@ function New-ConfigOnlyRun {
     Capture-SlaveGrid
     Capture-ProfileEditor
     $built = Build-VdbenchConfig
-    Save-CurrentProfile
     $context = Get-NewRunContext $built
     Set-RunMetadata $context.RunId (New-RunMetadataMap $context $built "Config generated" "No process started")
     $script:CurrentRunId = [string]$context.RunId
@@ -340,7 +339,6 @@ function Start-VdbenchRun {
     $script:CurrentRunId = $runId
     $script:KillRequested = $false
     $script:RunFinishedNotified = $false
-    Save-CurrentProfile
     $commandText = ("`"{0}`" -f `"{1}`" -o `"{2}`"" -f $masterBat, $parmPath, $runDir)
     Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)
 

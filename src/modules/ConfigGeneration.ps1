@@ -96,6 +96,7 @@ function Test-ParameterValueValid {
     $numericKeys = @(
         "run.elapsed", "run.warmup", "run.interval",
         "storage.threads", "workload.threads", "workload.rdpct", "workload.seekpct", "workload.skew",
+        "common.threads",
         "fsd.depth", "fsd.width", "fsd.files", "fwd.threads"
     )
     if ($numericKeys -contains $key) {
@@ -107,7 +108,7 @@ function Test-ParameterValueValid {
             return $false
         }
     }
-    if ($key -eq "run.iorate" -or $key -eq "run.fwdrate") {
+    if ($key -eq "run.iorate" -or $key -eq "run.fwdrate" -or $key -eq "common.rate") {
         if ($Value -ne "max") {
             $parsed = 0.0
             if (-not [double]::TryParse($Value, [ref]$parsed) -or $parsed -le 0) {
@@ -131,6 +132,9 @@ function Add-ParameterValidationWarnings {
         [string]$TestKind
     )
     foreach ($def in @($script:Catalog | Where-Object { Definition-AppliesToKind $_ $TestKind })) {
+        if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
+            continue
+        }
         $key = [string]$def.Key
         if (-not (Get-ProfileParamEnabled $script:CurrentProfile $key)) {
             continue
@@ -326,16 +330,27 @@ function Add-ManualLines {
 }
 
 function Build-VdbenchConfig {
+    param([switch]$UseDraftProfile)
+
     Capture-Settings
     Capture-SlaveGrid
     Capture-ProfileEditor
     Capture-LocalHostTargets
-    Sync-RunProfileFromSelector
 
     $savedProfile = $script:CurrentProfile
-    $profile = Get-RunProfile
-    if ($null -eq $profile) {
-        throw "No profile selected for run."
+    if ($UseDraftProfile) {
+        $profile = $script:CurrentProfile
+        if ($null -eq $profile) {
+            throw "No draft profile is available for preview."
+        }
+        Sync-CommonProfileParameters $profile
+    } else {
+        Sync-RunProfileFromSelector
+        $profile = Get-RunProfile
+        if ($null -eq $profile) {
+            throw "No profile selected for run."
+        }
+        Sync-CommonProfileParameters $profile
     }
     $script:CurrentProfile = $profile
 
@@ -357,6 +372,9 @@ function Build-VdbenchConfig {
 
         if (-not [string]::IsNullOrWhiteSpace($testKind)) {
             foreach ($def in @($script:Catalog | Where-Object { Definition-AppliesToKind $_ $testKind })) {
+                if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
+                    continue
+                }
                 $required = [bool](Get-PropertyValue $def "Required" $false)
                 if (-not $required) {
                     continue

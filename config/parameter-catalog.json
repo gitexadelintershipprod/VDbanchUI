@@ -56,6 +56,20 @@
     "Example": "1"
   },
   {
+    "Key": "common.rate",
+    "Section": "Run Definition",
+    "Label": "Target rate",
+    "VdbenchName": "rate",
+    "Line": "common",
+    "Type": "dropdown",
+    "Default": "max",
+    "Options": ["max", "100", "1000", "10000"],
+    "AppliesTo": "both",
+    "Required": true,
+    "Help": "Target I/O or operation rate. Maps to iorate for raw/block workloads and fwdrate for filesystem workloads.",
+    "Example": "max"
+  },
+  {
     "Key": "run.iorate",
     "Section": "Run Definition",
     "Label": "I/O rate",
@@ -66,8 +80,9 @@
     "Options": ["max", "100", "1000", "10000"],
     "AppliesTo": "raw",
     "Required": true,
-    "Help": "Target I/O rate for raw/block workloads. Use max for saturation testing or a number to limit IOPS.",
-    "Example": "max"
+    "Help": "Mirrored from common.rate for config generation.",
+    "Example": "max",
+    "EditorHidden": true
   },
   {
     "Key": "run.fwdrate",
@@ -80,8 +95,9 @@
     "Options": ["max", "100", "1000", "10000"],
     "AppliesTo": "fs",
     "Required": true,
-    "Help": "Target operation rate for filesystem workloads. Use max for saturation testing or a number to limit operation rate.",
-    "Example": "max"
+    "Help": "Mirrored from common.rate for config generation.",
+    "Example": "max",
+    "EditorHidden": true
   },
   {
     "Key": "run.format",
@@ -238,6 +254,34 @@
     "Example": "2"
   },
   {
+    "Key": "common.xfersize",
+    "Section": "Common Workload",
+    "Label": "Transfer size",
+    "VdbenchName": "xfersize",
+    "Line": "common",
+    "Type": "dropdown",
+    "Default": "4k",
+    "Options": ["512", "4k", "8k", "16k", "32k", "64k", "128k", "1m"],
+    "AppliesTo": "both",
+    "Required": true,
+    "Help": "Shared I/O size for raw/block (wd) and filesystem (fwd) workloads.",
+    "Example": "4k"
+  },
+  {
+    "Key": "common.threads",
+    "Section": "Common Workload",
+    "Label": "Workload threads",
+    "VdbenchName": "threads",
+    "Line": "common",
+    "Type": "text",
+    "Default": "",
+    "Options": [],
+    "AppliesTo": "both",
+    "Required": false,
+    "Help": "Shared thread count for raw/block (wd) and filesystem (fwd) workloads. Disable to use storage-level threads or Vdbench defaults.",
+    "Example": "16"
+  },
+  {
     "Key": "workload.name",
     "Section": "Workload Definition",
     "Label": "Workload name",
@@ -262,8 +306,9 @@
     "Options": ["512", "4k", "8k", "16k", "32k", "64k", "128k", "1m"],
     "AppliesTo": "raw",
     "Required": true,
-    "Help": "I/O size for the workload.",
-    "Example": "4k"
+    "Help": "Mirrored from common.xfersize for config generation.",
+    "Example": "4k",
+    "EditorHidden": true
   },
   {
     "Key": "workload.rdpct",
@@ -304,8 +349,9 @@
     "Options": [],
     "AppliesTo": "raw",
     "Required": false,
-    "Help": "Optional workload-level thread count. Disable when storage definition threads should control concurrency.",
-    "Example": "16"
+    "Help": "Mirrored from common.threads for config generation.",
+    "Example": "16",
+    "EditorHidden": true
   },
   {
     "Key": "workload.skew",
@@ -444,8 +490,9 @@
     "Options": ["512", "4k", "8k", "16k", "32k", "64k", "128k", "1m"],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "I/O size used for filesystem reads and writes.",
-    "Example": "4k"
+    "Help": "Mirrored from common.xfersize for config generation.",
+    "Example": "4k",
+    "EditorHidden": true
   },
   {
     "Key": "fwd.fileio",
@@ -486,7 +533,8 @@
     "Options": [],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "Thread count for filesystem workload execution.",
-    "Example": "8"
+    "Help": "Mirrored from common.threads for config generation.",
+    "Example": "8",
+    "EditorHidden": true
   }
 ]
