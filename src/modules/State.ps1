@@ -64,10 +64,78 @@ function Ensure-ProfileCatalogKeys {
     if ($null -eq $Profile.PSObject.Properties["AdvancedDisabled"]) {
         $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
     }
-    if ($null -eq $Profile.PSObject.Properties["LocalTargets"]) {
-        $Profile | Add-Member -NotePropertyName "LocalTargets" -NotePropertyValue @()
-    } else {
-        $Profile.LocalTargets = @(Normalize-TargetEntries $Profile.LocalTargets)
+    if ($null -eq $Profile.PSObject.Properties["AdvancedDisabled"]) {
+        $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
+    }
+}
+
+function Get-LocalHostTargetStore {
+    return @(Normalize-TargetEntries $script:LocalHostTargets)
+}
+
+function Save-LocalHostTargets {
+    $script:LocalHostTargets = @(Normalize-TargetEntries $script:LocalHostTargets)
+    Write-JsonFile $script:LocalHostTargetsPath $script:LocalHostTargets -AsArray
+}
+
+function Import-LocalHostTargetsFromProfiles {
+    if (@(Get-LocalHostTargetStore).Count -gt 0) {
+        return
+    }
+    foreach ($file in @(Get-ChildItem -Path $script:ProfileRoot -Filter "*.json" -File -ErrorAction SilentlyContinue)) {
+        $profile = Read-JsonFile $file.FullName $null
+        if ($null -eq $profile) {
+            continue
+        }
+        $legacyTargets = @(Get-PropertyValue $profile "LocalTargets" @())
+        if ($legacyTargets.Count -eq 0) {
+            continue
+        }
+        $script:LocalHostTargets = @(Normalize-TargetEntries $legacyTargets)
+        Save-LocalHostTargets
+        return
+    }
+}
+
+function Get-RunProfile {
+    if ($null -ne $script:RunProfile) {
+        return $script:RunProfile
+    }
+    return $script:CurrentProfile
+}
+
+function Get-RunProfileName {
+    $profile = Get-RunProfile
+    if ($null -eq $profile -or [string]::IsNullOrWhiteSpace([string]$profile.Name)) {
+        return "(none)"
+    }
+    return [string]$profile.Name
+}
+
+function Sync-RunProfileFromSelector {
+    if ($null -eq $script:RunProfileSelector) {
+        return
+    }
+    $name = [string]$script:RunProfileSelector.Text
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        return
+    }
+    $loaded = Load-ProfileByName $name
+    if ($null -ne $loaded) {
+        $script:RunProfile = $loaded
+    }
+}
+
+function Sync-RunModeToSettings {
+    $mode = Get-Mode
+    Set-PropertyValue $script:Settings "RunMode" $mode
+    Write-JsonFile $script:SettingsPath $script:Settings
+}
+
+function Apply-RunModeFromSettings {
+    $mode = [string](Get-PropertyValue $script:Settings "RunMode" "Single local run")
+    if ($null -ne $script:RunModeCombo) {
+        $script:RunModeCombo.Text = $mode
     }
 }
 
@@ -365,6 +433,13 @@ function Initialize-AppState {
         Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
     }
 
+    $script:LocalHostTargets = @(Read-JsonFile $script:LocalHostTargetsPath @())
+    $script:LocalHostTargets = @(Normalize-TargetEntries $script:LocalHostTargets)
+    Import-LocalHostTargetsFromProfiles
+    if (@(Get-LocalHostTargetStore).Count -eq 0) {
+        Save-LocalHostTargets
+    }
+
     Ensure-DefaultProfiles
 }
 
@@ -400,7 +475,7 @@ function Ensure-DefaultProfiles {
 function New-DefaultProfile {
     param(
         [string]$Name,
-        [string]$TestKind
+        [string]$TestKind = ""
     )
     $items = @()
     foreach ($def in $script:Catalog) {
@@ -419,7 +494,6 @@ function New-DefaultProfile {
         CreatedAt = (Get-Date).ToString("o")
         UpdatedAt = (Get-Date).ToString("o")
         Parameters = $items
-        LocalTargets = @()
         AdvancedActive = ""
         AdvancedDisabled = ""
     }
@@ -514,6 +588,14 @@ function Load-ProfileByName {
     }
     $profile = Read-JsonFile $path $null
     Ensure-ProfileCatalogKeys $profile
+    $legacyTargets = @(Get-PropertyValue $profile "LocalTargets" @())
+    if ($legacyTargets.Count -gt 0 -and @(Get-LocalHostTargetStore).Count -eq 0) {
+        $script:LocalHostTargets = @(Normalize-TargetEntries $legacyTargets)
+        Save-LocalHostTargets
+    }
+    if ($null -ne $profile.PSObject.Properties["LocalTargets"]) {
+        $profile.PSObject.Properties.Remove("LocalTargets")
+    }
     return $profile
 }
 
@@ -523,9 +605,16 @@ function Save-CurrentProfile {
     }
     Ensure-ProfileCatalogKeys $script:CurrentProfile
     Capture-ProfileEditor
+    if ($null -ne $script:CurrentProfile.PSObject.Properties["LocalTargets"]) {
+        $script:CurrentProfile.PSObject.Properties.Remove("LocalTargets")
+    }
+    if ($null -ne $script:CurrentProfile.PSObject.Properties["TestKind"]) {
+        $script:CurrentProfile.PSObject.Properties.Remove("TestKind")
+    }
     $script:CurrentProfile.UpdatedAt = (Get-Date).ToString("o")
     Write-JsonFile (Get-ProfilePath $script:CurrentProfile.Name) $script:CurrentProfile
     Refresh-ProfileList
+    Refresh-RunProfileList
 }
 
 function Open-ProfileFolder {
@@ -582,10 +671,18 @@ function Import-Profile {
         if ($null -eq $importedProfile -or $null -eq $importedProfile.PSObject.Properties["Name"]) {
             throw "Selected JSON is not a Vdbench UI profile."
         }
-        if ($null -eq $importedProfile.PSObject.Properties["TestKind"]) {
-            $importedProfile | Add-Member -NotePropertyName "TestKind" -NotePropertyValue "Raw/block"
-        }
         Ensure-ProfileCatalogKeys $importedProfile
+        $legacyTargets = @(Get-PropertyValue $importedProfile "LocalTargets" @())
+        if ($legacyTargets.Count -gt 0) {
+            $script:LocalHostTargets = @(Normalize-TargetEntries $legacyTargets)
+            Save-LocalHostTargets
+        }
+        if ($null -ne $importedProfile.PSObject.Properties["LocalTargets"]) {
+            $importedProfile.PSObject.Properties.Remove("LocalTargets")
+        }
+        if ($null -ne $importedProfile.PSObject.Properties["TestKind"]) {
+            $importedProfile.PSObject.Properties.Remove("TestKind")
+        }
         $baseName = [string]$importedProfile.Name
         if ([string]::IsNullOrWhiteSpace($baseName)) {
             $baseName = "Imported-Profile"
@@ -598,6 +695,7 @@ function Import-Profile {
         Write-JsonFile (Get-ProfilePath $importedProfile.Name) $importedProfile
         $script:CurrentProfile = $importedProfile
         Refresh-ProfileList
+        Refresh-RunProfileList
         $script:ProfileSelector.Text = [string]$importedProfile.Name
         Refresh-ProfileEditor
     } catch {
@@ -621,12 +719,15 @@ function Delete-SelectedProfile {
     }
     Remove-Item -LiteralPath $path -Force
     Refresh-ProfileList
+    Refresh-RunProfileList
     $names = Get-ProfileNames
     if ($names.Count -gt 0) {
         $script:CurrentProfile = Load-ProfileByName $names[0]
+        $script:RunProfile = $script:CurrentProfile
         $script:ProfileSelector.Text = $names[0]
     } else {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile" "Raw/block"
+        $script:CurrentProfile = New-DefaultProfile "New-Profile"
+        $script:RunProfile = $script:CurrentProfile
         $script:ProfileSelector.Text = ""
     }
     Refresh-ProfileEditor
@@ -668,8 +769,8 @@ function Import-SlaveInventory {
     }
 }
 function Get-Mode {
-    if ($script:SettingsControls.ContainsKey("RunMode")) {
-        return [string]$script:SettingsControls["RunMode"].Text
+    if ($null -ne $script:RunModeCombo) {
+        return [string]$script:RunModeCombo.Text
     }
     return [string](Get-PropertyValue $script:Settings "RunMode" "Single local run")
 }
@@ -691,6 +792,7 @@ function Capture-Settings {
 
 function Save-Settings {
     Capture-Settings
+    Sync-RunModeToSettings
     Write-JsonFile $script:SettingsPath $script:Settings
     Show-Info "Settings saved."
     Update-RunModeIndicator
@@ -712,6 +814,7 @@ function Refresh-SettingsControls {
 
 function Export-Settings {
     Capture-Settings
+    Sync-RunModeToSettings
     $dialog = New-Object System.Windows.Forms.SaveFileDialog
     $dialog.Filter = "Settings JSON (*.json)|*.json|All files (*.*)|*.*"
     $dialog.FileName = "vdbench-ui-settings.json"
@@ -736,6 +839,8 @@ function Import-Settings {
         $script:Settings = $imported
         Write-JsonFile $script:SettingsPath $script:Settings
         Refresh-SettingsControls
+        Apply-RunModeFromSettings
+        Update-RunModeIndicator
         Update-RunModeTabs
         Show-Info "Settings imported."
     } catch {

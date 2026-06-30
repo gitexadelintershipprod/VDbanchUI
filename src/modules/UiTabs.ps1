@@ -61,18 +61,6 @@ function Build-SettingsTab {
         $y += 34
     }
 
-    $panel.Controls.Add((New-Label "Run mode" 18 $y 180))
-    $mode = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 210 $y 250
-    $mode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-    $mode.Add_SelectedIndexChanged({
-        Capture-Settings
-        Update-RunModeIndicator
-        Refresh-ConfigPreview
-    })
-    $panel.Controls.Add($mode)
-    $script:SettingsControls["RunMode"] = $mode
-    $y += 34
-
     $commentDisabled = New-Object System.Windows.Forms.CheckBox
     $commentDisabled.Text = "Render disabled parameters as comments"
     $commentDisabled.Checked = [bool](Get-PropertyValue $script:Settings "CommentDisabledParameters" $true)
@@ -284,17 +272,14 @@ function Refresh-LocalHostTab {
     }
     [void]$lines.Add("")
     [void]$lines.Add("Select one or more local raw/file or filesystem targets below.")
-    [void]$lines.Add("Selections are stored in the active profile and survive refresh.")
+    [void]$lines.Add("Selections are stored in localhost.json and used by the Run tab.")
     $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
 
     if ($null -eq $script:LocalHostTargetGrid) {
         return
     }
     try {
-        $existing = @()
-        if ($null -ne $script:CurrentProfile) {
-            $existing = @(Get-PropertyValue $script:CurrentProfile "LocalTargets" @())
-        }
+        $existing = @(Get-LocalHostTargetStore)
         $targets = @(Merge-TargetSelections (Get-LocalTargetInventory -Force:$ForceInventory) $existing)
         $script:RefreshingLocalTargets = $true
         try {
@@ -320,23 +305,20 @@ function Refresh-LocalHostTab {
 }
 
 function Capture-LocalHostTargets {
-    if ($null -eq $script:LocalHostTargetGrid -or $null -eq $script:CurrentProfile) {
+    if ($null -eq $script:LocalHostTargetGrid) {
         return
     }
     if ($script:RefreshingLocalTargets) {
         return
     }
-    $script:CurrentProfile.LocalTargets = @(Get-TargetGridRows $script:LocalHostTargetGrid)
+    $script:LocalHostTargets = @(Get-TargetGridRows $script:LocalHostTargetGrid)
+    Save-LocalHostTargets
 }
 
-function Save-LocalHostTargets {
-    if ($null -eq $script:CurrentProfile) {
-        Show-Warning "Create or load a profile first."
-        return
-    }
+function Apply-LocalHostTargetSelections {
     Capture-LocalHostTargets
-    Save-CurrentProfile
     Refresh-ConfigPreview
+    Refresh-RunTabSummary
     Show-Info "Local target selections saved."
 }
 
@@ -397,8 +379,8 @@ function Build-LocalHostTab {
     $toolbar.Controls.Add($refreshButton)
 
     $applyButton = New-Button "Save selections" 138 8 120 28
-    $applyButton.Add_Click({ Save-LocalHostTargets })
-    Set-ControlToolTip $applyButton "Persist selected local targets in the active profile."
+    $applyButton.Add_Click({ Apply-LocalHostTargetSelections })
+    Set-ControlToolTip $applyButton "Persist selected local targets in localhost.json."
     $toolbar.Controls.Add($applyButton)
 
     $validateButton = New-Button "Validate paths" 266 8 110 28
@@ -444,6 +426,7 @@ function Build-LocalHostTab {
             Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
             Capture-LocalHostTargets
             Refresh-ConfigPreview
+            Refresh-RunTabSummary
         }
     })
     $script:LocalHostTargetGrid.Add_CellDoubleClick({
@@ -453,6 +436,7 @@ function Build-LocalHostTab {
             $row.Cells["Selected"].Value = -not [bool]$row.Cells["Selected"].Value
             Capture-LocalHostTargets
             Refresh-ConfigPreview
+            Refresh-RunTabSummary
         }
     })
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
@@ -537,9 +521,6 @@ function Capture-ProfileEditor {
     if ($script:ProfileNameBox) {
         $script:CurrentProfile.Name = [string]$script:ProfileNameBox.Text
     }
-    if ($script:ProfileKindCombo) {
-        $script:CurrentProfile.TestKind = [string]$script:ProfileKindCombo.Text
-    }
     foreach ($key in $script:ParameterControls.Keys) {
         $entry = $script:ParameterControls[$key]
         Set-ProfileParamEnabled $script:CurrentProfile $key ([bool]$entry.Enabled.Checked)
@@ -551,21 +532,18 @@ function Capture-ProfileEditor {
     if ($script:AdvancedDisabledBox) {
         $script:CurrentProfile.AdvancedDisabled = $script:AdvancedDisabledBox.Text
     }
-    Capture-LocalHostTargets
 }
 
 function Refresh-ProfileEditor {
     if ($null -eq $script:CurrentProfile) {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile" "Raw/block"
+        $script:CurrentProfile = New-DefaultProfile "New-Profile"
     }
     $script:RefreshingProfileEditor = $true
     $script:ParameterControls = @{}
     $script:ProfileNameBox.Text = [string]$script:CurrentProfile.Name
-    $script:ProfileKindCombo.Text = [string]$script:CurrentProfile.TestKind
     $script:ProfileParamTabs.TabPages.Clear()
 
-    $testKind = [string]$script:CurrentProfile.TestKind
-    $sections = @($script:Catalog | Where-Object { Definition-AppliesToKind $_ $testKind } | Select-Object -ExpandProperty Section -Unique)
+    $sections = @($script:Catalog | Select-Object -ExpandProperty Section -Unique)
     foreach ($section in $sections) {
         $tab = New-Object System.Windows.Forms.TabPage
         $tab.Text = $section
@@ -589,7 +567,7 @@ function Refresh-ProfileEditor {
             $panel.Controls.Add($h)
         }
         $y += 30
-        foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section -and (Definition-AppliesToKind $_ $testKind) })) {
+        foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section })) {
             if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
                 continue
             }
@@ -646,6 +624,23 @@ function Refresh-ProfileList {
     }
 }
 
+function Refresh-RunProfileList {
+    if (-not $script:RunProfileSelector) {
+        return
+    }
+    $current = [string]$script:RunProfileSelector.Text
+    $script:RunProfileSelector.Items.Clear()
+    foreach ($name in Get-ProfileNames) {
+        [void]$script:RunProfileSelector.Items.Add($name)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($current)) {
+        $script:RunProfileSelector.Text = $current
+    } elseif ($script:RunProfileSelector.Items.Count -gt 0) {
+        $script:RunProfileSelector.Text = [string]$script:RunProfileSelector.Items[0]
+    }
+    Sync-RunProfileFromSelector
+}
+
 function Build-ProfileTab {
     $tab = New-MainTabPage "Profile Builder" "Profile"
 
@@ -653,7 +648,7 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 124)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 90)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -675,36 +670,29 @@ function Build-ProfileTab {
     })
     $toolbar.Controls.Add($loadButton)
 
-    $newRawButton = New-Button "New raw" 388 9 80 27
-    $newRawButton.Add_Click({
-        $script:CurrentProfile = New-DefaultProfile "New-Raw-Profile" "Raw/block"
+    $newButton = New-Button "New" 388 9 70 27
+    $newButton.Add_Click({
+        $script:CurrentProfile = New-DefaultProfile "New-Profile"
         Refresh-ProfileEditor
     })
-    $toolbar.Controls.Add($newRawButton)
+    $toolbar.Controls.Add($newButton)
 
-    $newFsButton = New-Button "New fs" 476 9 75 27
-    $newFsButton.Add_Click({
-        $script:CurrentProfile = New-DefaultProfile "New-Filesystem-Profile" "Filesystem"
-        Refresh-ProfileEditor
-    })
-    $toolbar.Controls.Add($newFsButton)
-
-    $saveButton = New-Button "Save profile" 560 9 105 27
+    $saveButton = New-Button "Save profile" 466 9 105 27
     $saveButton.Add_Click({ Save-CurrentProfile })
     $toolbar.Controls.Add($saveButton)
 
-    $previewButton = New-Button "Refresh preview" 674 9 120 27
+    $previewButton = New-Button "Refresh preview" 580 9 120 27
     $previewButton.Add_Click({
         Capture-ProfileEditor
         Refresh-ConfigPreview
     })
     $toolbar.Controls.Add($previewButton)
 
-    $duplicateButton = New-Button "Duplicate" 804 9 90 27
+    $duplicateButton = New-Button "Duplicate" 710 9 90 27
     $duplicateButton.Add_Click({ Duplicate-CurrentProfile })
     $toolbar.Controls.Add($duplicateButton)
 
-    $deleteButton = New-Button "Delete" 902 9 80 27
+    $deleteButton = New-Button "Delete" 808 9 80 27
     $deleteButton.Add_Click({ Delete-SelectedProfile })
     $toolbar.Controls.Add($deleteButton)
 
@@ -721,26 +709,10 @@ function Build-ProfileTab {
     $toolbar.Controls.Add($exportButton)
 
     $toolbar.Controls.Add((New-Label "Name" 260 46 50))
-    $script:ProfileNameBox = New-TextBox "" 312 44 230
+    $script:ProfileNameBox = New-TextBox "" 312 44 360
     $toolbar.Controls.Add($script:ProfileNameBox)
 
-    $toolbar.Controls.Add((New-Label "Type" 558 46 40))
-    $script:ProfileKindCombo = New-ComboBox @("Raw/block", "Filesystem") "Raw/block" 600 44 150
-    $script:ProfileKindCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-    $script:ProfileKindCombo.Add_SelectedIndexChanged({
-        if ($script:RefreshingProfileEditor) {
-            return
-        }
-        if ($script:CurrentProfile) {
-            Capture-ProfileEditor
-            $script:CurrentProfile.TestKind = [string]$script:ProfileKindCombo.Text
-            Refresh-ProfileEditor
-            Update-RunModeIndicator
-        }
-    })
-    $toolbar.Controls.Add($script:ProfileKindCombo)
-
-    $note = New-Label "Targets are selected in Local Host or Master / Slave. Every parameter has help; disabled values are preserved as comments." 10 78 1040 34
+    $note = New-Label "Profile stores workload parameters only. Hosts, targets, and test kind are selected on the host tabs and Run tab." 10 78 1040 34
     $toolbar.Controls.Add($note)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl
@@ -753,9 +725,11 @@ function Build-ProfileTab {
         $script:CurrentProfile = Load-ProfileByName $names[0]
         $script:ProfileSelector.Text = $names[0]
     } else {
-        $script:CurrentProfile = New-DefaultProfile "New-Profile" "Raw/block"
+        $script:CurrentProfile = New-DefaultProfile "New-Profile"
     }
+    $script:RunProfile = $script:CurrentProfile
     Refresh-ProfileEditor
+    Refresh-RunProfileList
     return $tab
 }
 function Build-PreviewTab {
@@ -831,9 +805,10 @@ function Build-RunTab {
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.RowCount = 3
+    $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 150)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
@@ -861,16 +836,42 @@ function Build-RunTab {
     $script:RunStatusLabel = New-Label "Idle" 425 13 600
     $toolbar.Controls.Add($script:RunStatusLabel)
 
+    $orchestrator = New-Object System.Windows.Forms.Panel
+    $orchestrator.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $container.Controls.Add($orchestrator, 0, 1)
+
+    $orchestrator.Controls.Add((New-Label "Run profile" 10 10 80))
+    $script:RunProfileSelector = New-ComboBox @() "" 95 8 280
+    $script:RunProfileSelector.Add_SelectedIndexChanged({
+        Sync-RunProfileFromSelector
+        Update-RunModeIndicator
+        Refresh-ConfigPreview
+    })
+    $orchestrator.Controls.Add($script:RunProfileSelector)
+
+    $orchestrator.Controls.Add((New-Label "Run summary" 10 42 90))
+    $script:RunSummaryBox = New-Object System.Windows.Forms.TextBox
+    $script:RunSummaryBox.Multiline = $true
+    $script:RunSummaryBox.ReadOnly = $true
+    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
+    $script:RunSummaryBox.Location = New-Object System.Drawing.Point -ArgumentList 10, 64
+    $script:RunSummaryBox.Size = New-Object System.Drawing.Size -ArgumentList 1120, 78
+    $orchestrator.Controls.Add($script:RunSummaryBox)
+
+    Refresh-RunProfileList
+    Refresh-RunTabSummary
+
     $script:RunChart = New-RunChart
     if ($script:RunChart) {
-        $container.Controls.Add($script:RunChart, 0, 1)
+        $container.Controls.Add($script:RunChart, 0, 2)
     } else {
         $chartFallback = New-Object System.Windows.Forms.TextBox
         $chartFallback.Dock = [System.Windows.Forms.DockStyle]::Fill
         $chartFallback.Multiline = $true
         $chartFallback.ReadOnly = $true
         $chartFallback.Text = "Chart assembly is not available. Live Vdbench stdout is still shown below."
-        $container.Controls.Add($chartFallback, 0, 1)
+        $container.Controls.Add($chartFallback, 0, 2)
     }
 
     $script:RunLogBox = New-Object System.Windows.Forms.TextBox
@@ -879,7 +880,7 @@ function Build-RunTab {
     $script:RunLogBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
     $script:RunLogBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
     $script:RunLogBox.WordWrap = $false
-    $container.Controls.Add($script:RunLogBox, 0, 2)
+    $container.Controls.Add($script:RunLogBox, 0, 3)
 
     return $tab
 }
@@ -1073,14 +1074,23 @@ function Build-MainForm {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 2
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 30)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 36)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $form.Controls.Add($layout)
 
     $header = New-Object System.Windows.Forms.Panel
     $header.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $header.Height = 30
-    $script:RunModeIndicator = New-Label "Run mode: Single local run  |  Profile: (none)" 12 5 1100 20
+    $header.Height = 36
+    $header.Controls.Add((New-Label "Run mode" 12 8 70))
+    $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 82 5 230 24
+    $script:RunModeCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $script:RunModeCombo.Add_SelectedIndexChanged({
+        Sync-RunModeToSettings
+        Update-RunModeIndicator
+        Refresh-ConfigPreview
+    })
+    $header.Controls.Add($script:RunModeCombo)
+    $script:RunModeIndicator = New-Label "Profile: (none)  |  Test kind: (pending targets)" 322 8 900 20
     $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:RunModeIndicator.Font, ([System.Drawing.FontStyle]::Bold)
     $header.Controls.Add($script:RunModeIndicator)
     $layout.Controls.Add($header, 0, 0)
@@ -1164,6 +1174,9 @@ function Build-MainForm {
         if ($title -eq "Status / Reports") {
             Refresh-Reports
         }
+        if ($title -eq "Run Monitor") {
+            Refresh-RunTabSummary
+        }
         if (-not (Is-DistributedMode) -and $selected -eq $script:LocalHostTab) {
             $deferRefresh = [System.Action]{ Refresh-LocalHostTab }
             $sender.BeginInvoke($deferRefresh) | Out-Null
@@ -1206,5 +1219,6 @@ function Build-MainForm {
 
     Update-RunModeIndicator
     Update-RunModeTabs
+    Apply-RunModeFromSettings
     return $form
 }

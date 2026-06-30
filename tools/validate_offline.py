@@ -126,8 +126,16 @@ def add_params(parts: list[str], disabled: list[str], catalog: list[dict], profi
             disabled.append(f"* disabled: {name}={value} ({definition['Section']})")
 
 
-def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: list[dict] | None = None) -> str:
-    test_kind = profile["TestKind"]
+def render_config(
+    catalog: list[dict],
+    settings: dict,
+    profile: dict,
+    slaves: list[dict] | None = None,
+    local_targets: list[dict] | None = None,
+    test_kind: str | None = None,
+) -> str:
+    if test_kind is None:
+        test_kind = profile.get("TestKind", "Raw/block")
     distributed = bool(slaves)
     disabled: list[str] = []
     lines: list[str] = [
@@ -136,6 +144,7 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
         f"* Mode={'Master/Slave distributed run' if distributed else 'Single local run'}",
         "",
     ]
+    local_target_rows = local_targets if local_targets is not None else profile.get("LocalTargets", [])
 
     if distributed:
         host_defaults = ["hd=default"]
@@ -171,7 +180,7 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
                             add_params(parts, disabled, [definition], profile, "storage", test_kind)
                     lines.append(",".join(parts))
         else:
-            raw_targets = [t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") != "Filesystem"]
+            raw_targets = [t for t in local_target_rows if t.get("Selected") and t.get("Kind") != "Filesystem"]
             for index, target in enumerate(raw_targets, start=1):
                 name = sd_name if len(raw_targets) == 1 else f"{sd_name}_{index}"
                 parts = [f"sd={name}", f"lun={target['Target']}"]
@@ -183,7 +192,7 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
                 lines.append(",".join(parts))
         lines.append("")
 
-        local_raw_count = len([t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") != "Filesystem"])
+        local_raw_count = len([t for t in local_target_rows if t.get("Selected") and t.get("Kind") != "Filesystem"])
         parts = [f"wd={wd_name}", "sd=sd*" if distributed or local_raw_count > 1 else f"sd={sd_name}"]
         add_params(parts, disabled, catalog, profile, "workload", test_kind)
         lines.extend(["* Workload definitions", ",".join(parts), ""])
@@ -210,7 +219,7 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
                             add_params(parts, disabled, [definition], profile, "fsd", test_kind)
                     lines.append(",".join(parts))
         else:
-            fs_targets = [t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
+            fs_targets = [t for t in local_target_rows if t.get("Selected") and t.get("Kind") == "Filesystem"]
             for index, target in enumerate(fs_targets, start=1):
                 name = fsd_name if len(fs_targets) == 1 else f"{fsd_name}_{index}"
                 parts = [f"fsd={name}", f"anchor={target['Target']}"]
@@ -222,7 +231,7 @@ def render_config(catalog: list[dict], settings: dict, profile: dict, slaves: li
                 lines.append(",".join(parts))
         lines.append("")
 
-        local_fs_count = len([t for t in profile.get("LocalTargets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"])
+        local_fs_count = len([t for t in local_target_rows if t.get("Selected") and t.get("Kind") == "Filesystem"])
         parts = [f"fwd={fwd_name}", "fsd=fsd*" if distributed or local_fs_count > 1 else f"fsd={fsd_name}"]
         add_params(parts, disabled, catalog, profile, "fwd", test_kind)
         lines.extend(["* Filesystem workload", ",".join(parts), ""])
@@ -328,6 +337,13 @@ def main() -> int:
     assert "AllowUserToAddRows = $false" in ui_tabs_module
     assert "function Build-LocalHostTab" in ui_tabs_module
     assert "function Update-RunModeTabs" in ui_tabs_module
+    assert "$script:RunModeCombo" in ui_tabs_module
+    assert 'New-Button "New raw"' not in ui_tabs_module
+    assert "ProfileKindCombo" not in ui_tabs_module
+    assert "function Refresh-RunTabSummary" in config_module
+    assert "function Resolve-RunTestKind" in config_module
+    assert "localhost.json" in (ROOT / "src" / "VdbenchUI.ps1").read_text(encoding="utf-8")
+    assert "function Get-LocalHostTargetStore" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Pick-TargetForCurrentProfile" not in ui_tabs_module
     assert 'New-Button "Pick target" 760' not in ui_tabs_module
     assert '@("storage.lun", "fsd.anchor")' in ui_tabs_module
@@ -386,10 +402,10 @@ def main() -> int:
     assert '"UiSlaveGrid.ps1"' in validate_project_script
 
     raw = default_profile(catalog, "Offline-Raw", "Raw/block")
-    raw["LocalTargets"] = [{"Kind": "Test file", "Target": "C:\\vdbench\\testfile.dat", "Selected": True}]
+    raw_local_targets = [{"Kind": "Test file", "Target": "C:\\vdbench\\testfile.dat", "Selected": True}]
     raw["Parameters"]["storage.dedupratio"]["Enabled"] = False
     raw["Parameters"]["storage.dedupratio"]["Value"] = "2"
-    raw_config = render_config(catalog, settings, raw)
+    raw_config = render_config(catalog, settings, raw, local_targets=raw_local_targets, test_kind="Raw/block")
     assert GOLDEN_FIXTURES["raw-local.txt"] in raw_config
     assert "wd=wd1,sd=sd1,xfersize=4k,rdpct=70,seekpct=100" in raw_config
     assert "rd=rd1,wd=wd1,elapsed=300,warmup=30,interval=1,iorate=max" in raw_config
@@ -416,8 +432,8 @@ def main() -> int:
     assert "wd=wd1,sd=sd*" in slave_config
 
     fs = default_profile(catalog, "Offline-FS", "Filesystem")
-    fs["LocalTargets"] = [{"Kind": "Filesystem", "Target": "C:\\vdbench\\fs_test", "Selected": True}]
-    fs_config = render_config(catalog, settings, fs)
+    fs_local_targets = [{"Kind": "Filesystem", "Target": "C:\\vdbench\\fs_test", "Selected": True}]
+    fs_config = render_config(catalog, settings, fs, local_targets=fs_local_targets, test_kind="Filesystem")
     assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
     assert "fwd=fwd1,fsd=fsd1,operation=read" in fs_config
     assert "rd=rd1,fwd=fwd1,elapsed=300,warmup=30,interval=1,fwdrate=max,format=no" in fs_config
