@@ -175,6 +175,26 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     this specific collapse (a genuine 2+-item array survives the boundary fine either
     way) - it is specifically the 1-item case that is ambiguous. Always wrap call sites
     of any function whose return cardinality can vary (0, 1, or many) in `@()`.
+  - **Critical, previously-undetected bug found 2026-07-01 (silent auto-selection)**:
+    never compute a default for a blank field and then write that computed value back
+    into the SAME field on a returned/normalized object, if that field's non-blank-ness
+    is ALSO used elsewhere as a signal that "this is genuine, pre-existing data requiring
+    some one-time action" (here: `Apply-SlaveDefaults` in `State.ps1` defaulted a blank,
+    legacy `TestTarget` field via `Get-DefaultTestTargetForOs` and returned that computed
+    value in the normalized slave object's own `TestTarget` - poisoning the very next
+    call into treating it as a genuine pre-existing legacy value needing migration into
+    the `Targets` array, silently marking a target `Selected=true` with zero user
+    interaction, since `Apply-SlaveDefaults` runs on almost every UI action). The general
+    pattern to watch for: `$x = (blank-or-not-check); if (blank) { $x = ComputeDefault()
+    }; return @{ TestTarget = $x; ... }` — if `TestTarget`'s blank-ness is *also* checked
+    by ANY other logic (here, in the SAME function, one line earlier) to decide whether
+    to trigger a one-time migration/special-case, that check must run against the RAW,
+    un-defaulted value, and the defaulted value must never be written back into the same
+    field the check reads from. Confirmed by writing a real pwsh reproduction that calls
+    the affected function twice in a row on its own output (`$x = Fn $x; $x = Fn $x`) and
+    inspecting the field after each call - this pattern (call a normalizer repeatedly on
+    its own prior output, since these functions run on nearly every UI interaction, not
+    just once) is a valuable general technique for finding this exact class of bug.
   - **Critical, previously-undetected bug found 2026-07-01**: `[powershell]::EndInvoke()`
     wraps even a SINGLE output object in a `PSDataCollection<PSObject>` - confirmed
     empirically in this sandbox - not the raw object itself. Direct dot-notation property
