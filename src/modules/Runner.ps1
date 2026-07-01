@@ -192,11 +192,6 @@ function New-ConfigOnlyRun {
     Refresh-Reports
 }
 
-function Convert-ToShellSingleQuoted {
-    param([string]$Value)
-    return "'" + ($Value -replace "'", "'\''") + "'"
-}
-
 function New-RemoteSshArguments {
     param([object]$Slave)
     $parts = New-Object System.Collections.Generic.List[string]
@@ -274,19 +269,16 @@ function Initialize-TestFilesForRun {
             continue
         }
         $sshParts = New-RemoteSshArguments $item.Owner
-        if ([string]$item.OsType -eq "Linux") {
+        $osType = [string]$item.OsType
+        if ($osType -eq "Linux") {
             $quotedPath = Convert-ToShellSingleQuoted $path
             $remote = "mkdir -p -- `"`$(dirname -- $quotedPath)`" && : > $quotedPath"
-            [void]$sshParts.Add("sh")
-            [void]$sshParts.Add("-lc")
-            [void]$sshParts.Add((Quote-ProcessArgument $remote))
         } else {
             $escapedPath = $path.Replace("'", "''")
             $remote = "`$p='$escapedPath'; `$d=Split-Path -Parent `$p; if (`$d) { New-Item -ItemType Directory -Force -Path `$d | Out-Null }; Set-Content -LiteralPath `$p -Value '' -NoNewline"
-            [void]$sshParts.Add("powershell.exe")
-            [void]$sshParts.Add("-NoProfile")
-            [void]$sshParts.Add("-Command")
-            [void]$sshParts.Add((Quote-ProcessArgument $remote))
+        }
+        foreach ($token in @(Get-RemoteExecCommandParts -OsType $osType -RemoteScript $remote)) {
+            [void]$sshParts.Add($token)
         }
         $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
         if ($result.ExitCode -ne 0) {

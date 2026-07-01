@@ -111,6 +111,49 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     Linux-only sandbox behavior for validation purposes; on real Windows,
     `UseShellExecute=$true` opens a genuinely new console with its own real keyboard
     input, so `Read-Host` there correctly waits for an actual human keypress.
+  - **Critical, previously-undetected bug found 2026-07-01 (SSH remote commands)**:
+    OpenSSH's client concatenates every argument after the hostname (the "remote
+    command") into ONE string with a space between each, before sending it to the
+    server - this is confirmed via the OpenSSH project's own GitHub issue tracker and
+    mailing list, but is NOT documented in `ssh(1)`. This means any LOCAL quoting used
+    to keep e.g. `powershell.exe`, `-Command`, and a script string together as SEPARATE
+    argv elements for `ssh.exe`'s OWN local parsing is consumed by that parsing and
+    NEVER reapplied once `ssh.exe` rejoins the remaining pieces for the wire - so a
+    script containing a pipe (`|`) arrives at the far end completely unquoted. On
+    Windows specifically, the remote `sshd` then ALWAYS routes the joined string through
+    an intermediate `cmd.exe` layer first, even when the configured shell for that user
+    is something else entirely (also confirmed via OpenSSH-for-Windows's own issue
+    tracker) - `cmd.exe` sees the now-bare pipe and interprets it as ITS OWN pipe
+    operator, trying to launch a separate program literally named after whatever follows
+    it (e.g. a script containing `... | ForEach-Object { ... }` produces exactly
+    `'ForEach-Object' is not recognized as an internal or external command`). The fix
+    (`Get-RemoteExecCommandParts` in `Core.ps1`) is `-EncodedCommand` (Base64 of the
+    UTF-16LE script text) for Windows - zero shell-special characters survives ANY
+    number of naive rejoin/re-parse layers - and, for Linux (no such intermediate
+    `cmd.exe` layer, but the SAME "outer quoting lost across the rejoin" problem
+    otherwise applies), building `sh -lc '<script>'` as ONE single, already fully-formed
+    token instead of three separate ones. To empirically PROVE this class of bug (rather
+    than reason about it purely from documentation), write an `ssh.exe` shim script that
+    mimics OpenSSH's own documented rejoin behavior (skip recognized option flags/values
+    and exactly one hostname token, then join everything remaining with single spaces),
+    point `Invoke-CapturedProcess`/`ProcessStartInfo` at it via a PATH-resolvable temp
+    directory, and inspect what it reports it would have sent over the wire - this
+    reproduced the exact bug end-to-end in this sandbox (a real `dash -c` even raised a
+    genuine `Syntax error: "do" unexpected` on the old Linux pattern) without needing a
+    real Windows/OpenSSH environment at all.
+  - **Related gotcha, also found 2026-07-01**: a function's `return @(X)` does NOT
+    reliably survive the function-call boundary as an array when `X` is a single item -
+    PowerShell silently collapses it back down to the bare scalar `X` for the CALLER,
+    unless the CALL SITE itself is ALSO wrapped in `@()` (this is distinct from, but
+    closely related to, the already-documented "empty array becomes `$null`" gotcha
+    below - this one affects genuinely non-empty, single-item results too). Confirmed
+    empirically: a function doing `return @("only-one-item")` and captured via plain
+    `$x = Some-Function` gives `$x` as a bare `[string]`, not a 1-element `[object[]]` -
+    only `$x = @(Some-Function)` (wrapping the CALL, not just the function's internal
+    return) reliably preserves array semantics. Multi-item returns are NOT affected by
+    this specific collapse (a genuine 2+-item array survives the boundary fine either
+    way) - it is specifically the 1-item case that is ambiguous. Always wrap call sites
+    of any function whose return cardinality can vary (0, 1, or many) in `@()`.
   - **Critical, previously-undetected bug found 2026-07-01**: `[powershell]::EndInvoke()`
     wraps even a SINGLE output object in a `PSDataCollection<PSObject>` - confirmed
     empirically in this sandbox - not the raw object itself. Direct dot-notation property

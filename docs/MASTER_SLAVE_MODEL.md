@@ -75,6 +75,47 @@ Each slave entry contains:
 Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
 Each enabled host must pass readiness and have at least one selected target before a run can start.
 
+### Why remote disk/folder discovery could fail with "'X' is not recognized..."
+
+Clicking **Browse** (or **New folder**) on a slave row runs a small script on that host
+over `ssh.exe` to list disks/filesystems (or create a folder). This used to fail with an
+error like:
+
+```
+'ForEach-Object' is not recognized as an internal or external command,
+operable program or batch file.
+```
+
+right after a normal-looking SSH host-key warning ("Warning: Permanently added ... to
+the list of known hosts.") - meaning the SSH connection itself succeeded, and the
+failure was in what got executed *after* connecting.
+
+Root cause: OpenSSH's client concatenates every argument after the hostname (the
+"remote command") into a single string with a space between each, before sending it to
+the server (this is undocumented in `ssh(1)` but confirmed via the OpenSSH project's own
+GitHub issue tracker and mailing list). This app used to build that remote command as
+separate pieces - `powershell.exe`, `-NoProfile`, `-Command`, `"<script>"` - each quoted
+only for this side's own local `ssh.exe` argument parsing. That local quoting gets
+consumed once `ssh.exe` parses its own command line, and is never reapplied when
+`ssh.exe` rejoins the remaining pieces for the wire - so the script text arrives at the
+remote end with its outer quoting gone entirely. On Windows, the remote `sshd` then
+always routes the joined string through an intermediate `cmd.exe` layer first - even
+when the configured shell for that user is something else (also confirmed via the same
+OpenSSH-for-Windows issue tracker) - and `cmd.exe` interprets the now-bare, unquoted
+pipe character in the script (from e.g. `Get-CimInstance ... | ForEach-Object { ... }`)
+as *its own* pipe operator, trying to launch a separate program literally named
+`ForEach-Object`, which of course does not exist as an executable.
+
+Fix: remote commands are now built through a single shared helper
+(`Get-RemoteExecCommandParts` in `Core.ps1`). For Windows hosts it uses PowerShell's
+`-EncodedCommand` (the script Base64-encoded) instead of `-Command` with a quoted
+string - the resulting command line (`powershell.exe -NoProfile -EncodedCommand
+<base64>`) contains zero characters that are special to any shell, so it survives being
+rejoined and re-parsed by any number of naive intermediate layers unmangled. For Linux
+hosts, the whole `sh -lc '<script>'` invocation is built and quoted as a single, already
+fully-formed unit instead of three separate pieces, so there is nothing left for
+`ssh.exe`'s rejoin step to disturb.
+
 ### Readiness checker script contract
 
 `Settings → Readiness checker` points at an external `.ps1` script (not part of this
