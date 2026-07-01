@@ -91,6 +91,26 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     the real modules — plain function redefinition (not a `Add_Click`/`Add_Tick` closure)
     resolves at call time in PowerShell, so the real caller's later calls to it hit your
     stub — and assert on a call counter instead of driving the real timer/runspace pool.
+  - Beware: a process's exit code alone does not tell you whether it printed anything
+    worth showing a human. This bit `Get-ReadinessCheckerWrapperCommand` (real bug, found
+    2026-07-01): it only paused the checker window for `Read-Host` when the wrapper's own
+    `$exitCode` was non-zero, on the assumption exit 0 meant "nothing to review". The
+    shipped checker script exits `0` unconditionally regardless of whether its own
+    internal `[OK]`/`[FAIL]` report lines passed, so a run with a failing internal check
+    still auto-closed the window before it could be read. Fix: pause unconditionally,
+    always, regardless of exit code — do not gate a "let the human read this" prompt
+    behind any success/failure signal from the thing being wrapped, since "ran to
+    completion" and "everything it checked passed" are not the same thing.
+  - When a fix makes a subprocess *always* pause on `Read-Host` before exiting (as
+    above), verify empirically — do not assume — that a test harness which redirects that
+    subprocess's `stdin` to nothing (Python's `subprocess.run(..., stdin=subprocess.DEVNULL)`)
+    does not hang. Confirmed empirically in this sandbox before relying on it: with
+    `UseShellExecute=$true` and no explicit `RedirectStandardInput`, the child inherits
+    the parent's stdin; when that stdin is `/dev/null` (EOF immediately), `Read-Host`
+    returns an empty string immediately rather than blocking - safe for CI. This is
+    Linux-only sandbox behavior for validation purposes; on real Windows,
+    `UseShellExecute=$true` opens a genuinely new console with its own real keyboard
+    input, so `Read-Host` there correctly waits for an actual human keypress.
   - `python3 tools/validate_offline.py` automatically detects `pwsh` on PATH and runs the
     real syntax-parse + `Invoke-AppSelfTest` checks as part of the normal offline validation
     (prints "real PowerShell syntax + self-test checks: ran"). If `pwsh` is missing it skips

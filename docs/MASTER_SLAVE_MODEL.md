@@ -139,7 +139,7 @@ version that briefly replaced it) gets it automatically advanced to the current
 customized template, or one for a different checker script, is always left
 untouched.
 
-#### Why the checker window is now a genuinely separate window
+#### Why the checker window is now a genuinely separate window that never auto-closes
 
 The checker process used to be started with `UseShellExecute=$false` and
 `CreateNoWindow=$false`. That exact combination does **not** create a new console -
@@ -156,47 +156,88 @@ for this launch, which Windows always honors as "open a brand-new window" regard
 `CreateNoWindow`, fully decoupling the checker's console from the app's own. It is now
 safe to close the checker window at any time without affecting the main UI.
 
+The window also used to close **itself** automatically as soon as the checker process
+exited, as long as its exit code was `0` - on the (wrong) assumption that exit code `0`
+meant "nothing worth reviewing happened". That is not true for the shipped checker: it
+exits `0` unconditionally regardless of whether its own internal `[OK]`/`[FAIL]` checks
+passed - exit code `0` there means "the script itself ran to completion", not "every
+check inside it passed". A run with one or more failing internal checks (e.g. a `[FAIL]`
+on `Master vdbench.bat exists`) still auto-closed the window before there was any chance
+to read which check had failed. The window launched by **Readiness** now always pauses
+with a `Review the output above, then press Enter to close this window...` prompt before
+exiting, regardless of the checker's exit code - it never closes on its own; the human
+always has to dismiss it.
+
 Clicking **Readiness** (or **Ping**) again on a row while a check is already running for
-it (cell reads `Checking...` / `Pinging...`) is now ignored instead of queuing another
-background job. This also stops a duplicate "ran in a separate window" popup from
-appearing per click - the checker window already showed the real output live, so once
-it ran in its own window the app no longer pops a second confirmation dialog on top of
-it. Previously, clicking Readiness repeatedly (a natural reaction when nothing seemed to
+it (cell reads `Checking...` / `Pinging...`) is ignored instead of queuing another
+background job. The app also no longer shows its own "it ran" confirmation popup at all
+for a completed separate-window check (success or failure) - the checker's own window is
+already the single source of truth for that result, and now that it always stays open
+until dismissed (see above), a second, app-level popup on top of it added nothing.
+Previously, clicking Readiness repeatedly (a natural reaction when nothing seemed to
 happen right away) queued one background job - and one popup - per click; when they all
 completed together, the resulting wall of stacked dialogs looked and felt like the whole
 UI had frozen.
 
-#### A `[FAIL]` line in the checker's own output is not a UI bug
+#### A `[FAIL]` line in the checker's own output is not a UI bug - troubleshooting steps
 
 Every `[OK]` / `[FAIL]` line the checker prints - including things like
 `Master vdbench.bat exists` - comes entirely from the external checker script itself; the
 UI only launches it (now with `{HostFlag}` - see above) and reports its exit code. A
-`[FAIL]` there means the checker's own file-existence check genuinely did not find that
-file on the machine it ran on at the moment it ran - the UI has no way to influence or
-fabricate that result, and silently hiding it would defeat the whole point of a
-readiness check. The `Master ...` checks specifically (ssh.exe, keys, `vdbench.bat`,
-java) run against the Master itself - the machine running the checker - and are
-independent of `-WindowsHosts`/`-LinuxHosts`, which control which *additional*, remote
-host gets checked over SSH; passing the right host flag makes the checker also validate
-the specific slave a row's Readiness button was clicked for, but does not change
-whether the Master's own local checks pass or fail.
+`[FAIL]` there means the checker's own check genuinely did not pass at the moment it ran
+- the UI has no way to influence or fabricate that result, and silently hiding it would
+defeat the whole point of a readiness check. The `Master ...` checks specifically
+(ssh.exe, keys, `vdbench.bat`, java) run against the Master itself - the machine running
+the checker - and are independent of `-WindowsHosts`/`-LinuxHosts`, which control which
+*additional*, remote host gets checked over SSH; passing the right host flag makes the
+checker also validate the specific slave a row's Readiness button was clicked for, but
+does not change whether the Master's own local checks pass or fail.
 
-The most common real-world reason `vdbench.bat` is reported missing at the expected path
-(e.g. `C:\vdbench\vdbench.bat`) is that the official Vdbench distribution zip extracts
-into its own version-named subfolder (e.g. `C:\vdbench\vdbench50407\vdbench.bat`) rather
-than flattening `vdbench.bat` straight into the folder you expect. Either move the
-extracted contents up one level, or point **Settings → Master vdbench.bat** at wherever
-the file actually lives.
+If `Master vdbench.bat exists` fails and the file visibly exists at the exact path the
+checker printed (it prints the full path it checked right under the `[FAIL]` line), work
+through these steps in order rather than guessing blindly - each one narrows down where
+the discrepancy actually is:
 
-To check the same path independently of the external checker, use **Settings →
-Validate**: it runs a local, instant `Test-Path` against `Master vdbench.bat` (and the
-other configured paths) and reports `Exists=True/False` directly - no external script, no
-extra window, no SSH involved. If Validate also reports `False`, the file really is
-missing/misplaced on this machine. If Validate reports `True` while the external checker
-still fails, the checker script has its own separate, hardcoded expectation for that path
-that does not read this app's Settings at all; treat the checker's message as
-authoritative for the actual host layout and update Settings to match it, not the other
-way around.
+1. **Cross-check with this app's own, independent Test-Path.** Use **Settings →
+   Validate**: it runs a local, instant `Test-Path` against `Master vdbench.bat` (and the
+   other configured paths) and reports `Exists=True/False` directly - no external
+   script, no extra window, no SSH, no remoting involved. This isolates "is the path in
+   Settings even correct" from "why does the external checker disagree with it".
+   - If Validate also reports `False`: the path configured in **Settings → Master
+     vdbench.bat** does not match the real file. The most common real-world cause is the
+     official Vdbench distribution zip extracting into its own version-named subfolder
+     (e.g. `C:\vdbench\vdbench50407\vdbench.bat`) rather than flattening `vdbench.bat`
+     straight into the folder you expect - move the extracted contents up one level, or
+     point Settings at wherever the file actually lives.
+   - If Validate reports `True`: the path/file are genuinely fine from this app's point
+     of view, and the checker's own logic for this specific check needs to be inspected
+     directly - continue to step 2.
+2. **Run the exact same path check yourself, independently of both this app and the
+   checker**, in any PowerShell window on the Master:
+   ```powershell
+   Test-Path "C:\vdbench\vdbench.bat"
+   Get-Item "C:\vdbench\vdbench.bat" | Format-List FullName, Length, LastWriteTime, Attributes, PSIsContainer
+   ```
+   If `Test-Path` itself says `False` here, the file is not where it visibly appears to
+   be (e.g. a different drive, a cloud-sync placeholder that has not fully downloaded, a
+   permissions issue) independent of this app entirely. If it says `True` and the
+   `Attributes`/`Length` look normal, the file is fully real and readable, and the
+   discrepancy is specific to whatever the checker script itself does for this check.
+3. **Inspect what the checker script's own code actually does for this specific check**
+   - since it is an external script not part of this repo, its exact logic is opaque to
+   this app and to anyone without reading it:
+   ```powershell
+   Select-String -Path "C:\install\04-Check-Vdbench-Hosts-Readiness.ps1" -Pattern "vdbench.bat" -Context 3,3
+   ```
+   This reveals whether the check is a plain `Test-Path` (should behave identically to
+   step 2), something remote (e.g. `Invoke-Command`/WinRM/UNC path against the Master's
+   own hostname, which can fail for reasons - WinRM not enabled, `TrustedHosts`,
+   firewall, DNS - entirely unrelated to whether the local file exists), or something
+   stricter than existence (e.g. a version/content/hash check). Whatever step 3 reveals
+   determines the real fix: if it is a hardcoded path that does not match this Settings'
+   value, either move the file to match the checker's expectation or edit the checker
+   script (outside this repo); if it is a remoting-based check, the fix is on the
+   WinRM/network side, not in Settings.
 
 ## Generated Vdbench Shape
 
