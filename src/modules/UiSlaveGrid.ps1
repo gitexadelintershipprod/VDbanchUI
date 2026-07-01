@@ -191,7 +191,8 @@ function Get-SlaveReadinessResult {
         [string]$Target,
         [string]$Checker,
         [string]$CheckerTemplate,
-        [bool]$ShowCheckerWindow = $false
+        [bool]$ShowCheckerWindow = $false,
+        [string]$OsType = ""
     )
     if ([string]::IsNullOrWhiteSpace($Checker) -or -not (Test-Path -LiteralPath $Checker)) {
         return [pscustomobject]@{
@@ -202,7 +203,7 @@ function Get-SlaveReadinessResult {
     }
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
-    $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target
+    $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target $OsType
     $quotedChecker = Quote-ProcessArgument $Checker
     # Run the checker from its own containing folder, matching exactly what
     # happens when a user double-clicks / "Run with PowerShell"s it from
@@ -304,7 +305,8 @@ function Invoke-SlaveReadinessBackgroundWork {
         $Context.Target `
         $Context.Checker `
         $Context.CheckerTemplate `
-        ([bool]$Context.ShowCheckerWindow)
+        ([bool]$Context.ShowCheckerWindow) `
+        ([string]$Context.OsType)
 }
 
 function Start-SlavePingCheck {
@@ -364,8 +366,9 @@ function Start-SlaveReadinessCheck {
         HostName = [string]$Row.Cells["Host"].Value
         VdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
         Target = Get-SlaveReadinessTargetForRow $Row
+        OsType = [string]$Row.Cells["OsType"].Value
         Checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
-        CheckerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}")
+        CheckerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "{HostFlag}")
     }
     Write-DebugLog ("Readiness check started for host={0} row={1} checker={2}" -f $readyContext.HostName, $readyContext.RowIndex, $readyContext.Checker)
     Update-SlaveRowReadiness $readyContext.RowIndex "Checking..."

@@ -82,23 +82,46 @@ repo) that the UI launches in its own PowerShell window whenever **Readiness** i
 clicked. Two settings govern this launch:
 
 - **Readiness checker** — absolute path to the script.
-- **Readiness args template** — optional `{Host}` / `{VdbenchPath}` / `{Target}`
-  substitutions appended as `-HostName ... -VdbenchPath ... -Target ...`.
+- **Readiness args template** — free-form text appended verbatim to the checker
+  invocation, after substituting any of these tokens it contains:
+  - `{HostFlag}` — the checker's real parameter for "which remote host to check":
+    `-WindowsHosts "<Host>"` if this row's **OS** is Windows, `-LinuxHosts "<Host>"`
+    if it is Linux. **This is the shipped default** (`{HostFlag}` alone) and matches
+    the actual contract of the checker this app ships pointing at
+    (`04-Check-Vdbench-Hosts-Readiness.ps1`), confirmed by running it manually:
+    ```
+    powershell -ExecutionPolicy Bypass -File C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.xxx
+    powershell -ExecutionPolicy Bypass -File C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -LinuxHosts 10.50.11.xxx
+    ```
+  - `{Host}` / `{VdbenchPath}` / `{Target}` — raw substitutions of this row's Host,
+    VdbenchPath, and selected/default Target, for a *different* checker script that
+    declares its own differently-named parameters (e.g. a custom
+    `param([string]$HostName, ...)` block). Not needed for the shipped checker.
 
-**The shipped default for "Readiness args template" is empty.** Most real checker
-scripts (including the common `NN-Check-*-Readiness.ps1` provisioning style) test
-every configured host — master and all slaves — in a single run and take no
-parameters at all. If such a script also uses `[CmdletBinding()]` (very common),
-passing it an unrecognized named parameter like `-HostName` makes PowerShell throw:
+**Earlier revisions of this doc said the shipped default should be empty** ("most
+checker scripts take no arguments"). That was wrong for this specific checker: with
+no host argument at all, it silently only checks the Master's own local
+prerequisites (ssh.exe, keys, `vdbench.bat`, java — the `[OK]`/`[FAIL]` lines under
+"Checking Master readiness") and never actually validates the specific slave a user
+clicked **Readiness** for — clicking Readiness on any slave row looked like it "did
+something" (a window opened, checks ran) while never checking that slave at all.
+`{HostFlag}` fixes this by passing the clicked row's own Host/OS dynamically, so
+each row's Readiness click genuinely checks that row's host over SSH, in addition to
+the Master's own local checks that always run regardless of arguments.
+
+If your checker script uses `[CmdletBinding()]` (very common) and does not declare
+whatever parameter your template references, PowerShell throws a hard error at the
+top instead of running any checks at all:
 
 ```
 A parameter cannot be found that matches parameter name 'HostName'.
 ```
 
 This is what "Readiness ჩეკი" doing nothing / throwing a confusing error from the UI
-usually means: the app was passing arguments the checker script doesn't declare.
-Only fill in "Readiness args template" if your specific checker script explicitly
-declares matching parameters (e.g. its own `param([string]$HostName, ...)` block).
+usually means: the app was passing arguments the checker script doesn't declare. If
+you are using a different checker script than the shipped default, clear the
+template back to blank (or use `{Host}`/`{VdbenchPath}`/`{Target}` only if it
+declares matching parameters) rather than leaving `{HostFlag}` in place.
 
 The checker process's working directory is always set to the folder containing the
 checker script itself — the same as double-clicking / "Run with PowerShell" on it
@@ -109,8 +132,11 @@ outside the real Vdbench install (for example, a stray `vdbench` folder next to 
 checker script instead of inside the actual `C:\vdbench`).
 
 On upgrade, a machine with an already-initialized `data/settings.json` that still
-has the old default template gets it automatically cleared to empty (see
-`Migrate-LegacySettings` in `State.ps1`); a deliberately customized template is left
+has an old default template (the original named-params version, or the empty
+version that briefly replaced it) gets it automatically advanced to the current
+`{HostFlag}` default (see `Migrate-LegacySettings` in `State.ps1`) — but only while
+**Readiness checker** still points at the stock shipped script; a deliberately
+customized template, or one for a different checker script, is always left
 untouched.
 
 #### Why the checker window is now a genuinely separate window
@@ -144,10 +170,16 @@ UI had frozen.
 
 Every `[OK]` / `[FAIL]` line the checker prints - including things like
 `Master vdbench.bat exists` - comes entirely from the external checker script itself; the
-UI only launches it and reports its exit code. A `[FAIL]` there means the checker's own
-file-existence check genuinely did not find that file on the target machine at the
-moment it ran - the UI has no way to influence or fabricate that result, and silently
-hiding it would defeat the whole point of a readiness check.
+UI only launches it (now with `{HostFlag}` - see above) and reports its exit code. A
+`[FAIL]` there means the checker's own file-existence check genuinely did not find that
+file on the machine it ran on at the moment it ran - the UI has no way to influence or
+fabricate that result, and silently hiding it would defeat the whole point of a
+readiness check. The `Master ...` checks specifically (ssh.exe, keys, `vdbench.bat`,
+java) run against the Master itself - the machine running the checker - and are
+independent of `-WindowsHosts`/`-LinuxHosts`, which control which *additional*, remote
+host gets checked over SSH; passing the right host flag makes the checker also validate
+the specific slave a row's Readiness button was clicked for, but does not change
+whether the Master's own local checks pass or fail.
 
 The most common real-world reason `vdbench.bat` is reported missing at the expected path
 (e.g. `C:\vdbench\vdbench.bat`) is that the official Vdbench distribution zip extracts
@@ -161,10 +193,10 @@ Validate**: it runs a local, instant `Test-Path` against `Master vdbench.bat` (a
 other configured paths) and reports `Exists=True/False` directly - no external script, no
 extra window, no SSH involved. If Validate also reports `False`, the file really is
 missing/misplaced on this machine. If Validate reports `True` while the external checker
-still fails, the checker script has its own separate, hardcoded expectation for that
-path (it takes no parameters by design - see above) that does not read this app's
-Settings at all; treat the checker's message as authoritative for the actual host layout
-and update Settings to match it, not the other way around.
+still fails, the checker script has its own separate, hardcoded expectation for that path
+that does not read this app's Settings at all; treat the checker's message as
+authoritative for the actual host layout and update Settings to match it, not the other
+way around.
 
 ## Generated Vdbench Shape
 

@@ -494,29 +494,42 @@ function Migrate-LegacySettings {
     # Settings values that shipped as defaults in earlier versions but turned out
     # to be broken/harmful. Merge-DefaultProperties only fills in MISSING keys, so
     # a machine whose data/settings.json was already seeded with a bad default
-    # would otherwise keep it forever. Each entry here is only applied if the
-    # current value still exactly matches the old broken default, so intentional
-    # user customizations are never overwritten.
+    # would otherwise keep it forever. Each migration below is only applied if the
+    # current value(s) still exactly match the old default being replaced, so
+    # intentional user customizations are never overwritten.
     param([object]$Settings)
     $changed = $false
-    $legacyDefaults = @{
-        # Real-world readiness checker scripts commonly use [CmdletBinding()],
-        # which makes PowerShell throw "A parameter cannot be found that matches
-        # parameter name 'HostName'." for ANY unrecognized named parameter. Most
-        # checker scripts (see docs/MASTER_SLAVE_MODEL.md) are written to check
-        # every configured host in one run and take no arguments at all, so the
-        # safe default is empty; per-host tokens remain available for checker
-        # scripts that explicitly declare matching parameters.
-        "ReadinessCheckerArguments" = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
+
+    # v1 -> v2 (2026-07-01): real-world readiness checker scripts commonly use
+    # [CmdletBinding()], which makes PowerShell throw "A parameter cannot be
+    # found that matches parameter name 'HostName'." for ANY unrecognized named
+    # parameter, so the original named-params default broke against them.
+    # Replaced with an empty template.
+    $legacyReadinessArgsV1 = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
+    if ([string](Get-PropertyValue $Settings "ReadinessCheckerArguments" "") -eq $legacyReadinessArgsV1) {
+        Set-PropertyValue $Settings "ReadinessCheckerArguments" ""
+        Write-DebugLog "Migrated legacy default setting 'ReadinessCheckerArguments' (v1 named-params template) to empty string"
+        $changed = $true
     }
-    foreach ($key in $legacyDefaults.Keys) {
-        $current = [string](Get-PropertyValue $Settings $key "")
-        if ($current -eq $legacyDefaults[$key]) {
-            Set-PropertyValue $Settings $key ""
-            Write-DebugLog ("Migrated legacy default setting '{0}' to empty string" -f $key)
-            $changed = $true
-        }
+
+    # v2 -> v3 (2026-07-01, same day): turns out the shipped default checker
+    # (04-Check-Vdbench-Hosts-Readiness.ps1) DOES take an argument after all -
+    # just not the ones v1 assumed. It needs -WindowsHosts/-LinuxHosts (chosen
+    # by the row's OS) to know which host to actually check remotely; with no
+    # host argument at all it silently only checks the Master's own local
+    # prerequisites and never validates the specific slave a user clicked
+    # Readiness for. Only migrate when ReadinessChecker still points at the
+    # stock shipped script - a user who already pointed it at a different
+    # checker may have deliberately left this empty for a script that really
+    # does take no arguments, and must not be overwritten.
+    $stockChecker = "C:\install\04-Check-Vdbench-Hosts-Readiness.ps1"
+    $currentChecker = [string](Get-PropertyValue $Settings "ReadinessChecker" "")
+    if ([string](Get-PropertyValue $Settings "ReadinessCheckerArguments" "") -eq "" -and $currentChecker -eq $stockChecker) {
+        Set-PropertyValue $Settings "ReadinessCheckerArguments" "{HostFlag}"
+        Write-DebugLog "Migrated legacy default setting 'ReadinessCheckerArguments' (v2 empty template) to {HostFlag}"
+        $changed = $true
     }
+
     return $changed
 }
 

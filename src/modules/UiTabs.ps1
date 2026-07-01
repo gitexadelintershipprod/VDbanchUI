@@ -11,13 +11,13 @@ function Build-SettingsTab {
         @{ Key = "VdbenchRoot"; Label = "Vdbench root"; Browse = "folder" },
         @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
-        @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file"; Hint = "Script run when clicking Readiness/Recheck. It opens in its own PowerShell window; leave 'Readiness args template' empty unless your script declares matching parameters." },
+        @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file"; Hint = "Script run when clicking Readiness on a row. It opens in its own PowerShell window. The shipped default script needs 'Readiness args template' below set to {HostFlag} to actually check the clicked row's host; clear it to blank instead only if you point this at a different script that takes no arguments." },
         @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file"; Hint = "Absolute path to vdbench.bat on THIS (master) machine. If the Readiness checker reports this file missing, it is checking its own separate, hardcoded path, not this setting - verify the real path here (the official Vdbench zip often extracts into a version-named subfolder, e.g. C:\vdbench\vdbench50407\vdbench.bat, one level deeper than expected) and use Settings -> Validate below to confirm Exists=True locally." },
         @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder"; Hint = "Default Vdbench path for Windows slaves." },
         @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none"; Hint = "Default Vdbench path for Linux slaves." },
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },
         @{ Key = "PrivateKey"; Label = "Private key"; Browse = "file" },
-        @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none"; Hint = "Leave EMPTY unless your Readiness checker script declares -HostName/-VdbenchPath/-Target parameters. Most checker scripts test every configured host in one run and take no arguments; passing unknown named parameters to a script using [CmdletBinding()] throws a 'parameter cannot be found' error." },
+        @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none"; Hint = "Default {HostFlag} expands to -WindowsHosts '<Host>' or -LinuxHosts '<Host>' (chosen by this row's OS) - the shipped checker's real parameter for which host to check remotely. {Host}/{VdbenchPath}/{Target} are also available for a different checker script with its own -HostName-style parameters. Leave blank only if your checker script takes no arguments at all; passing an unrecognized named parameter to a script using [CmdletBinding()] throws a 'parameter cannot be found' error." },
         @{ Key = "SlaveShell"; Label = "Slave shell"; Browse = "none" }
     )
 

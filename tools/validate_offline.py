@@ -626,22 +626,36 @@ Write-Host "All slave-targets regression steps passed"
 
 
 def _run_readiness_regression_check(pwsh: str) -> None:
-    """Reproduce the real Readiness-check bug end-to-end and prove the fix.
+    """Reproduce the real Readiness-check bugs end-to-end and prove the fixes.
 
-    Root cause (found by actually installing pwsh and running the code,
-    2026-07-01): the shipped ReadinessCheckerArguments default
+    Root cause v1 (found by actually installing pwsh and running the code,
+    2026-07-01): the originally-shipped ReadinessCheckerArguments default
     ("-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}") throws
     "A parameter cannot be found that matches parameter name 'HostName'."
-    against any checker script using [CmdletBinding()] with no matching
-    parameters declared -- which is exactly how real-world "check every
-    configured host in one run" checker scripts are commonly written (see
-    docs/MASTER_SLAVE_MODEL.md). This regression check builds such a fake
-    checker, calls the real Get-SlaveReadinessResult with both the legacy and
-    current default, and asserts the legacy one fails with that exact message
-    while the current default succeeds -- plus verifies the checker's own
-    working directory is set deterministically (its own folder) rather than
-    inherited from whatever launched the UI, which is what let stray output
-    end up outside the real Vdbench install.
+    against the real checker script, which uses [CmdletBinding()] and does
+    not declare those parameters at all.
+
+    Root cause v2 (found later the same day, from the user manually running
+    the real checker script and reporting back its actual parameters): the
+    checker was fixed to take an empty args template ("most checker scripts
+    take no arguments"), but that was wrong for THIS checker - it genuinely
+    needs -WindowsHosts/-LinuxHosts (chosen by the row's OS) to know which
+    remote host to check over SSH. With no host argument at all, it silently
+    only checked the Master's own local prerequisites and never validated
+    the specific slave a user clicked Readiness for. Confirmed real syntax:
+        ...04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.xxx
+        ...04-Check-Vdbench-Hosts-Readiness.ps1 -LinuxHosts 10.50.11.xxx
+
+    This regression check builds a fake checker that actually declares
+    -WindowsHosts/-LinuxHosts (matching the real one), calls the real
+    Get-SlaveReadinessResult with the v1 legacy template (must still fail
+    the same way), the current {HostFlag} default against a Windows-OS row
+    (must expand to -WindowsHosts and succeed), and again against a
+    Linux-OS row (must expand to -LinuxHosts and succeed) - plus verifies
+    the checker's own working directory is set deterministically (its own
+    folder) rather than inherited from whatever launched the UI, and drives
+    the full v1->v2->v3 Migrate-LegacySettings chain plus its new
+    checker-path safety guard.
     """
     import os
     import subprocess
@@ -664,9 +678,14 @@ def _run_readiness_regression_check(pwsh: str) -> None:
         checker_path = checker_dir / "04-Check-Vdbench-Hosts-Readiness.ps1"
         checker_path.write_text(
             "[CmdletBinding()]\n"
-            "param()\n"
+            "param(\n"
+            "    [string[]]$WindowsHosts = @(),\n"
+            "    [string[]]$LinuxHosts = @()\n"
+            ")\n"
             "Write-Host 'Checking Master readiness'\n"
             "Write-Host '[OK]  MASTER  fake host check'\n"
+            "foreach ($h in $WindowsHosts) { Write-Host \"[OK]  WINDOWS-SLAVE  $h  fake host check\" }\n"
+            "foreach ($h in $LinuxHosts) { Write-Host \"[OK]  LINUX-SLAVE  $h  fake host check\" }\n"
             "New-Item -ItemType Directory -Path '.\\relative-output' -Force | Out-Null\n"
             "Set-Content -Path '.\\relative-output\\marker.txt' -Value 'created by fake checker'\n"
             "exit 0\n",
@@ -687,26 +706,42 @@ foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHel
 }}
 Set-Location "{wrong_launch_dir}"
 
-$legacy = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}" $false
-$current = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "" $false
+$legacy = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}" $false "Windows"
+$currentWindows = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "{{HostFlag}}" $false "Windows"
+$currentLinux = Get-SlaveReadinessResult "10.0.0.2" "/opt/vdbench" "/dev/sdb" "{checker_path}" "{{HostFlag}}" $false "Linux"
 
 # A machine that already ran an earlier version has data/settings.json seeded
-# with the old broken default forever, since Merge-DefaultProperties only ever
-# ADDS missing keys. Prove Migrate-LegacySettings actually cleans that up, and
-# leaves a deliberately-customized value alone.
-$legacySettings = [pscustomobject]@{{ ReadinessCheckerArguments = "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}" }}
-$migratedLegacy = Migrate-LegacySettings $legacySettings
-$customSettings = [pscustomobject]@{{ ReadinessCheckerArguments = "-MyCustomFlag foo" }}
+# with an old default forever, since Merge-DefaultProperties only ever ADDS
+# missing keys. Prove Migrate-LegacySettings actually fast-forwards all the
+# way from the v1 named-params default through empty to the current
+# {{HostFlag}} default, that a bare v2 (empty) default also advances to
+# {{HostFlag}} on its own, that the same empty default is LEFT ALONE when
+# ReadinessChecker points at a different (non-stock) script, and that a
+# deliberately customized non-empty value is always left alone regardless of
+# which checker script is configured.
+$stockChecker = "C:\\install\\04-Check-Vdbench-Hosts-Readiness.ps1"
+$v1Settings = [pscustomobject]@{{ ReadinessCheckerArguments = "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}"; ReadinessChecker = $stockChecker }}
+$migratedV1 = Migrate-LegacySettings $v1Settings
+$v2StockSettings = [pscustomobject]@{{ ReadinessCheckerArguments = ""; ReadinessChecker = $stockChecker }}
+$migratedV2Stock = Migrate-LegacySettings $v2StockSettings
+$v2CustomCheckerSettings = [pscustomobject]@{{ ReadinessCheckerArguments = ""; ReadinessChecker = "C:\\install\\SomeOtherChecker.ps1" }}
+$migratedV2CustomChecker = Migrate-LegacySettings $v2CustomCheckerSettings
+$customSettings = [pscustomobject]@{{ ReadinessCheckerArguments = "-MyCustomFlag foo"; ReadinessChecker = $stockChecker }}
 $migratedCustom = Migrate-LegacySettings $customSettings
 
 $results = [pscustomobject]@{{
     LegacyStatus = $legacy.Status
     LegacyOutput = $legacy.Output
-    CurrentStatus = $current.Status
+    CurrentWindowsStatus = $currentWindows.Status
+    CurrentLinuxStatus = $currentLinux.Status
     MarkerNextToChecker = (Test-Path (Join-Path "{checker_dir}" "relative-output/marker.txt"))
     MarkerInWrongDir = (Test-Path (Join-Path "{wrong_launch_dir}" "relative-output"))
-    MigratedLegacyChanged = [bool]$migratedLegacy
-    MigratedLegacyValue = $legacySettings.ReadinessCheckerArguments
+    MigratedV1Changed = [bool]$migratedV1
+    MigratedV1Value = $v1Settings.ReadinessCheckerArguments
+    MigratedV2StockChanged = [bool]$migratedV2Stock
+    MigratedV2StockValue = $v2StockSettings.ReadinessCheckerArguments
+    MigratedV2CustomCheckerChanged = [bool]$migratedV2CustomChecker
+    MigratedV2CustomCheckerValue = $v2CustomCheckerSettings.ReadinessCheckerArguments
     MigratedCustomChanged = [bool]$migratedCustom
     MigratedCustomValue = $customSettings.ReadinessCheckerArguments
 }}
@@ -739,14 +774,22 @@ $results | ConvertTo-Json
             raise AssertionError("Could not parse readiness regression harness output as JSON")
 
         assert parsed.get("LegacyStatus") == "Failed", (
-            f"expected legacy ReadinessCheckerArguments default to fail against a "
-            f"[CmdletBinding()] checker, got status={parsed.get('LegacyStatus')!r}"
+            f"expected legacy (v1) ReadinessCheckerArguments default to fail against a "
+            f"[CmdletBinding()] checker that does not declare -HostName, got "
+            f"status={parsed.get('LegacyStatus')!r}"
         )
         assert "parameter cannot be found" in str(parsed.get("LegacyOutput", "")), (
             f"expected the exact PowerShell parameter-binding error, got: {parsed.get('LegacyOutput')!r}"
         )
-        assert parsed.get("CurrentStatus") == "Ready", (
-            f"expected empty-args current default to succeed, got status={parsed.get('CurrentStatus')!r}"
+        assert parsed.get("CurrentWindowsStatus") == "Ready", (
+            f"expected {{HostFlag}} to expand to -WindowsHosts for a Windows-OS row and "
+            f"succeed against the real checker contract, got status="
+            f"{parsed.get('CurrentWindowsStatus')!r}"
+        )
+        assert parsed.get("CurrentLinuxStatus") == "Ready", (
+            f"expected {{HostFlag}} to expand to -LinuxHosts for a Linux-OS row and "
+            f"succeed against the real checker contract, got status="
+            f"{parsed.get('CurrentLinuxStatus')!r}"
         )
         assert not parsed.get("MarkerInWrongDir"), (
             "checker's relative-path output leaked into the directory the UI happened "
@@ -757,15 +800,28 @@ $results | ConvertTo-Json
             "itself (WorkingDirectory fix), matching how it behaves when a user runs "
             "it manually from Explorer"
         )
-        assert parsed.get("MigratedLegacyChanged") and parsed.get("MigratedLegacyValue") == "", (
-            f"Migrate-LegacySettings should clear the legacy default to empty, "
-            f"got changed={parsed.get('MigratedLegacyChanged')!r} value={parsed.get('MigratedLegacyValue')!r}"
+        assert parsed.get("MigratedV1Changed") and parsed.get("MigratedV1Value") == "{HostFlag}", (
+            f"Migrate-LegacySettings should fast-forward the v1 named-params default all "
+            f"the way to the current {{HostFlag}} default in one call, got "
+            f"changed={parsed.get('MigratedV1Changed')!r} value={parsed.get('MigratedV1Value')!r}"
+        )
+        assert parsed.get("MigratedV2StockChanged") and parsed.get("MigratedV2StockValue") == "{HostFlag}", (
+            f"Migrate-LegacySettings should advance a bare empty (v2) default to "
+            f"{{HostFlag}} when ReadinessChecker still points at the stock script, got "
+            f"changed={parsed.get('MigratedV2StockChanged')!r} value={parsed.get('MigratedV2StockValue')!r}"
+        )
+        assert not parsed.get("MigratedV2CustomCheckerChanged") and parsed.get("MigratedV2CustomCheckerValue") == "", (
+            f"Migrate-LegacySettings must NOT touch an empty template when "
+            f"ReadinessChecker points at a non-stock script (that script may "
+            f"genuinely take no arguments), got "
+            f"changed={parsed.get('MigratedV2CustomCheckerChanged')!r} "
+            f"value={parsed.get('MigratedV2CustomCheckerValue')!r}"
         )
         assert not parsed.get("MigratedCustomChanged") and parsed.get("MigratedCustomValue") == "-MyCustomFlag foo", (
             f"Migrate-LegacySettings must not touch a deliberately customized value, "
             f"got changed={parsed.get('MigratedCustomChanged')!r} value={parsed.get('MigratedCustomValue')!r}"
         )
-        print("readiness regression check: legacy default fails as expected, current default + WorkingDirectory fix verified")
+        print("readiness regression check: v1 legacy template still fails as expected, {HostFlag} resolves to -WindowsHosts/-LinuxHosts by OS, full migration chain + checker-path safety guard verified")
 
 
 def _run_readiness_window_regression_check(pwsh: str) -> None:
@@ -1174,17 +1230,27 @@ def main() -> int:
     state_module_full = (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Migrate-LegacySettings" in state_module_full
     assert "Migrate-LegacySettings $script:Settings" in state_module_full
-    # The old default broke any checker script using [CmdletBinding()] (PowerShell
-    # throws "A parameter cannot be found..." for unknown named params). Both the
-    # shipped default AND the migration for already-initialized settings.json
-    # files must agree on the same legacy value being replaced with "".
-    legacy_readiness_args = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
-    assert legacy_readiness_args in state_module_full
-    assert settings.get("ReadinessCheckerArguments") == "", (
-        "default-settings.json should ship an empty ReadinessCheckerArguments: "
-        "most checker scripts check every configured host in one run and take "
-        "no arguments, and scripts using [CmdletBinding()] hard-error on any "
-        "unrecognized named parameter"
+    # v1: the original default broke any checker script using [CmdletBinding()]
+    # (PowerShell throws "A parameter cannot be found..." for unknown named
+    # params). The shipped default and the migration for already-initialized
+    # settings.json files must agree on the same legacy value being replaced.
+    legacy_readiness_args_v1 = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
+    assert legacy_readiness_args_v1 in state_module_full
+    # v2->v3: confirmed by manually running the real shipped checker script
+    # that it DOES take an argument - -WindowsHosts/-LinuxHosts, chosen by the
+    # row's OS - so an empty template silently never checked the specific
+    # slave a user clicked Readiness for. {HostFlag} is the current default,
+    # and the migration only advances a bare empty template while
+    # ReadinessChecker still points at the stock shipped script.
+    assert '"{HostFlag}"' in state_module_full and "stockChecker" in state_module_full, (
+        "Migrate-LegacySettings must advance a bare empty ReadinessCheckerArguments "
+        "to {HostFlag}, guarded by ReadinessChecker still pointing at the stock script"
+    )
+    assert settings.get("ReadinessCheckerArguments") == "{HostFlag}", (
+        "default-settings.json should ship ReadinessCheckerArguments={HostFlag}: the "
+        "real shipped checker script needs -WindowsHosts/-LinuxHosts (chosen by the "
+        "row's OS) to know which host to actually check, confirmed by manually "
+        "running it; an empty template silently skips checking the specific slave"
     )
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
