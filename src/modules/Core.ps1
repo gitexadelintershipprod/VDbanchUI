@@ -275,13 +275,26 @@ function Expand-ReadinessCheckerArguments {
         [string]$Template,
         [string]$HostName,
         [string]$VdbenchPath,
-        [string]$Target
+        [string]$Target,
+        [string]$OsType = ""
     )
     $expanded = $Template
+    # {HostFlag} matches the real shipped checker script's actual contract:
+    # -WindowsHosts / -LinuxHosts, chosen by THIS row's configured OS, each
+    # taking the host to check remotely over SSH (see
+    # docs/MASTER_SLAVE_MODEL.md - "Readiness checker script contract"). This
+    # is different from a generic single -HostName-style flag: without the
+    # right flag *name*, the checker has no way to know which parameter list
+    # a bare host string even belongs to. Anything other than "Linux"
+    # (including blank/unset, the state of a freshly-added row before OS is
+    # even picked) is treated as Windows.
+    $hostFlagName = if ([string]$OsType -eq "Linux") { "-LinuxHosts" } else { "-WindowsHosts" }
+    $hostFlag = if ([string]::IsNullOrWhiteSpace($HostName)) { "" } else { "$hostFlagName $(Quote-ProcessArgument $HostName)" }
     $replacements = @{
         "{Host}" = (Quote-ProcessArgument $HostName)
         "{VdbenchPath}" = (Quote-ProcessArgument $VdbenchPath)
         "{Target}" = (Quote-ProcessArgument $Target)
+        "{HostFlag}" = $hostFlag
     }
     foreach ($token in $replacements.Keys) {
         $expanded = $expanded.Replace($token, $replacements[$token])
