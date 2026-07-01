@@ -117,6 +117,131 @@ function Quote-ProcessArgument {
     return '"' + ($Value.Replace('"', '\"')) + '"'
 }
 
+function Convert-ToShellSingleQuoted {
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "'\''") + "'"
+}
+
+function Convert-ToPowerShellSingleQuoted {
+    # PowerShell's own single-quoted string literal escaping convention: a
+    # literal embedded single quote is represented by DOUBLING it (''), not
+    # by the POSIX shell '\'' trick that Convert-ToShellSingleQuoted uses -
+    # the two are not interchangeable. Use this specifically when embedding
+    # an arbitrary value (e.g. a user-supplied path) into PowerShell script
+    # text that will be sent to a remote powershell.exe.
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Get-RemoteExecCommandParts {
+    <#
+    Builds the "remote command" portion of an ssh.exe argument list for
+    running $RemoteScript on a slave, structured so it survives OpenSSH's
+    client-side argument rejoining without being mangled.
+
+    Root cause of the bug this avoids (found 2026-07-01, from a user
+    screenshot showing "'ForEach-Object' is not recognized as an internal or
+    external command" after clicking Browse on a Windows slave): OpenSSH's
+    client concatenates ALL "remote command" arguments together with a
+    single space before sending them to the server (confirmed via
+    Win32-OpenSSH GitHub issue #1082 and multiple independent sources) - any
+    LOCAL quoting used to keep e.g. "powershell.exe", "-Command", and the
+    actual script text together as SEPARATE argv elements on this side is
+    silently stripped by ssh.exe's own argv parsing and never reapplied once
+    ssh.exe rejoins the remaining pieces for the wire. On Windows, the
+    remote sshd additionally always routes the joined string through an
+    intermediate cmd.exe layer - even when the configured DefaultShell is
+    something else - before it reaches the real target shell (also
+    confirmed via that GitHub issue). Once the joined, now-unquoted script
+    text (containing PowerShell's own pipe operator `|`) reaches cmd.exe,
+    cmd.exe interprets that pipe as ITS OWN operator and tries to launch a
+    separate program literally named after whatever cmdlet follows the pipe
+    (e.g. ForEach-Object) - which fails with exactly "not recognized as an
+    internal or external command, operable program or batch file."
+
+    For Windows, the fix is `-EncodedCommand` (Base64 of the UTF-16LE script
+    text): the resulting command line (powershell.exe -NoProfile
+    -EncodedCommand <base64>) contains zero shell-special characters in any
+    shell dialect, so it is immune to being reinterpreted no matter how many
+    naive space-join/re-parse layers it passes through - this is the
+    standard, widely-recommended technique for this exact class of problem.
+
+    For Linux there is no intermediate cmd.exe-style layer, so the simpler
+    fix is to pass "sh -lc '<script>'" as ONE single, already-fully-formed
+    string (POSIX single-quoted internally via Convert-ToShellSingleQuoted,
+    then Windows-style quoted as a whole via Quote-ProcessArgument for
+    ssh.exe's own local argv parsing) instead of as three separate tokens -
+    this makes ssh.exe's rejoin step a no-op (nothing left to join), so the
+    remote login shell's single, intentional re-parse of the whole "-c"
+    argument sees the unmangled "sh -lc '<script>'" invocation exactly as
+    written.
+    #>
+    param(
+        [string]$OsType,
+        [string]$RemoteScript
+    )
+    if ($OsType -eq "Linux") {
+        $wrapped = "sh -lc " + (Convert-ToShellSingleQuoted $RemoteScript)
+        return @((Quote-ProcessArgument $wrapped))
+    }
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($RemoteScript)
+    $encoded = [Convert]::ToBase64String($bytes)
+    return @("powershell.exe", "-NoProfile", "-EncodedCommand", $encoded)
+}
+
+function Add-CommonSshOptions {
+    <#
+    Appends the shared -F/-i/-l/-o options this app always uses for its own
+    direct ssh.exe calls (target discovery, folder creation, test file prep)
+    to $SshParts, in a single place so all callers stay consistent.
+
+    Root cause of the bug this fixes (found 2026-07-01, from a user
+    screenshot showing "Administrator@linux-001: Permission denied" for a
+    Linux slave): every one of these ssh.exe invocations built its
+    destination argument from ONLY the slave's SshAlias/Host, with no
+    explicit username anywhere - so ssh.exe fell back to its own default of
+    "whatever OS user is running this process" (the Windows account running
+    the UI app, e.g. "Administrator"), completely ignoring the User value
+    the app already tracks (and DOES correctly pass through as vdbench's own
+    hd=...,user=... parameter for the actual distributed run - see
+    ConfigGeneration.ps1 - just never for this app's OWN direct ssh.exe
+    calls). Windows slaves usually still worked by coincidence when the
+    configured "administrator" User value happened to match the account
+    actually running the UI, or when a matching User entry already existed
+    in SshConfig for that alias; Linux slaves practically never do, since
+    "root" (this app's own Get-DefaultSlaveUserForOs default for Linux) is
+    never the Windows account name. Passing -l explicitly here fixes this
+    for every case, while still doing nothing (falling through to whatever
+    ssh.exe/SshConfig would otherwise resolve) when $User is blank.
+    #>
+    param(
+        [System.Collections.Generic.List[string]]$SshParts,
+        [string]$User = "",
+        [string]$PrivateKey = ""
+    )
+    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
+    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
+        [void]$SshParts.Add("-F")
+        [void]$SshParts.Add((Quote-ProcessArgument $sshConfig))
+    }
+    $resolvedKey = $PrivateKey
+    if ([string]::IsNullOrWhiteSpace($resolvedKey)) {
+        $resolvedKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($resolvedKey) -and (Test-Path -LiteralPath $resolvedKey)) {
+        [void]$SshParts.Add("-i")
+        [void]$SshParts.Add((Quote-ProcessArgument $resolvedKey))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($User)) {
+        [void]$SshParts.Add("-l")
+        [void]$SshParts.Add((Quote-ProcessArgument $User))
+    }
+    [void]$SshParts.Add("-o")
+    [void]$SshParts.Add("BatchMode=yes")
+    [void]$SshParts.Add("-o")
+    [void]$SshParts.Add("ConnectTimeout=8")
+}
+
 function Merge-DefaultProperties {
     param(
         [object]$Target,

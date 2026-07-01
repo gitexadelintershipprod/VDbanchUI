@@ -185,33 +185,16 @@ function Get-RemoteSlaveTargetInventoryCore {
         [System.Windows.Forms.DataGridViewRow]$Row
     )
     $sshParts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$sshParts.Add("-F")
-        [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
-    }
-    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$sshParts.Add("-i")
-        [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("BatchMode=yes")
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("ConnectTimeout=8")
+    Add-CommonSshOptions -SshParts $sshParts -User ([string]$Row.Cells["User"].Value)
     [void]$sshParts.Add((Quote-ProcessArgument $SystemName))
 
     if ($OsType -eq "Linux") {
         $remoteScript = 'for d in /sys/block/*; do name=${d##*/}; case "$name" in loop*|ram*) continue;; esac; size=$(cat "$d/size" 2>/dev/null); bytes=$((size*512)); echo "Raw disk|/dev/$name|bytes=$bytes"; done; if command -v findmnt >/dev/null 2>&1; then findmnt -rn -o TARGET,SOURCE,FSTYPE | while read target source fstype; do echo "Filesystem|$target|$source $fstype"; done; fi'
-        [void]$sshParts.Add("sh")
-        [void]$sshParts.Add("-lc")
-        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
     } else {
         $remoteScript = '$ErrorActionPreference="SilentlyContinue"; Get-CimInstance Win32_DiskDrive | ForEach-Object { "Raw disk|\\.\PhysicalDrive$($_.Index)|$($_.Model) $($_.Size)" }; Get-CimInstance Win32_Volume | Where-Object { $_.DriveLetter } | ForEach-Object { "Filesystem|$($_.DriveLetter)\|$($_.Label) $($_.FileSystem) $($_.Capacity)" }'
-        [void]$sshParts.Add("powershell.exe")
-        [void]$sshParts.Add("-NoProfile")
-        [void]$sshParts.Add("-Command")
-        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
+    }
+    foreach ($token in @(Get-RemoteExecCommandParts -OsType $OsType -RemoteScript $remoteScript)) {
+        [void]$sshParts.Add($token)
     }
 
     $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
@@ -305,30 +288,15 @@ function New-HostFolderPath {
     }
     $osType = [string]$Row.Cells["OsType"].Value
     $sshParts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$sshParts.Add("-F")
-        [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
-    }
-    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$sshParts.Add("-i")
-        [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("BatchMode=yes")
+    Add-CommonSshOptions -SshParts $sshParts -User ([string]$Row.Cells["User"].Value)
     [void]$sshParts.Add((Quote-ProcessArgument $systemName))
     if ($osType -eq "Linux") {
-        $remoteScript = "mkdir -p " + (Quote-ProcessArgument $Path)
-        [void]$sshParts.Add("sh")
-        [void]$sshParts.Add("-lc")
-        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
+        $remoteScript = "mkdir -p " + (Convert-ToShellSingleQuoted $Path)
     } else {
-        $remoteScript = "New-Item -ItemType Directory -Path " + (Quote-ProcessArgument $Path) + " -Force | Out-Null"
-        [void]$sshParts.Add("powershell.exe")
-        [void]$sshParts.Add("-NoProfile")
-        [void]$sshParts.Add("-Command")
-        [void]$sshParts.Add((Quote-ProcessArgument $remoteScript))
+        $remoteScript = "New-Item -ItemType Directory -Path " + (Convert-ToPowerShellSingleQuoted $Path) + " -Force | Out-Null"
+    }
+    foreach ($token in @(Get-RemoteExecCommandParts -OsType $osType -RemoteScript $remoteScript)) {
+        [void]$sshParts.Add($token)
     }
     $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
     if ($result.ExitCode -ne 0) {

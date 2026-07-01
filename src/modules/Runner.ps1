@@ -192,31 +192,11 @@ function New-ConfigOnlyRun {
     Refresh-Reports
 }
 
-function Convert-ToShellSingleQuoted {
-    param([string]$Value)
-    return "'" + ($Value -replace "'", "'\''") + "'"
-}
-
 function New-RemoteSshArguments {
     param([object]$Slave)
     $parts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$parts.Add("-F")
-        [void]$parts.Add((Quote-ProcessArgument $sshConfig))
-    }
     $privateKey = [string](Get-PropertyValue $Slave "PrivateKey" "")
-    if ([string]::IsNullOrWhiteSpace($privateKey)) {
-        $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    }
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$parts.Add("-i")
-        [void]$parts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$parts.Add("-o")
-    [void]$parts.Add("BatchMode=yes")
-    [void]$parts.Add("-o")
-    [void]$parts.Add("ConnectTimeout=8")
+    Add-CommonSshOptions -SshParts $parts -User ([string](Get-PropertyValue $Slave "User" "")) -PrivateKey $privateKey
     $systemName = [string](Get-PropertyValue $Slave "SshAlias" "")
     if ([string]::IsNullOrWhiteSpace($systemName)) {
         $systemName = [string](Get-PropertyValue $Slave "Host" "")
@@ -274,19 +254,16 @@ function Initialize-TestFilesForRun {
             continue
         }
         $sshParts = New-RemoteSshArguments $item.Owner
-        if ([string]$item.OsType -eq "Linux") {
+        $osType = [string]$item.OsType
+        if ($osType -eq "Linux") {
             $quotedPath = Convert-ToShellSingleQuoted $path
             $remote = "mkdir -p -- `"`$(dirname -- $quotedPath)`" && : > $quotedPath"
-            [void]$sshParts.Add("sh")
-            [void]$sshParts.Add("-lc")
-            [void]$sshParts.Add((Quote-ProcessArgument $remote))
         } else {
             $escapedPath = $path.Replace("'", "''")
             $remote = "`$p='$escapedPath'; `$d=Split-Path -Parent `$p; if (`$d) { New-Item -ItemType Directory -Force -Path `$d | Out-Null }; Set-Content -LiteralPath `$p -Value '' -NoNewline"
-            [void]$sshParts.Add("powershell.exe")
-            [void]$sshParts.Add("-NoProfile")
-            [void]$sshParts.Add("-Command")
-            [void]$sshParts.Add((Quote-ProcessArgument $remote))
+        }
+        foreach ($token in @(Get-RemoteExecCommandParts -OsType $osType -RemoteScript $remote)) {
+            [void]$sshParts.Add($token)
         }
         $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
         if ($result.ExitCode -ne 0) {

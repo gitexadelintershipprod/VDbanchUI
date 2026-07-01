@@ -503,6 +503,8 @@ Invoke-AppSelfTest
     _run_readiness_window_regression_check(pwsh)
     _run_readiness_wrapper_pause_regression_check(pwsh)
     _run_get_property_value_endinvoke_regression_check(pwsh)
+    _run_remote_ssh_quoting_regression_check(pwsh)
+    _run_ssh_user_regression_check(pwsh)
     return True
 
 
@@ -1299,6 +1301,356 @@ $results | ConvertTo-Json
         print("Get-PropertyValue/EndInvoke regression check: property lookup against a real background-job result now matches direct dot-notation access")
 
 
+def _run_remote_ssh_quoting_regression_check(pwsh: str) -> None:
+    """Reproduce the "'ForEach-Object' is not recognized..." bug end-to-end and prove the fix.
+
+    Root cause (found 2026-07-01, from a user screenshot showing exactly that error
+    after clicking Browse on a Windows slave, with the SSH host-key warning visible
+    right above it - confirming the SSH connection itself succeeded and the failure was
+    in what got executed afterward): OpenSSH's client concatenates ALL "remote command"
+    arguments together with a single space before sending them to the server (confirmed
+    via Win32-OpenSSH GitHub issue #1082 and multiple other independent, authoritative
+    sources - see docs/MASTER_SLAVE_MODEL.md and Get-RemoteExecCommandParts's docstring
+    in Core.ps1 for the full writeup). This codebase built its remote commands as
+    SEPARATE argv elements - "powershell.exe", "-NoProfile", "-Command", "<script>" (or
+    "sh", "-lc", "<script>" for Linux) - each individually quoted only for THIS side's
+    own local ssh.exe argv construction. That local quoting is consumed by ssh.exe's own
+    argv parsing and never reapplied once ssh.exe rejoins the remaining pieces with
+    plain spaces for the wire. On Windows, the joined, now-unquoted script text
+    (containing PowerShell's own pipe operator `|`) then reaches an intermediate cmd.exe
+    layer that Windows OpenSSH always interposes (confirmed via the same GitHub issue,
+    even when the configured DefaultShell is something else) - cmd.exe interprets that
+    bare pipe as ITS OWN operator and tries to launch a separate program literally named
+    after whatever cmdlet follows it (ForEach-Object), which fails with exactly
+    "'ForEach-Object' is not recognized as an internal or external command, operable
+    program or batch file." The same underlying "outer quoting lost across the rejoin"
+    problem affects the Linux path too, independently confirmed broken in this exact
+    sandbox by literally running the old wire string through a real `sh -c` (see below) -
+    dash raises a hard "Syntax error: \"do\" unexpected", since the intended "sh -lc"
+    isolation never reaches the remote shell.
+
+    Fix (Get-RemoteExecCommandParts in Core.ps1): for Windows, use `-EncodedCommand`
+    (Base64 of the UTF-16LE script text) - the resulting command line contains zero
+    shell-special characters in any shell dialect, so it survives any number of naive
+    space-join/re-parse layers unmangled. For Linux, pass "sh -lc '<script>'" as ONE
+    single, already-fully-formed string instead of three separate tokens, so ssh.exe's
+    rejoin step becomes a no-op and the remote login shell's one, intentional re-parse of
+    the whole "-c" argument sees the unmangled invocation exactly as written.
+
+    This check builds an `ssh.exe` shim that simulates OpenSSH's own documented
+    behavior (skip recognized option flags/values and exactly one hostname token, then
+    rejoin all remaining "remote command" arguments with a single space) and runs the
+    REAL Get-RemoteExecCommandParts (Core.ps1) through Invoke-CapturedProcess against it
+    for both OS types, in both the old (broken) and new (fixed) argument-token shapes -
+    proving: the old Windows shape genuinely loses its quoting and exposes a raw pipe;
+    the new Windows shape round-trips its Base64 payload back to the exact original
+    script; the old Linux shape, when actually executed via a real `sh -c` (exactly how
+    a remote sshd hands the joined string to the login shell), fails with a real syntax
+    error; and the new Linux shape, run the same way, succeeds and produces correct
+    disk-listing output.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    win_script = '$ErrorActionPreference="SilentlyContinue"; Get-CimInstance Win32_DiskDrive | ForEach-Object { "Raw disk|test" }'
+    linux_script = 'for d in /sys/block/*; do name=${d##*/}; case "$name" in loop*|ram*) continue;; esac; echo "Raw disk|/dev/$name"; done'
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-ssh-quoting-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        ssh_shim = shim_dir / "ssh.exe"
+        ssh_shim.write_text(
+            "#!/bin/sh\n"
+            "skip_next=0\n"
+            "past_hostname=0\n"
+            "remote_parts=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "    if [ \"$skip_next\" = \"1\" ]; then skip_next=0; continue; fi\n"
+            "    if [ \"$past_hostname\" = \"0\" ]; then\n"
+            "        case \"$arg\" in\n"
+            "            -F|-i|-o) skip_next=1; continue;;\n"
+            "            -*) continue;;\n"
+            "            *) past_hostname=1; continue;;\n"
+            "        esac\n"
+            "    fi\n"
+            "    if [ -z \"$remote_parts\" ]; then remote_parts=\"$arg\"; else remote_parts=\"$remote_parts $arg\"; fi\n"
+            "done\n"
+            "printf '%s' \"$remote_parts\"\n",
+            encoding="utf-8",
+        )
+        ssh_shim.chmod(0o755)
+
+        harness_script = tmp_path / "run-ssh-quoting-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+
+$winScript = @'
+{win_script}
+'@
+$linuxScript = @'
+{linux_script}
+'@
+
+function Build-WireString {{
+    param([string]$OsType, [string]$RemoteScript, [switch]$UseOldBuggyPattern)
+    $sshParts = New-Object System.Collections.Generic.List[string]
+    [void]$sshParts.Add("-o")
+    [void]$sshParts.Add("BatchMode=yes")
+    [void]$sshParts.Add((Quote-ProcessArgument "some-host"))
+    if ($UseOldBuggyPattern) {{
+        if ($OsType -eq "Linux") {{
+            [void]$sshParts.Add("sh")
+            [void]$sshParts.Add("-lc")
+            [void]$sshParts.Add((Quote-ProcessArgument $RemoteScript))
+        }} else {{
+            [void]$sshParts.Add("powershell.exe")
+            [void]$sshParts.Add("-NoProfile")
+            [void]$sshParts.Add("-Command")
+            [void]$sshParts.Add((Quote-ProcessArgument $RemoteScript))
+        }}
+    }} else {{
+        foreach ($token in @(Get-RemoteExecCommandParts -OsType $OsType -RemoteScript $RemoteScript)) {{
+            [void]$sshParts.Add($token)
+        }}
+    }}
+    $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 5000
+    return $result.StdOut
+}}
+
+$oldWindowsWire = Build-WireString -OsType "Windows" -RemoteScript $winScript -UseOldBuggyPattern
+$newWindowsWire = Build-WireString -OsType "Windows" -RemoteScript $winScript
+$oldLinuxWire = Build-WireString -OsType "Linux" -RemoteScript $linuxScript -UseOldBuggyPattern
+$newLinuxWire = Build-WireString -OsType "Linux" -RemoteScript $linuxScript
+
+$newWindowsTokens = $newWindowsWire -split " "
+$base64Token = $newWindowsTokens[-1]
+$decodedWindowsScript = [System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($base64Token))
+
+$results = [pscustomobject]@{{
+    OldWindowsWire = $oldWindowsWire
+    NewWindowsWire = $newWindowsWire
+    DecodedWindowsScript = $decodedWindowsScript
+    OldLinuxWire = $oldLinuxWire
+    NewLinuxWire = $newLinuxWire
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                win_script=win_script,
+                linux_script=linux_script,
+                results_path=str(tmp_path / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = str(shim_dir) + ":" + env.get("PATH", "")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("SSH quoting regression harness itself failed to run")
+
+        results_path = tmp_path / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse SSH quoting regression harness output as JSON")
+
+        old_windows_wire = parsed.get("OldWindowsWire", "")
+        new_windows_wire = parsed.get("NewWindowsWire", "")
+        old_linux_wire = parsed.get("OldLinuxWire", "")
+        new_linux_wire = parsed.get("NewLinuxWire", "")
+
+        # Sanity-check the OLD pattern really is broken (so a regression back to it
+        # would be caught): the OUTER quote that was meant to delimit the entire
+        # -Command argument is gone once ssh.exe's rejoin runs (the script's own
+        # internal double-quotes, e.g. around "SilentlyContinue", are expected and
+        # harmless on their own - the bug is that nothing wraps the WHOLE argument
+        # together anymore), exposing PowerShell's own pipe operator completely
+        # unquoted to whatever naively re-parses the wire string next.
+        assert not old_windows_wire.startswith('powershell.exe -NoProfile -Command "'), (
+            f"sanity check failed: expected the OLD pattern's wire string to have lost "
+            f"the outer quote wrapping the entire -Command argument once rejoined, "
+            f"got: {old_windows_wire!r}"
+        )
+        assert "| ForEach-Object" in old_windows_wire, (
+            "sanity check failed: expected the OLD pattern's wire string to expose a "
+            "raw, unquoted pipe before ForEach-Object - this is exactly what makes an "
+            "intermediate cmd.exe try to launch a program literally named "
+            "ForEach-Object and fail with 'is not recognized as an internal or "
+            "external command'"
+        )
+
+        assert new_windows_wire.startswith("powershell.exe -NoProfile -EncodedCommand "), (
+            f"expected the new Windows wire string to be a plain -EncodedCommand "
+            f"invocation, got: {new_windows_wire!r}"
+        )
+        assert "|" not in new_windows_wire and '"' not in new_windows_wire, (
+            "the new Windows wire string must contain zero shell-special characters "
+            "(no pipes, no quotes) so it is immune to being mangled by any number of "
+            "naive re-parsing layers"
+        )
+        assert parsed.get("DecodedWindowsScript") == win_script, (
+            f"the new Windows wire string's -EncodedCommand payload must decode back "
+            f"to the exact original script; got: {parsed.get('DecodedWindowsScript')!r}"
+        )
+
+        # Sanity-check the OLD Linux pattern is genuinely broken too, by literally
+        # running its wire string through a real `sh -c` - exactly how a remote sshd
+        # hands the joined command string to the login shell.
+        old_linux_run = subprocess.run(
+            ["sh", "-c", old_linux_wire], capture_output=True, text=True, timeout=10,
+        )
+        assert old_linux_run.returncode != 0, (
+            f"sanity check failed: expected the OLD Linux pattern's wire string to be "
+            f"broken shell syntax once actually run through a real login shell's -c "
+            f"(proving this is a genuine, reproducible bug, not just theoretical) - "
+            f"wire={old_linux_wire!r}"
+        )
+
+        new_linux_run = subprocess.run(
+            ["sh", "-c", new_linux_wire], capture_output=True, text=True, timeout=10,
+        )
+        assert new_linux_run.returncode == 0, (
+            f"expected the new Linux pattern to run successfully via a real shell -c, "
+            f"got exit code {new_linux_run.returncode}, stderr={new_linux_run.stderr!r}, "
+            f"wire={new_linux_wire!r}"
+        )
+        assert "Raw disk|/dev/" in new_linux_run.stdout, (
+            f"expected disk listing output containing 'Raw disk|/dev/', got: "
+            f"{new_linux_run.stdout!r}"
+        )
+        print("SSH quoting regression check: old Windows/Linux patterns confirmed broken via real re-parsing, new -EncodedCommand/single-token patterns confirmed correct via real execution")
+
+
+def _run_ssh_user_regression_check(pwsh: str) -> None:
+    """Reproduce the "Administrator@linux-001: Permission denied" bug end-to-end.
+
+    Root cause (found 2026-07-01, from a user screenshot: SSH host-key warning
+    followed immediately by "Administrator@linux-001: Permission denied
+    (publickey,gssapi-keyex,gssapi-with-mic,password)" for a Linux slave - proving the
+    connection itself succeeded and the failure was purely an authentication/username
+    problem): Get-RemoteSlaveTargetInventoryCore, New-HostFolderPath, and
+    New-RemoteSshArguments each built their ssh.exe destination argument from ONLY the
+    slave's SshAlias/Host, with no explicit username anywhere in the command line - so
+    ssh.exe fell back to its own default of "whatever OS user is running this process"
+    (the Windows account running the UI, e.g. "Administrator"), completely ignoring the
+    per-slave User value this app already tracks (Get-DefaultSlaveUserForOs even
+    defaults it to "root" for Linux specifically) and already correctly passes through
+    as vdbench's own hd=...,user=... parameter for the actual distributed run (see
+    ConfigGeneration.ps1) - just never for this app's OWN direct ssh.exe calls used for
+    Browse/New folder/test-file prep. Windows slaves often still "worked" by
+    coincidence (the configured "administrator" User default happening to match the
+    account actually running the UI), which is exactly why this was reported for a
+    Linux slave specifically, not a Windows one.
+
+    Fix: new shared Add-CommonSshOptions (Core.ps1) adds -l <user> whenever a non-blank
+    User is available, and is now used by all three call sites instead of each
+    inlining its own (User-less) copy of the same option-building logic.
+
+    This check drives the real Add-CommonSshOptions end-to-end through a real ssh.exe
+    shim (reporting back exactly what argv it received, the same technique used in
+    _run_remote_ssh_quoting_regression_check) and asserts -l <user> is present as a
+    genuine, distinct argument when a user is configured, and asserts it is correctly
+    OMITTED (falling through to whatever ssh.exe/SshConfig would otherwise resolve, the
+    prior behavior) when the configured user is blank.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-ssh-user-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        ssh_shim = shim_dir / "ssh.exe"
+        ssh_shim.write_text(
+            "#!/bin/sh\n"
+            "echo \"ARGS_RECEIVED:$@\"\n",
+            encoding="utf-8",
+        )
+        ssh_shim.chmod(0o755)
+
+        harness_script = tmp_path / "run-ssh-user-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+$script:Settings = [pscustomobject]@{{ SshConfig = ""; PrivateKey = "" }}
+
+$partsWithUser = New-Object System.Collections.Generic.List[string]
+Add-CommonSshOptions -SshParts $partsWithUser -User "root"
+[void]$partsWithUser.Add("linux-001")
+$resultWithUser = Invoke-CapturedProcess "ssh.exe" ($partsWithUser -join " ") 5000
+
+$partsNoUser = New-Object System.Collections.Generic.List[string]
+Add-CommonSshOptions -SshParts $partsNoUser -User ""
+[void]$partsNoUser.Add("some-host")
+$resultNoUser = Invoke-CapturedProcess "ssh.exe" ($partsNoUser -join " ") 5000
+
+$results = [pscustomobject]@{{
+    WithUserArgs = $resultWithUser.StdOut
+    NoUserArgs = $resultNoUser.StdOut
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(tmp_path / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = str(shim_dir) + ":" + env.get("PATH", "")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("SSH user regression harness itself failed to run")
+
+        results_path = tmp_path / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse SSH user regression harness output as JSON")
+
+        with_user_args = parsed.get("WithUserArgs", "")
+        no_user_args = parsed.get("NoUserArgs", "")
+
+        assert "-l root" in with_user_args, (
+            f"expected ssh.exe to actually receive '-l root' as a distinct argument "
+            f"when the slave's configured User is 'root', got argv: {with_user_args!r} "
+            f"- this is exactly the missing piece that made ssh.exe silently fall back "
+            f"to the local Windows account (e.g. 'Administrator') instead of the "
+            f"slave's own configured user, producing "
+            f"'Administrator@host: Permission denied'"
+        )
+        assert "-l" not in no_user_args.split(), (
+            f"expected -l to be omitted entirely when the configured User is blank "
+            f"(falling through to whatever ssh.exe/SshConfig would otherwise resolve, "
+            f"matching prior behavior for slaves with no User set) - got argv: "
+            f"{no_user_args!r}"
+        )
+        print("SSH user regression check: -l <user> correctly included when configured, correctly omitted when blank")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -1404,7 +1756,78 @@ def main() -> int:
     assert "TextRenderer]::DrawText" in ui_tabs_module
     assert "tabs.Add_SelectedIndexChanged({\n        param($sender, $eventArgs)" in ui_tabs_module.replace("\r\n", "\n")
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "function Get-CachedTargetInventory" in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
+    target_discovery_module = (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
+    assert "function Get-CachedTargetInventory" in target_discovery_module
+    runner_module_full = (MODULE_ROOT / "Runner.ps1").read_text(encoding="utf-8")
+    core_module_for_ssh = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    # See _run_remote_ssh_quoting_regression_check docstring: OpenSSH rejoins all
+    # "remote command" arguments with plain spaces before sending them to the server,
+    # which silently strips any LOCAL-only quoting used to keep e.g.
+    # "powershell.exe"/"-Command"/"<script>" together as separate argv elements on this
+    # side - exposing PowerShell's own pipe operator to an intermediate cmd.exe on
+    # Windows (which then tries to launch a program literally named after whatever
+    # cmdlet follows the pipe, e.g. ForEach-Object) and breaking POSIX shell isolation
+    # on Linux. Get-RemoteExecCommandParts is the one, shared, correct way to build
+    # this - guard against the old broken 3/4-separate-token pattern reappearing
+    # anywhere it is used.
+    assert "function Get-RemoteExecCommandParts" in core_module_for_ssh
+    assert "function Convert-ToShellSingleQuoted" in core_module_for_ssh
+    assert "function Convert-ToPowerShellSingleQuoted" in core_module_for_ssh
+    assert "-EncodedCommand" in core_module_for_ssh, (
+        "Get-RemoteExecCommandParts must use -EncodedCommand for the Windows remote "
+        "shell path - -Command with a quoted script string does not survive OpenSSH's "
+        "own argument rejoining"
+    )
+    # See _run_ssh_user_regression_check docstring: every direct ssh.exe call this app
+    # makes used to omit the slave's configured User entirely, silently falling back to
+    # ssh's own default of "whatever OS user is running the UI process" - producing
+    # e.g. "Administrator@linux-001: Permission denied" for a Linux slave whose User is
+    # "root". Guard the shared fix and its usage at every call site.
+    assert "function Add-CommonSshOptions" in core_module_for_ssh
+    assert '[void]$SshParts.Add("-l")' in core_module_for_ssh, (
+        "Add-CommonSshOptions must pass the slave's configured User to ssh.exe via -l - "
+        "without it, ssh.exe silently connects as whatever local OS account is running "
+        "the UI process instead of the slave's own configured user"
+    )
+    for module_name, module_text in (
+        ("TargetDiscovery.ps1", target_discovery_module),
+        ("Runner.ps1", runner_module_full),
+    ):
+        assert "Add-CommonSshOptions" in module_text, (
+            f"{module_name} must build its ssh.exe options via the shared "
+            f"Add-CommonSshOptions helper (which includes -l <user>), not by inlining "
+            f"its own copy that silently omits the configured User"
+        )
+        assert "Get-RemoteExecCommandParts" in module_text, (
+            f"{module_name} must build remote SSH commands via the shared "
+            f"Get-RemoteExecCommandParts helper, not inline argument construction"
+        )
+        assert '[void]$sshParts.Add("-lc")' not in module_text, (
+            f"{module_name} must not reintroduce the old, broken pattern of adding "
+            f"'sh'/'-lc'/'<script>' as separate ssh argv tokens - OpenSSH's client-side "
+            f"rejoining loses the outer quoting that kept them together, breaking the "
+            f"intended 'sh -lc' isolation on the remote end (confirmed via a real "
+            f"dash 'Syntax error: \"do\" unexpected' in this sandbox)"
+        )
+        assert '[void]$sshParts.Add("-Command")' not in module_text, (
+            f"{module_name} must not reintroduce the old, broken pattern of adding "
+            f"'powershell.exe'/'-NoProfile'/'-Command'/'<script>' as separate ssh argv "
+            f"tokens - OpenSSH's client-side rejoining loses the outer quoting, exposing "
+            f"any pipe in the script to an intermediate cmd.exe which then fails with "
+            f"\"'X' is not recognized as an internal or external command\""
+        )
+        # Get-RemoteExecCommandParts's Linux branch returns a single-element array;
+        # PowerShell silently collapses a function's single-item array return value
+        # back to the bare scalar across the function-call boundary unless the CALL
+        # SITE (not just the function's own internal `return @(...)`) is also wrapped
+        # in @() - confirmed empirically 2026-07-01. Guard every call site.
+        assert "foreach ($token in (Get-RemoteExecCommandParts" not in module_text, (
+            f"{module_name} must wrap the Get-RemoteExecCommandParts call site itself "
+            f"in @() (foreach ($token in @(Get-RemoteExecCommandParts ...))) - "
+            f"PowerShell collapses a function's single-item array return value back to "
+            f"a bare scalar across the call boundary unless the call site also forces "
+            f"array context"
+        )
     assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Start-BackgroundUiWork" in ui_helpers_module
