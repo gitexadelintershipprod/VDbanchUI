@@ -59,6 +59,38 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     array if the function outputs zero pipeline objects — wrap the *call site* in `@()`
     (`$var = @(Some-Function)`) whenever the function might legitimately return nothing, before
     touching `.Count` or any property directly on the result.
+  - Beware: `ProcessStartInfo.CreateNoWindow = $false` does **not** mean "open a new
+    window" — its actual meaning depends entirely on `UseShellExecute` (see
+    [Microsoft's own writeup](https://learn.microsoft.com/en-us/archive/blogs/jmstall/how-to-start-a-console-app-in-a-new-window-the-parents-window-or-no-window)):
+    `UseShellExecute=$false` + `CreateNoWindow=$false` runs the child in an *existing*
+    window (the parent's console, if it has one — silently, with no new window at all);
+    only `UseShellExecute=$true` (default) reliably opens a genuinely new, separate
+    console regardless of `CreateNoWindow` (which is then ignored). This is exactly what
+    made `Get-SlaveReadinessResult`'s "open a separate PowerShell window for the checker"
+    feature silently share the app's own console instead (real bug, found 2026-07-01) —
+    confirmed empirically in this sandbox with a throwaway script under `pwsh` (a real
+    child process, launched both ways, with/without a PATH-resolvable `powershell.exe`
+    shim) before touching the real code, since Linux's `UseShellExecute=$true` semantics
+    differ enough from Windows to be worth checking rather than assuming: it still
+    resolves `FileName` via PATH, still honors `WorkingDirectory`, and still propagates
+    `ExitCode`/`WaitForExit()` correctly for a plain executable (not a "document"), so the
+    fix is safe to validate end-to-end here. If `UseShellExecute=$true`, do not also set
+    `RedirectStandardOutput`/`RedirectStandardError` — `Process.Start` throws
+    `InvalidOperationException` for that combination.
+  - Beware: `System.Windows.Forms.Timer` (and anything else under
+    `System.Windows.Forms.*`) cannot be instantiated on Linux `pwsh` at all — even after
+    `Add-Type -AssemblyName System.Windows.Forms` succeeds, `New-Object
+    System.Windows.Forms.Timer` fails with "Cannot find path
+    '.../System.Windows.Forms.dll'". This means any code path that reaches
+    `Start-BackgroundUiWork` with a non-`$null` `-Owner` (which lazily creates the shared
+    poll timer via `Initialize-BackgroundUiPollTimer`) cannot be exercised end-to-end
+    here. To still get real regression coverage for UI functions that call
+    `Start-BackgroundUiWork`/`Start-SlaveReadinessCheck`/`Start-SlavePingCheck` (e.g. to
+    prove an in-flight-request guard actually short-circuits *before* reaching that
+    WinForms-dependent code), redefine `Start-BackgroundUiWork` itself after dot-sourcing
+    the real modules — plain function redefinition (not a `Add_Click`/`Add_Tick` closure)
+    resolves at call time in PowerShell, so the real caller's later calls to it hit your
+    stub — and assert on a call counter instead of driving the real timer/runspace pool.
   - `python3 tools/validate_offline.py` automatically detects `pwsh` on PATH and runs the
     real syntax-parse + `Invoke-AppSelfTest` checks as part of the normal offline validation
     (prints "real PowerShell syntax + self-test checks: ran"). If `pwsh` is missing it skips

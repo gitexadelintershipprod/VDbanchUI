@@ -67,7 +67,9 @@ function Format-SlaveCheckedAt {
 }
 
 function Test-SlaveRowReady {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
+    # plain mock object without WinForms loaded.
+    param($Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
         return $false
     }
@@ -75,7 +77,9 @@ function Test-SlaveRowReady {
 }
 
 function Sync-SlaveRowEnabledState {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
+    # plain mock object without WinForms loaded.
+    param($Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
@@ -193,6 +197,7 @@ function Get-SlaveReadinessResult {
         return [pscustomobject]@{
             Status = "Checker missing"
             Output = ""
+            AlreadyShown = $false
         }
     }
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -219,14 +224,31 @@ function Get-SlaveReadinessResult {
         # silent/"strange" failure previously).
         $wrapperCommand = Get-ReadinessCheckerWrapperCommand $quotedChecker $checkerArgs
         $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command " + (Quote-ProcessArgument $wrapperCommand)
-        $psi.CreateNoWindow = $false
+        # UseShellExecute MUST be $true here to actually get a brand-new,
+        # independent console. UseShellExecute=$false + CreateNoWindow=$false
+        # (the previous code) does NOT create a new window: per Win32
+        # CreateProcess semantics (see Microsoft's own ProcessStartInfo docs/
+        # blog on this exact gotcha), that combination only avoids
+        # *suppressing* a console - it does not request a new one - so the
+        # child silently shares/inherits whatever console (if any) the UI's
+        # own host process is already attached to. When the UI is launched
+        # from a .bat/console shortcut, that meant the checker's output never
+        # opened a visibly separate window (it echoed into the pre-existing,
+        # possibly hidden console the whole app was started from) and,
+        # worse, closing that shared console sends a close signal to every
+        # process attached to it - including the UI itself.
+        # UseShellExecute=$true always creates a new window regardless of
+        # CreateNoWindow (which is then ignored), fully decoupling the
+        # checker's console from the app's own.
+        $psi.UseShellExecute = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
     } else {
         $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
+        $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
     }
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = -not $ShowCheckerWindow
-    $psi.RedirectStandardError = -not $ShowCheckerWindow
     try {
         $p = [System.Diagnostics.Process]::Start($psi)
         if ($ShowCheckerWindow) {
@@ -234,6 +256,10 @@ function Get-SlaveReadinessResult {
             return [pscustomobject]@{
                 Status = if ($p.ExitCode -eq 0) { "Ready" } else { "Failed" }
                 Output = "Readiness checker ran in a separate PowerShell window (exit code $($p.ExitCode))."
+                # The user already watched the real output live in that
+                # separate window, so the caller must not pop a duplicate
+                # confirmation dialog on top of it.
+                AlreadyShown = $true
             }
         }
         $out = $p.StandardOutput.ReadToEnd()
@@ -243,17 +269,21 @@ function Get-SlaveReadinessResult {
         return [pscustomobject]@{
             Status = $status
             Output = ($out + [Environment]::NewLine + $err).Trim()
+            AlreadyShown = $false
         }
     } catch {
         return [pscustomobject]@{
             Status = "Error"
             Output = $_.Exception.Message
+            AlreadyShown = $false
         }
     }
 }
 
 function Get-SlaveReadinessTargetForRow {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
+    # plain mock object without WinForms loaded.
+    param($Row)
     $targets = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
     if ($targets.Count -gt 0) {
         return [string]$targets[0].Target
@@ -278,8 +308,18 @@ function Invoke-SlaveReadinessBackgroundWork {
 }
 
 function Start-SlavePingCheck {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
+    # plain mock object without WinForms loaded.
+    param($Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    if ([string]$Row.Cells["PingStatus"].Value -eq "Pinging...") {
+        # Ignore repeat clicks while a ping for this row is already running;
+        # otherwise clicking Ping several times (a natural reaction when the
+        # status does not visibly change right away) queues one background
+        # job per click that all update the same cell out of order once they
+        # complete.
         return
     }
     $pingContext = @{
@@ -297,11 +337,23 @@ function Start-SlavePingCheck {
 }
 
 function Start-SlaveReadinessCheck {
+    # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
+    # plain mock object without WinForms loaded.
     param(
-        [System.Windows.Forms.DataGridViewRow]$Row,
+        $Row,
         [bool]$ShowOutput = $false
     )
     if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    if ([string]$Row.Cells["Readiness"].Value -eq "Checking...") {
+        # Ignore repeat clicks while a check for this row is already in
+        # flight. Without this guard, clicking Readiness several times (a
+        # very natural reaction when nothing seems to happen right away)
+        # queued one background job - and, with -ShowOutput, one popup - per
+        # click; they then all completed around the same time and piled up
+        # into a wall of confirmation dialogs to click through one by one,
+        # which looked and felt like the whole UI had frozen.
         return
     }
     Capture-Settings
@@ -329,9 +381,18 @@ function Start-SlaveReadinessCheck {
         }
         Update-SlaveRowReadiness $Context.RowIndex ([string]$Result.Status) $checkedAt ([string]$Result.Output)
         if ($Context.ShowOutput) {
-            if ([string]$Result.Status -eq "Checker missing") {
+            $status = [string]$Result.Status
+            if ($status -eq "Checker missing") {
                 Show-Warning "Readiness checker path is missing or does not exist."
-            } elseif (-not [string]::IsNullOrWhiteSpace([string]$Result.Output)) {
+            } elseif ($status -eq "Error") {
+                Show-Warning ("Readiness checker failed to start: " + [string]$Result.Output)
+            } elseif (-not [bool](Get-PropertyValue $Result "AlreadyShown" $false) -and -not [string]::IsNullOrWhiteSpace([string]$Result.Output)) {
+                # AlreadyShown means the checker ran in its own separate
+                # window and the user already watched the real output live
+                # there; popping a redundant "ran in a separate window"
+                # dialog on top of it added nothing except another window to
+                # dismiss, and piled up badly when several checks were
+                # in flight or re-run.
                 Show-Info ([string]$Result.Output) "Readiness output"
             }
         }

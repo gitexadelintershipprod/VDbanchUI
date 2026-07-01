@@ -12,7 +12,7 @@ function Build-SettingsTab {
         @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
         @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file"; Hint = "Script run when clicking Readiness/Recheck. It opens in its own PowerShell window; leave 'Readiness args template' empty unless your script declares matching parameters." },
-        @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file" },
+        @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file"; Hint = "Absolute path to vdbench.bat on THIS (master) machine. If the Readiness checker reports this file missing, it is checking its own separate, hardcoded path, not this setting - verify the real path here (the official Vdbench zip often extracts into a version-named subfolder, e.g. C:\vdbench\vdbench50407\vdbench.bat, one level deeper than expected) and use Settings -> Validate below to confirm Exists=True locally." },
         @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder"; Hint = "Default Vdbench path for Windows slaves." },
         @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none"; Hint = "Default Vdbench path for Linux slaves." },
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },

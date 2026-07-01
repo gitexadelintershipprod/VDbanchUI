@@ -113,6 +113,59 @@ has the old default template gets it automatically cleared to empty (see
 `Migrate-LegacySettings` in `State.ps1`); a deliberately customized template is left
 untouched.
 
+#### Why the checker window is now a genuinely separate window
+
+The checker process used to be started with `UseShellExecute=$false` and
+`CreateNoWindow=$false`. That exact combination does **not** create a new console -
+per Win32 `CreateProcess` semantics (see Microsoft's own `ProcessStartInfo.CreateNoWindow`
+docs/blog post on this precise gotcha), it only avoids *suppressing* a console; the
+child silently shares/inherits whatever console (if any) the UI's own host process is
+already attached to. When the UI is launched from a `.bat`/console shortcut, that meant
+the checker's output never opened a visibly separate window - it echoed into the
+pre-existing, possibly hidden console the whole app was started from - and, worse,
+closing that shared console sends a close signal to every process attached to it,
+including the UI itself, which is what could make the app appear to need a forced
+shutdown after an error. `Get-SlaveReadinessResult` now sets `UseShellExecute=$true`
+for this launch, which Windows always honors as "open a brand-new window" regardless of
+`CreateNoWindow`, fully decoupling the checker's console from the app's own. It is now
+safe to close the checker window at any time without affecting the main UI.
+
+Clicking **Readiness** (or **Ping**) again on a row while a check is already running for
+it (cell reads `Checking...` / `Pinging...`) is now ignored instead of queuing another
+background job. This also stops a duplicate "ran in a separate window" popup from
+appearing per click - the checker window already showed the real output live, so once
+it ran in its own window the app no longer pops a second confirmation dialog on top of
+it. Previously, clicking Readiness repeatedly (a natural reaction when nothing seemed to
+happen right away) queued one background job - and one popup - per click; when they all
+completed together, the resulting wall of stacked dialogs looked and felt like the whole
+UI had frozen.
+
+#### A `[FAIL]` line in the checker's own output is not a UI bug
+
+Every `[OK]` / `[FAIL]` line the checker prints - including things like
+`Master vdbench.bat exists` - comes entirely from the external checker script itself; the
+UI only launches it and reports its exit code. A `[FAIL]` there means the checker's own
+file-existence check genuinely did not find that file on the target machine at the
+moment it ran - the UI has no way to influence or fabricate that result, and silently
+hiding it would defeat the whole point of a readiness check.
+
+The most common real-world reason `vdbench.bat` is reported missing at the expected path
+(e.g. `C:\vdbench\vdbench.bat`) is that the official Vdbench distribution zip extracts
+into its own version-named subfolder (e.g. `C:\vdbench\vdbench50407\vdbench.bat`) rather
+than flattening `vdbench.bat` straight into the folder you expect. Either move the
+extracted contents up one level, or point **Settings → Master vdbench.bat** at wherever
+the file actually lives.
+
+To check the same path independently of the external checker, use **Settings →
+Validate**: it runs a local, instant `Test-Path` against `Master vdbench.bat` (and the
+other configured paths) and reports `Exists=True/False` directly - no external script, no
+extra window, no SSH involved. If Validate also reports `False`, the file really is
+missing/misplaced on this machine. If Validate reports `True` while the external checker
+still fails, the checker script has its own separate, hardcoded expectation for that
+path (it takes no parameters by design - see above) that does not read this app's
+Settings at all; treat the checker's message as authoritative for the actual host layout
+and update Settings to match it, not the other way around.
+
 ## Generated Vdbench Shape
 
 For distributed runs, enabled slaves are rendered into `hd=` entries and their test

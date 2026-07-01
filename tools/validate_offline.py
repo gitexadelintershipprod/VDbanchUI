@@ -500,6 +500,7 @@ Invoke-AppSelfTest
 
     _run_readiness_regression_check(pwsh)
     _run_slave_targets_regression_check(pwsh)
+    _run_readiness_window_regression_check(pwsh)
     return True
 
 
@@ -767,6 +768,268 @@ $results | ConvertTo-Json
         print("readiness regression check: legacy default fails as expected, current default + WorkingDirectory fix verified")
 
 
+def _run_readiness_window_regression_check(pwsh: str) -> None:
+    """Reproduce the "no separate window opens" / stacked-dialog bug end-to-end.
+
+    Root cause #1 (found 2026-07-01 from a user screenshot showing dozens of stacked
+    confirmation dialogs behind a shared console window): Get-SlaveReadinessResult
+    started the checker with UseShellExecute=$false + CreateNoWindow=$false whenever
+    -ShowCheckerWindow was requested. Per Win32 CreateProcess semantics (and Microsoft's
+    own ProcessStartInfo.CreateNoWindow docs/blog post on this exact gotcha), that
+    combination does NOT create a new console - it only avoids *suppressing* one, so the
+    checker silently shared/inherited whatever console (if any) the UI's own host process
+    was already attached to (e.g. when launched from a .bat/console shortcut). Fix:
+    UseShellExecute=$true, which Windows always honors as "open a brand-new window"
+    regardless of CreateNoWindow.
+
+    Root cause #2 (same screenshot): every completed Readiness check run with
+    -ShowOutput popped its own "ran in a separate PowerShell window" confirmation dialog
+    even though the user had just watched the real output live in that window; clicking
+    Readiness repeatedly (the natural reaction when nothing visibly happens right away)
+    queued one background job - and one such popup - per click, and they all piled up
+    once finished. Fix: Get-SlaveReadinessResult now returns AlreadyShown=$true for the
+    separate-window path so the caller skips the redundant popup, AND
+    Start-SlaveReadinessCheck/Start-SlavePingCheck now ignore repeat clicks while a check
+    for that row is already in flight (Readiness/PingStatus cell already reads
+    "Checking..."/"Pinging...").
+
+    This check calls the real Get-SlaveReadinessResult end-to-end with
+    ShowCheckerWindow=$true (proving UseShellExecute=$true does not hang/throw in this
+    sandbox and still honors the WorkingDirectory fix from the check above), then calls
+    the real Start-SlaveReadinessCheck/Start-SlavePingCheck twice in a row - against a
+    stubbed Start-BackgroundUiWork, since the real one lazily creates a
+    System.Windows.Forms.Timer that cannot be instantiated on Linux pwsh at all - to
+    prove the in-flight guard stops the second click from starting another background
+    job for either button.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-readiness-window-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        # powershell.exe does not exist on Linux; Get-SlaveReadinessResult hardcodes
+        # that filename (matching the real Windows target), so give the subprocess a
+        # PATH-resolvable shim that forwards to pwsh.
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        shim_path = shim_dir / "powershell.exe"
+        shim_path.write_text(f"#!/bin/sh\nexec \"{pwsh}\" \"$@\"\n", encoding="utf-8")
+        shim_path.chmod(0o755)
+
+        checker_dir = tmp_path / "checker-home"
+        checker_dir.mkdir()
+        ok_checker = checker_dir / "04-Check-Vdbench-Hosts-Readiness.ps1"
+        ok_checker.write_text(
+            "param()\n"
+            "Write-Host 'Checking Master readiness'\n"
+            "New-Item -ItemType Directory -Path '.\\relative-output' -Force | Out-Null\n"
+            "Set-Content -Path '.\\relative-output\\marker.txt' -Value 'created by fake checker'\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+
+        data_dir = tmp_path / "data"
+        harness_script = tmp_path / "run-window-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{data_dir}"
+$script:ProfileRoot = Join-Path $script:DataRoot "profiles"
+$script:RunStateRoot = Join-Path $script:DataRoot "runs"
+$script:LogRoot = Join-Path $script:DataRoot "logs"
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+$script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:ModuleRoot = "{module_root}"
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+Initialize-AppState
+Set-PropertyValue $script:Settings "ReadinessChecker" "{ok_checker}"
+Set-PropertyValue $script:Settings "ReadinessCheckerArguments" ""
+$script:SettingsControls = @{{}}
+
+$errors = @()
+function Test-Step {{
+    param([string]$Label, [scriptblock]$Action)
+    try {{
+        & $Action
+    }} catch {{
+        $script:errors += "$Label -- $($_.Exception.Message)"
+    }}
+}}
+
+# --- Part 1: Get-SlaveReadinessResult with ShowCheckerWindow=$true must not hang or
+# throw on this Linux sandbox, must still honor WorkingDirectory, and must mark the
+# result AlreadyShown so the caller skips a duplicate confirmation dialog. ---
+$okResult = $null
+Test-Step "Get-SlaveReadinessResult ShowCheckerWindow=true" {{
+    $script:okResult = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{ok_checker}" "" $true
+}}
+
+# --- Part 2: repeat-click guard for Readiness / Ping. Start-BackgroundUiWork is
+# stubbed out (plain function redefinition, resolved at call time - not a .NET event
+# closure) because the real one would reach Initialize-BackgroundUiPollTimer, which
+# needs System.Windows.Forms.Timer - unavailable on Linux pwsh. ---
+function New-MockCellCollection {{
+    $cells = @{{}}
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","Notes")) {{
+        $cells[$col] = [pscustomobject]@{{ Value = "" }}
+    }}
+    return $cells
+}}
+function New-MockSlaveRow {{
+    param([string]$SlaveName, [string]$HostName)
+    $row = [pscustomobject]@{{ Tag = $null; IsNewRow = $false; Index = 0; Cells = (New-MockCellCollection) }}
+    $row.Cells["Name"].Value = $SlaveName
+    $row.Cells["Host"].Value = $HostName
+    $row.Cells["Enabled"].Value = $false
+    $row.Cells["OsType"].Value = "Windows"
+    return $row
+}}
+
+$script:StartBackgroundUiWorkCalls = New-Object 'System.Collections.Generic.List[string]'
+function Start-BackgroundUiWork {{
+    param($Owner, [scriptblock]$OnComplete, [hashtable]$Context = @{{}}, [scriptblock]$Work = $null, [string]$CommandName = "")
+    $script:StartBackgroundUiWorkCalls.Add($CommandName)
+}}
+function Get-BackgroundUiWorkCallCount {{
+    param([string]$CommandName)
+    return @($script:StartBackgroundUiWorkCalls | Where-Object {{ $_ -eq $CommandName }}).Count
+}}
+
+function New-MockSlaveGrid {{
+    param([object[]]$Rows)
+    $grid = [pscustomobject]@{{ Rows = $Rows }}
+    # Update-SlaveRowReadiness calls $script:SlaveGrid.InvalidateRow(...) to repaint
+    # after a status change; give the mock grid a harmless no-op so it can be called
+    # without a real DataGridView.
+    $grid | Add-Member -MemberType ScriptMethod -Name InvalidateRow -Value {{ param($RowIndex) }}
+    return $grid
+}}
+
+$readyRow = New-MockSlaveRow "slave-1" "10.50.11.183"
+$script:SlaveGrid = New-MockSlaveGrid @($readyRow)
+Test-Step "Start-SlaveReadinessCheck (1st click)" {{ Start-SlaveReadinessCheck -Row $readyRow -ShowOutput:$false }}
+$readinessCountAfterFirst = Get-BackgroundUiWorkCallCount "Invoke-SlaveReadinessBackgroundWork"
+Test-Step "Start-SlaveReadinessCheck (2nd click while Checking...)" {{ Start-SlaveReadinessCheck -Row $readyRow -ShowOutput:$false }}
+$readinessCountAfterSecond = Get-BackgroundUiWorkCallCount "Invoke-SlaveReadinessBackgroundWork"
+
+$pingRow = New-MockSlaveRow "slave-2" "10.50.11.184"
+$script:SlaveGrid = New-MockSlaveGrid @($pingRow)
+Test-Step "Start-SlavePingCheck (1st click)" {{ Start-SlavePingCheck -Row $pingRow }}
+$pingCountAfterFirst = Get-BackgroundUiWorkCallCount "Invoke-SlavePingBackgroundWork"
+Test-Step "Start-SlavePingCheck (2nd click while Pinging...)" {{ Start-SlavePingCheck -Row $pingRow }}
+$pingCountAfterSecond = Get-BackgroundUiWorkCallCount "Invoke-SlavePingBackgroundWork"
+
+if ($errors.Count -gt 0) {{
+    foreach ($e in $errors) {{ Write-Host "STEP FAILED: $e" }}
+    exit 1
+}}
+
+$results = [pscustomobject]@{{
+    OkStatus = $okResult.Status
+    OkAlreadyShown = [bool]$okResult.AlreadyShown
+    OkOutput = $okResult.Output
+    OkMarkerNextToChecker = (Test-Path (Join-Path "{checker_dir}" "relative-output/marker.txt"))
+    ReadinessCountAfterFirst = $readinessCountAfterFirst
+    ReadinessCountAfterSecond = $readinessCountAfterSecond
+    PingCountAfterFirst = $pingCountAfterFirst
+    PingCountAfterSecond = $pingCountAfterSecond
+    ReadyRowStatus = [string]$readyRow.Cells["Readiness"].Value
+    PingRowStatus = [string]$pingRow.Cells["PingStatus"].Value
+}}
+# Write results to a dedicated file rather than stdout: with ShowCheckerWindow=$true
+# and UseShellExecute=$true, the checker's own Write-Host output is NOT redirected
+# (by design - that is the whole point of the separate-window path) and on Linux
+# (no real console/window subsystem) it is inherited straight onto this harness's
+# own stdout, interleaving with - and corrupting - any JSON printed there.
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                app_root=str(ROOT),
+                data_dir=str(data_dir).replace("\\", "/"),
+                module_root=str(MODULE_ROOT),
+                ok_checker=str(ok_checker),
+                checker_dir=str(checker_dir),
+                results_path=str(tmp_path / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = str(shim_dir) + ":" + env.get("PATH", "")
+        # stdin=DEVNULL: the real success path never blocks on input, but this keeps
+        # the harness safe against ever accidentally reaching a Read-Host prompt (e.g.
+        # in the wrapper's failure branch) instead of hanging indefinitely.
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, cwd=str(checker_dir), env=env,
+            stdin=subprocess.DEVNULL, timeout=60,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Readiness window/guard regression harness itself failed to run")
+
+        results_path = tmp_path / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Could not parse readiness window/guard harness output as JSON")
+
+        assert parsed.get("OkStatus") == "Ready", (
+            f"expected an exit-0 checker run with ShowCheckerWindow=$true to report "
+            f"Ready, got status={parsed.get('OkStatus')!r}"
+        )
+        assert parsed.get("OkAlreadyShown") is True, (
+            "the separate-window run must set AlreadyShown=$true so the caller skips a "
+            "duplicate 'ran in a separate window' popup"
+        )
+        assert "separate PowerShell window" in str(parsed.get("OkOutput", "")), (
+            f"unexpected confirmation message: {parsed.get('OkOutput')!r}"
+        )
+        assert parsed.get("OkMarkerNextToChecker"), (
+            "switching to UseShellExecute=$true must not break the WorkingDirectory fix "
+            "- the checker's own relative-path output should still land next to it"
+        )
+        assert parsed.get("ReadinessCountAfterFirst") == 1, (
+            f"the first Readiness click must start exactly one background job, got "
+            f"{parsed.get('ReadinessCountAfterFirst')!r}"
+        )
+        assert parsed.get("ReadinessCountAfterSecond") == 1, (
+            f"clicking Readiness again while the row still reads 'Checking...' must be "
+            f"ignored, got count={parsed.get('ReadinessCountAfterSecond')!r} (expected "
+            f"still 1)"
+        )
+        assert parsed.get("ReadyRowStatus") == "Checking...", (
+            f"expected the row to still read Checking..., got {parsed.get('ReadyRowStatus')!r}"
+        )
+        assert parsed.get("PingCountAfterFirst") == 1, (
+            f"the first Ping click must start exactly one background job, got "
+            f"{parsed.get('PingCountAfterFirst')!r}"
+        )
+        assert parsed.get("PingCountAfterSecond") == 1, (
+            f"clicking Ping again while the row still reads 'Pinging...' must be "
+            f"ignored, got count={parsed.get('PingCountAfterSecond')!r} (expected still 1)"
+        )
+        assert parsed.get("PingRowStatus") == "Pinging...", (
+            f"expected the row to still read Pinging..., got {parsed.get('PingRowStatus')!r}"
+        )
+        print(
+            "readiness window/guard regression check: UseShellExecute=$true verified end-to-end, "
+            "AlreadyShown suppresses the duplicate popup, repeat-click guard verified for "
+            "Readiness + Ping"
+        )
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -882,6 +1145,31 @@ def main() -> int:
     assert "$psi.WorkingDirectory = $checkerDir" in ui_slave_module
     assert "Split-Path -Parent $Checker" in ui_slave_module
     assert "Press Enter to close this window" in ui_slave_module
+
+    # UseShellExecute=$true is required to guarantee the checker opens a genuinely new,
+    # separate console window instead of silently sharing the UI's own (see
+    # Get-SlaveReadinessResult / AGENTS.md for the full CreateNoWindow gotcha writeup).
+    # Guard against regressing back to the old UseShellExecute=$false + CreateNoWindow=
+    # $false combination, which does NOT open a new window at all.
+    assert "$psi.UseShellExecute = $true" in ui_slave_module, (
+        "Get-SlaveReadinessResult must launch the checker window with UseShellExecute="
+        "$true - UseShellExecute=$false does not create a new console, it silently "
+        "shares whatever console (if any) the UI's own process is attached to"
+    )
+    assert "AlreadyShown = $true" in ui_slave_module and "AlreadyShown = $false" in ui_slave_module, (
+        "Get-SlaveReadinessResult must mark separate-window results AlreadyShown=$true "
+        "so the caller does not pop a duplicate confirmation dialog"
+    )
+    assert 'Get-PropertyValue $Result "AlreadyShown" $false' in ui_slave_module
+    assert 'Row.Cells["Readiness"].Value -eq "Checking..."' in ui_slave_module, (
+        "Start-SlaveReadinessCheck must ignore repeat clicks while a check for that row "
+        "is already in flight, or repeated clicking piles up one background job + one "
+        "popup per click"
+    )
+    assert 'Row.Cells["PingStatus"].Value -eq "Pinging..."' in ui_slave_module, (
+        "Start-SlavePingCheck must ignore repeat clicks while a ping for that row is "
+        "already in flight"
+    )
 
     state_module_full = (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Migrate-LegacySettings" in state_module_full
