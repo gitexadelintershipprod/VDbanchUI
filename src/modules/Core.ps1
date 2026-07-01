@@ -189,6 +189,59 @@ function Get-RemoteExecCommandParts {
     return @("powershell.exe", "-NoProfile", "-EncodedCommand", $encoded)
 }
 
+function Add-CommonSshOptions {
+    <#
+    Appends the shared -F/-i/-l/-o options this app always uses for its own
+    direct ssh.exe calls (target discovery, folder creation, test file prep)
+    to $SshParts, in a single place so all callers stay consistent.
+
+    Root cause of the bug this fixes (found 2026-07-01, from a user
+    screenshot showing "Administrator@linux-001: Permission denied" for a
+    Linux slave): every one of these ssh.exe invocations built its
+    destination argument from ONLY the slave's SshAlias/Host, with no
+    explicit username anywhere - so ssh.exe fell back to its own default of
+    "whatever OS user is running this process" (the Windows account running
+    the UI app, e.g. "Administrator"), completely ignoring the User value
+    the app already tracks (and DOES correctly pass through as vdbench's own
+    hd=...,user=... parameter for the actual distributed run - see
+    ConfigGeneration.ps1 - just never for this app's OWN direct ssh.exe
+    calls). Windows slaves usually still worked by coincidence when the
+    configured "administrator" User value happened to match the account
+    actually running the UI, or when a matching User entry already existed
+    in SshConfig for that alias; Linux slaves practically never do, since
+    "root" (this app's own Get-DefaultSlaveUserForOs default for Linux) is
+    never the Windows account name. Passing -l explicitly here fixes this
+    for every case, while still doing nothing (falling through to whatever
+    ssh.exe/SshConfig would otherwise resolve) when $User is blank.
+    #>
+    param(
+        [System.Collections.Generic.List[string]]$SshParts,
+        [string]$User = "",
+        [string]$PrivateKey = ""
+    )
+    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
+    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
+        [void]$SshParts.Add("-F")
+        [void]$SshParts.Add((Quote-ProcessArgument $sshConfig))
+    }
+    $resolvedKey = $PrivateKey
+    if ([string]::IsNullOrWhiteSpace($resolvedKey)) {
+        $resolvedKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($resolvedKey) -and (Test-Path -LiteralPath $resolvedKey)) {
+        [void]$SshParts.Add("-i")
+        [void]$SshParts.Add((Quote-ProcessArgument $resolvedKey))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($User)) {
+        [void]$SshParts.Add("-l")
+        [void]$SshParts.Add((Quote-ProcessArgument $User))
+    }
+    [void]$SshParts.Add("-o")
+    [void]$SshParts.Add("BatchMode=yes")
+    [void]$SshParts.Add("-o")
+    [void]$SshParts.Add("ConnectTimeout=8")
+}
+
 function Merge-DefaultProperties {
     param(
         [object]$Target,

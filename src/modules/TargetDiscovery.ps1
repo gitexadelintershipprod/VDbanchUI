@@ -185,20 +185,7 @@ function Get-RemoteSlaveTargetInventoryCore {
         [System.Windows.Forms.DataGridViewRow]$Row
     )
     $sshParts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$sshParts.Add("-F")
-        [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
-    }
-    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$sshParts.Add("-i")
-        [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("BatchMode=yes")
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("ConnectTimeout=8")
+    Add-CommonSshOptions -SshParts $sshParts -User ([string]$Row.Cells["User"].Value)
     [void]$sshParts.Add((Quote-ProcessArgument $SystemName))
 
     if ($OsType -eq "Linux") {
@@ -301,18 +288,7 @@ function New-HostFolderPath {
     }
     $osType = [string]$Row.Cells["OsType"].Value
     $sshParts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$sshParts.Add("-F")
-        [void]$sshParts.Add((Quote-ProcessArgument $sshConfig))
-    }
-    $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$sshParts.Add("-i")
-        [void]$sshParts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$sshParts.Add("-o")
-    [void]$sshParts.Add("BatchMode=yes")
+    Add-CommonSshOptions -SshParts $sshParts -User ([string]$Row.Cells["User"].Value)
     [void]$sshParts.Add((Quote-ProcessArgument $systemName))
     if ($osType -eq "Linux") {
         $remoteScript = "mkdir -p " + (Convert-ToShellSingleQuoted $Path)

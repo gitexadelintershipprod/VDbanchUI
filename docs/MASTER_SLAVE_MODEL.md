@@ -116,6 +116,36 @@ hosts, the whole `sh -lc '<script>'` invocation is built and quoted as a single,
 fully-formed unit instead of three separate pieces, so there is nothing left for
 `ssh.exe`'s rejoin step to disturb.
 
+### Why remote discovery could fail with "Permission denied" for the right host
+
+A related but separate issue: `ssh.exe` succeeding at the connection (a normal
+"Warning: Permanently added ... to the list of known hosts." on first contact) but then
+failing with something like:
+
+```
+Administrator@linux-001: Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password).
+```
+
+Root cause: every one of this app's own direct `ssh.exe` calls (Browse/target
+discovery, New folder, and test-file preparation before a run) built its destination
+argument from only the slave's `SshAlias`/`Host`, with **no explicit username anywhere**
+in the command line - so `ssh.exe` fell back to its own default of "whatever OS user is
+running this process" (the Windows account the UI itself is running as, e.g.
+`Administrator`), completely ignoring the per-slave **User** value this app already
+tracks and displays in the grid. That User value was (and still is) correctly passed
+through as vdbench's own `hd=...,user=...` parameter for the actual distributed run (see
+"Generated Vdbench Shape" below) - it was only ever missing from this app's own,
+separate, direct `ssh.exe` calls. Windows slaves would often still "work" purely by
+coincidence, since the default **User** for a Windows slave (`administrator`) frequently
+matches the account actually running the UI; Linux slaves practically never do, since
+this app's own default **User** for Linux (`root`) essentially never matches a Windows
+account name.
+
+Fix: a shared `Add-CommonSshOptions` helper (`Core.ps1`) now passes the slave's
+configured **User** to `ssh.exe` explicitly via `-l <user>` whenever it is set (falling
+through to whatever `ssh.exe`/`SshConfig` would otherwise resolve when it is blank), and
+all of this app's direct `ssh.exe` calls use it.
+
 ### Readiness checker script contract
 
 `Settings → Readiness checker` points at an external `.ps1` script (not part of this

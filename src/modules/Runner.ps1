@@ -195,23 +195,8 @@ function New-ConfigOnlyRun {
 function New-RemoteSshArguments {
     param([object]$Slave)
     $parts = New-Object System.Collections.Generic.List[string]
-    $sshConfig = [string](Get-PropertyValue $script:Settings "SshConfig" "")
-    if (-not [string]::IsNullOrWhiteSpace($sshConfig) -and (Test-Path -LiteralPath $sshConfig)) {
-        [void]$parts.Add("-F")
-        [void]$parts.Add((Quote-ProcessArgument $sshConfig))
-    }
     $privateKey = [string](Get-PropertyValue $Slave "PrivateKey" "")
-    if ([string]::IsNullOrWhiteSpace($privateKey)) {
-        $privateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
-    }
-    if (-not [string]::IsNullOrWhiteSpace($privateKey) -and (Test-Path -LiteralPath $privateKey)) {
-        [void]$parts.Add("-i")
-        [void]$parts.Add((Quote-ProcessArgument $privateKey))
-    }
-    [void]$parts.Add("-o")
-    [void]$parts.Add("BatchMode=yes")
-    [void]$parts.Add("-o")
-    [void]$parts.Add("ConnectTimeout=8")
+    Add-CommonSshOptions -SshParts $parts -User ([string](Get-PropertyValue $Slave "User" "")) -PrivateKey $privateKey
     $systemName = [string](Get-PropertyValue $Slave "SshAlias" "")
     if ([string]::IsNullOrWhiteSpace($systemName)) {
         $systemName = [string](Get-PropertyValue $Slave "Host" "")

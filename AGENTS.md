@@ -141,6 +141,27 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     reproduced the exact bug end-to-end in this sandbox (a real `dash -c` even raised a
     genuine `Syntax error: "do" unexpected` on the old Linux pattern) without needing a
     real Windows/OpenSSH environment at all.
+  - **Critical, previously-undetected bug found 2026-07-01 (missing SSH username)**:
+    building an `ssh.exe` destination argument from only a hostname/alias, with no
+    explicit username anywhere on the command line, makes `ssh.exe` silently default to
+    "whatever OS user is running this process" - NOT any per-target username a caller
+    might track separately elsewhere (e.g. in its own settings/data model) unless that
+    value is explicitly passed via `-l <user>` (or `user@host`). This app already
+    tracked a per-slave `User` value and correctly threaded it into the *generated
+    vdbench config* (`hd=...,user=...`), but every one of its OWN direct `ssh.exe` calls
+    (for discovery/setup, as opposed to what vdbench itself later does) omitted it
+    entirely - producing e.g. `Administrator@linux-001: Permission denied` for a Linux
+    slave whose tracked `User` was `root`, since the UI process itself happened to be
+    running as the Windows `Administrator` account. Windows slaves frequently "worked"
+    by pure coincidence (the tracked default `User` for Windows slaves is
+    `administrator`, which often matches). Fix: a shared `Add-CommonSshOptions` helper
+    (`Core.ps1`) adds `-l <user>` whenever a non-blank user is available. General
+    lesson: whenever a codebase tracks a per-target credential/identity value in its own
+    data model, verify it is *actually threaded through* to every place that value
+    matters, not just the most obviously-related one (here, the generated config) -
+    grep for every direct invocation of the underlying tool/protocol client and check
+    each one individually rather than assuming they all consistently use the same
+    tracked value.
   - **Related gotcha, also found 2026-07-01**: a function's `return @(X)` does NOT
     reliably survive the function-call boundary as an array when `X` is a single item -
     PowerShell silently collapses it back down to the bare scalar `X` for the CALLER,

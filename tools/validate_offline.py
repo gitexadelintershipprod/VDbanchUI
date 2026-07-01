@@ -504,6 +504,7 @@ Invoke-AppSelfTest
     _run_readiness_wrapper_pause_regression_check(pwsh)
     _run_get_property_value_endinvoke_regression_check(pwsh)
     _run_remote_ssh_quoting_regression_check(pwsh)
+    _run_ssh_user_regression_check(pwsh)
     return True
 
 
@@ -1533,6 +1534,123 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         print("SSH quoting regression check: old Windows/Linux patterns confirmed broken via real re-parsing, new -EncodedCommand/single-token patterns confirmed correct via real execution")
 
 
+def _run_ssh_user_regression_check(pwsh: str) -> None:
+    """Reproduce the "Administrator@linux-001: Permission denied" bug end-to-end.
+
+    Root cause (found 2026-07-01, from a user screenshot: SSH host-key warning
+    followed immediately by "Administrator@linux-001: Permission denied
+    (publickey,gssapi-keyex,gssapi-with-mic,password)" for a Linux slave - proving the
+    connection itself succeeded and the failure was purely an authentication/username
+    problem): Get-RemoteSlaveTargetInventoryCore, New-HostFolderPath, and
+    New-RemoteSshArguments each built their ssh.exe destination argument from ONLY the
+    slave's SshAlias/Host, with no explicit username anywhere in the command line - so
+    ssh.exe fell back to its own default of "whatever OS user is running this process"
+    (the Windows account running the UI, e.g. "Administrator"), completely ignoring the
+    per-slave User value this app already tracks (Get-DefaultSlaveUserForOs even
+    defaults it to "root" for Linux specifically) and already correctly passes through
+    as vdbench's own hd=...,user=... parameter for the actual distributed run (see
+    ConfigGeneration.ps1) - just never for this app's OWN direct ssh.exe calls used for
+    Browse/New folder/test-file prep. Windows slaves often still "worked" by
+    coincidence (the configured "administrator" User default happening to match the
+    account actually running the UI), which is exactly why this was reported for a
+    Linux slave specifically, not a Windows one.
+
+    Fix: new shared Add-CommonSshOptions (Core.ps1) adds -l <user> whenever a non-blank
+    User is available, and is now used by all three call sites instead of each
+    inlining its own (User-less) copy of the same option-building logic.
+
+    This check drives the real Add-CommonSshOptions end-to-end through a real ssh.exe
+    shim (reporting back exactly what argv it received, the same technique used in
+    _run_remote_ssh_quoting_regression_check) and asserts -l <user> is present as a
+    genuine, distinct argument when a user is configured, and asserts it is correctly
+    OMITTED (falling through to whatever ssh.exe/SshConfig would otherwise resolve, the
+    prior behavior) when the configured user is blank.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-ssh-user-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        ssh_shim = shim_dir / "ssh.exe"
+        ssh_shim.write_text(
+            "#!/bin/sh\n"
+            "echo \"ARGS_RECEIVED:$@\"\n",
+            encoding="utf-8",
+        )
+        ssh_shim.chmod(0o755)
+
+        harness_script = tmp_path / "run-ssh-user-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+$script:Settings = [pscustomobject]@{{ SshConfig = ""; PrivateKey = "" }}
+
+$partsWithUser = New-Object System.Collections.Generic.List[string]
+Add-CommonSshOptions -SshParts $partsWithUser -User "root"
+[void]$partsWithUser.Add("linux-001")
+$resultWithUser = Invoke-CapturedProcess "ssh.exe" ($partsWithUser -join " ") 5000
+
+$partsNoUser = New-Object System.Collections.Generic.List[string]
+Add-CommonSshOptions -SshParts $partsNoUser -User ""
+[void]$partsNoUser.Add("some-host")
+$resultNoUser = Invoke-CapturedProcess "ssh.exe" ($partsNoUser -join " ") 5000
+
+$results = [pscustomobject]@{{
+    WithUserArgs = $resultWithUser.StdOut
+    NoUserArgs = $resultNoUser.StdOut
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(tmp_path / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = str(shim_dir) + ":" + env.get("PATH", "")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("SSH user regression harness itself failed to run")
+
+        results_path = tmp_path / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse SSH user regression harness output as JSON")
+
+        with_user_args = parsed.get("WithUserArgs", "")
+        no_user_args = parsed.get("NoUserArgs", "")
+
+        assert "-l root" in with_user_args, (
+            f"expected ssh.exe to actually receive '-l root' as a distinct argument "
+            f"when the slave's configured User is 'root', got argv: {with_user_args!r} "
+            f"- this is exactly the missing piece that made ssh.exe silently fall back "
+            f"to the local Windows account (e.g. 'Administrator') instead of the "
+            f"slave's own configured user, producing "
+            f"'Administrator@host: Permission denied'"
+        )
+        assert "-l" not in no_user_args.split(), (
+            f"expected -l to be omitted entirely when the configured User is blank "
+            f"(falling through to whatever ssh.exe/SshConfig would otherwise resolve, "
+            f"matching prior behavior for slaves with no User set) - got argv: "
+            f"{no_user_args!r}"
+        )
+        print("SSH user regression check: -l <user> correctly included when configured, correctly omitted when blank")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -1660,10 +1778,26 @@ def main() -> int:
         "shell path - -Command with a quoted script string does not survive OpenSSH's "
         "own argument rejoining"
     )
+    # See _run_ssh_user_regression_check docstring: every direct ssh.exe call this app
+    # makes used to omit the slave's configured User entirely, silently falling back to
+    # ssh's own default of "whatever OS user is running the UI process" - producing
+    # e.g. "Administrator@linux-001: Permission denied" for a Linux slave whose User is
+    # "root". Guard the shared fix and its usage at every call site.
+    assert "function Add-CommonSshOptions" in core_module_for_ssh
+    assert '[void]$SshParts.Add("-l")' in core_module_for_ssh, (
+        "Add-CommonSshOptions must pass the slave's configured User to ssh.exe via -l - "
+        "without it, ssh.exe silently connects as whatever local OS account is running "
+        "the UI process instead of the slave's own configured user"
+    )
     for module_name, module_text in (
         ("TargetDiscovery.ps1", target_discovery_module),
         ("Runner.ps1", runner_module_full),
     ):
+        assert "Add-CommonSshOptions" in module_text, (
+            f"{module_name} must build its ssh.exe options via the shared "
+            f"Add-CommonSshOptions helper (which includes -l <user>), not by inlining "
+            f"its own copy that silently omits the configured User"
+        )
         assert "Get-RemoteExecCommandParts" in module_text, (
             f"{module_name} must build remote SSH commands via the shared "
             f"Get-RemoteExecCommandParts helper, not inline argument construction"
