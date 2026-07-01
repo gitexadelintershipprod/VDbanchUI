@@ -91,6 +91,56 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     the real modules — plain function redefinition (not a `Add_Click`/`Add_Tick` closure)
     resolves at call time in PowerShell, so the real caller's later calls to it hit your
     stub — and assert on a call counter instead of driving the real timer/runspace pool.
+  - Beware: a process's exit code alone does not tell you whether it printed anything
+    worth showing a human. This bit `Get-ReadinessCheckerWrapperCommand` (real bug, found
+    2026-07-01): it only paused the checker window for `Read-Host` when the wrapper's own
+    `$exitCode` was non-zero, on the assumption exit 0 meant "nothing to review". The
+    shipped checker script exits `0` unconditionally regardless of whether its own
+    internal `[OK]`/`[FAIL]` report lines passed, so a run with a failing internal check
+    still auto-closed the window before it could be read. Fix: pause unconditionally,
+    always, regardless of exit code — do not gate a "let the human read this" prompt
+    behind any success/failure signal from the thing being wrapped, since "ran to
+    completion" and "everything it checked passed" are not the same thing.
+  - When a fix makes a subprocess *always* pause on `Read-Host` before exiting (as
+    above), verify empirically — do not assume — that a test harness which redirects that
+    subprocess's `stdin` to nothing (Python's `subprocess.run(..., stdin=subprocess.DEVNULL)`)
+    does not hang. Confirmed empirically in this sandbox before relying on it: with
+    `UseShellExecute=$true` and no explicit `RedirectStandardInput`, the child inherits
+    the parent's stdin; when that stdin is `/dev/null` (EOF immediately), `Read-Host`
+    returns an empty string immediately rather than blocking - safe for CI. This is
+    Linux-only sandbox behavior for validation purposes; on real Windows,
+    `UseShellExecute=$true` opens a genuinely new console with its own real keyboard
+    input, so `Read-Host` there correctly waits for an actual human keypress.
+  - **Critical, previously-undetected bug found 2026-07-01**: `[powershell]::EndInvoke()`
+    wraps even a SINGLE output object in a `PSDataCollection<PSObject>` - confirmed
+    empirically in this sandbox - not the raw object itself. Direct dot-notation property
+    access (`$Result.Status`, or even dynamic `$Result.$name`) transparently "reaches
+    into" a collection with exactly one element - this is PowerShell's own member-access
+    adapter behavior - but `Get-PropertyValue`'s explicit `$Object.PSObject.Properties[$Name]`
+    lookup (in `Core.ps1`) does **not** get that same treatment: it queries the wrapper
+    collection's own properties (which never has `$Name`), silently returning
+    `$DefaultValue` every single time no matter what the real value inside actually was.
+    This meant `Get-PropertyValue $Result "AnyFlag" $false` against ANY
+    `Start-BackgroundUiWork`/`EndInvoke()` `OnComplete` `$Result` always evaluated to the
+    default, regardless of what was really set - and this had been silently broken for as
+    long as that OnComplete/EndInvoke pattern existed, since NONE of this project's tests
+    exercised the REAL `RunspacePool`+`BeginInvoke()`+`EndInvoke()` path with
+    `Get-PropertyValue` (they either called the inner function directly, bypassing
+    `EndInvoke()` entirely, or stubbed out `Start-BackgroundUiWork` itself for WinForms
+    reasons - see the `System.Windows.Forms.Timer` note above - which ALSO bypasses
+    `EndInvoke()`). `Get-PropertyValue` now unwraps a same single-item, non-string,
+    non-dictionary `[System.Collections.ICollection]` before its property lookup,
+    matching what direct dot-notation already does, fixing this for every current and
+    future caller uniformly. `[string]$Result` casting (used elsewhere in this codebase
+    for background-job results, e.g. Ping status) was separately confirmed NOT affected -
+    PowerShell's `[string]` conversion has its own, different single-item-collection
+    handling that already worked correctly. When writing a REAL (non-stubbed) regression
+    test for this class of bug, `[runspacefactory]::CreateRunspacePool()` +
+    `[powershell]::Create()` + `BeginInvoke()`/`EndInvoke()` run perfectly fine on Linux
+    `pwsh` with no WinForms dependency at all - only the `System.Windows.Forms.Timer`
+    *polling* wrapper around it needs stubbing/skipping, not the runspace mechanism
+    itself; a plain `while (-not $async.IsCompleted) { Start-Sleep -Milliseconds N }`
+    synchronous wait is a perfectly adequate stand-in for the timer in a test.
   - `python3 tools/validate_offline.py` automatically detects `pwsh` on PATH and runs the
     real syntax-parse + `Invoke-AppSelfTest` checks as part of the normal offline validation
     (prints "real PowerShell syntax + self-test checks: ran"). If `pwsh` is missing it skips

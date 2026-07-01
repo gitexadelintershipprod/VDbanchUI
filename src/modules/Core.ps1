@@ -55,6 +55,33 @@ function Get-PropertyValue {
     if ($null -eq $Object) {
         return $DefaultValue
     }
+    # [powershell]::EndInvoke() wraps even a single output object in a
+    # PSDataCollection<PSObject> (confirmed empirically 2026-07-01: a
+    # background job returning exactly one pscustomobject comes back from
+    # EndInvoke() as a 1-item collection, not the raw object). Direct
+    # dot-notation property access ($Object.Foo) transparently "reaches
+    # into" a collection with exactly one element - PowerShell's own
+    # member-access adapter does this - but this function's own explicit
+    # $Object.PSObject.Properties[$Name] lookup below does NOT get that same
+    # treatment: it queries the wrapper collection's own properties, which
+    # never has $Name, silently returning $DefaultValue every time no matter
+    # what the real value inside actually was. This was a real,
+    # previously-undetected bug: any caller passing a
+    # Start-BackgroundUiWork/EndInvoke() OnComplete "$Result" straight into
+    # this function always got $DefaultValue back for every property,
+    # regardless of what Was really set. Unwrap a same single-item,
+    # non-string, non-dictionary collection first so this function behaves
+    # identically whether $Object came from EndInvoke() or was constructed
+    # directly - matching what direct dot-notation access already does.
+    if ($Object -isnot [string] -and $Object -isnot [System.Collections.IDictionary] -and
+        $Object -is [System.Collections.ICollection] -and $Object.Count -eq 1) {
+        foreach ($item in $Object) {
+            $Object = $item
+        }
+    }
+    if ($null -eq $Object) {
+        return $DefaultValue
+    }
     if ($Object -is [System.Collections.IDictionary]) {
         if ($Object.Contains($Name)) {
             return $Object[$Name]

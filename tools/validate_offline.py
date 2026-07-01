@@ -501,6 +501,8 @@ Invoke-AppSelfTest
     _run_readiness_regression_check(pwsh)
     _run_slave_targets_regression_check(pwsh)
     _run_readiness_window_regression_check(pwsh)
+    _run_readiness_wrapper_pause_regression_check(pwsh)
+    _run_get_property_value_endinvoke_regression_check(pwsh)
     return True
 
 
@@ -838,16 +840,31 @@ def _run_readiness_window_regression_check(pwsh: str) -> None:
     UseShellExecute=$true, which Windows always honors as "open a brand-new window"
     regardless of CreateNoWindow.
 
-    Root cause #2 (same screenshot): every completed Readiness check run with
-    -ShowOutput popped its own "ran in a separate PowerShell window" confirmation dialog
-    even though the user had just watched the real output live in that window; clicking
-    Readiness repeatedly (the natural reaction when nothing visibly happens right away)
-    queued one background job - and one such popup - per click, and they all piled up
-    once finished. Fix: Get-SlaveReadinessResult now returns AlreadyShown=$true for the
-    separate-window path so the caller skips the redundant popup, AND
-    Start-SlaveReadinessCheck/Start-SlavePingCheck now ignore repeat clicks while a check
-    for that row is already in flight (Readiness/PingStatus cell already reads
-    "Checking..."/"Pinging...").
+    Root cause #2 (same screenshot, and reconfirmed 2026-07-01 later the same day from a
+    second, near-identical screenshot - a wall of ~20 stacked "Readiness output" dialogs
+    all reading "exit code 0"): every completed Readiness check run with -ShowOutput
+    popped its own "ran in a separate PowerShell window" confirmation dialog even though
+    the user had just watched the real output live in that window; clicking Readiness
+    repeatedly (the natural reaction when nothing visibly happens right away) queued one
+    background job - and one such popup - per click, and they all piled up once
+    finished. The first attempt at a fix added an AlreadyShown flag so the caller could
+    conditionally skip that popup for the separate-window path - but since ShowOutput and
+    ShowCheckerWindow are always the same value (see Start-SlaveReadinessCheck), that
+    popup is ALWAYS skippable whenever it would fire, making the flag pure dead weight.
+    Final fix: removed the "Ready"/"Failed" app-level popup unconditionally instead of
+    conditionally, and removed the now-provably-unused AlreadyShown field entirely rather
+    than leave dead code that looks load-bearing but is not.
+
+    Root cause #3 (found from the SAME second screenshot, alongside #2): the checker
+    window was also closing itself immediately/automatically right after the check
+    finished, even though the report inside it showed a [FAIL] line (Master vdbench.bat
+    exists) - the user never got a chance to read it. Get-ReadinessCheckerWrapperCommand
+    only paused for Enter when the WRAPPER's own $exitCode was non-zero. But the shipped
+    checker script exits 0 unconditionally regardless of whether its own internal
+    [OK]/[FAIL] checks passed - exit code 0 means "the script ran to completion", not
+    "every check inside it passed" - so a run with one or more failing internal checks
+    still hit the old code's auto-close path. Fix: Get-ReadinessCheckerWrapperCommand now
+    ALWAYS pauses for Enter before exiting, regardless of exit code.
 
     This check calls the real Get-SlaveReadinessResult end-to-end with
     ShowCheckerWindow=$true (proving UseShellExecute=$true does not hang/throw in this
@@ -856,7 +873,11 @@ def _run_readiness_window_regression_check(pwsh: str) -> None:
     stubbed Start-BackgroundUiWork, since the real one lazily creates a
     System.Windows.Forms.Timer that cannot be instantiated on Linux pwsh at all - to
     prove the in-flight guard stops the second click from starting another background
-    job for either button.
+    job for either button. The "always pauses regardless of exit code" fix for root
+    cause #3 is verified separately and more precisely in
+    _run_readiness_wrapper_pause_regression_check below, by running the exact generated
+    wrapper command text for both a success (exit 0) and a failure (exit 5) checker and
+    asserting the pause prompt appears in both.
     """
     import os
     import subprocess
@@ -922,8 +943,7 @@ function Test-Step {{
 }}
 
 # --- Part 1: Get-SlaveReadinessResult with ShowCheckerWindow=$true must not hang or
-# throw on this Linux sandbox, must still honor WorkingDirectory, and must mark the
-# result AlreadyShown so the caller skips a duplicate confirmation dialog. ---
+# throw on this Linux sandbox, and must still honor WorkingDirectory. ---
 $okResult = $null
 Test-Step "Get-SlaveReadinessResult ShowCheckerWindow=true" {{
     $script:okResult = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{ok_checker}" "" $true
@@ -991,7 +1011,6 @@ if ($errors.Count -gt 0) {{
 
 $results = [pscustomobject]@{{
     OkStatus = $okResult.Status
-    OkAlreadyShown = [bool]$okResult.AlreadyShown
     OkOutput = $okResult.Output
     OkMarkerNextToChecker = (Test-Path (Join-Path "{checker_dir}" "relative-output/marker.txt"))
     ReadinessCountAfterFirst = $readinessCountAfterFirst
@@ -1045,10 +1064,6 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
             f"expected an exit-0 checker run with ShowCheckerWindow=$true to report "
             f"Ready, got status={parsed.get('OkStatus')!r}"
         )
-        assert parsed.get("OkAlreadyShown") is True, (
-            "the separate-window run must set AlreadyShown=$true so the caller skips a "
-            "duplicate 'ran in a separate window' popup"
-        )
         assert "separate PowerShell window" in str(parsed.get("OkOutput", "")), (
             f"unexpected confirmation message: {parsed.get('OkOutput')!r}"
         )
@@ -1081,9 +1096,207 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         )
         print(
             "readiness window/guard regression check: UseShellExecute=$true verified end-to-end, "
-            "AlreadyShown suppresses the duplicate popup, repeat-click guard verified for "
+            "no app-level popup for Ready/Failed, repeat-click guard verified for "
             "Readiness + Ping"
         )
+
+
+def _run_readiness_wrapper_pause_regression_check(pwsh: str) -> None:
+    """Prove Get-ReadinessCheckerWrapperCommand ALWAYS pauses before closing.
+
+    Root cause (found 2026-07-01 from a user screenshot: the checker window closed
+    itself automatically right after finishing, even though its own report inside
+    showed a [FAIL] line for "Master vdbench.bat exists" that the user never got a
+    chance to read): the wrapper only paused for Enter when its own $exitCode was
+    non-zero. The shipped checker script exits 0 unconditionally regardless of whether
+    its internal [OK]/[FAIL] checks passed - exit code 0 means "the script ran to
+    completion", not "every check inside it passed" - so a run with one or more failing
+    internal checks (exactly the user's case) still hit the old auto-close path.
+
+    This runs the EXACT generated wrapper command text directly through pwsh (bypassing
+    Get-SlaveReadinessResult/Process.Start entirely, so this test is independent of and
+    complementary to the UseShellExecute/window-sharing fix verified elsewhere) for both
+    a checker that exits 0 and one that exits with a non-zero code, and asserts the
+    "press Enter to close" prompt - and, crucially, the fact that the process only exits
+    after that prompt is reached - shows up in BOTH cases. stdin=DEVNULL makes the
+    inevitable Read-Host return immediately (confirmed empirically before writing this
+    test - see AGENTS.md), so this cannot hang even though every run now reaches it.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-wrapper-pause-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        def run_wrapper_for_exit_code(exit_code: int) -> subprocess.CompletedProcess:
+            fake_checker = tmp_path / f"fake-checker-{exit_code}.ps1"
+            fake_checker.write_text(
+                "param()\n"
+                f"Write-Host '[FAIL]  MASTER  fake failing check'\n"
+                f"exit {exit_code}\n",
+                encoding="utf-8",
+            )
+            get_wrapper_script = tmp_path / f"get-wrapper-{exit_code}.ps1"
+            get_wrapper_script.write_text(
+                """
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "UiSlaveGrid.ps1")
+$quotedChecker = '"{fake_checker}"'
+Get-ReadinessCheckerWrapperCommand $quotedChecker ""
+""".format(module_root=str(MODULE_ROOT), fake_checker=str(fake_checker)),
+                encoding="utf-8",
+            )
+            wrapper_result = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(get_wrapper_script)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if wrapper_result.returncode != 0:
+                print(wrapper_result.stdout.strip())
+                print(wrapper_result.stderr.strip())
+                raise AssertionError("Get-ReadinessCheckerWrapperCommand itself failed to run")
+            wrapper_text = wrapper_result.stdout
+
+            wrapper_script_path = tmp_path / f"wrapper-{exit_code}.ps1"
+            wrapper_script_path.write_text(wrapper_text, encoding="utf-8")
+            return subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(wrapper_script_path)],
+                capture_output=True, text=True,
+                stdin=subprocess.DEVNULL, timeout=30,
+            )
+
+        success_run = run_wrapper_for_exit_code(0)
+        assert success_run.returncode == 0, (
+            f"expected the wrapper to exit 0 when the checker itself exits 0, got "
+            f"{success_run.returncode}; stdout={success_run.stdout!r}"
+        )
+        assert "Readiness checker finished (exit code 0)." in success_run.stdout, (
+            f"expected the exit-0 success message, got stdout={success_run.stdout!r}"
+        )
+        assert "press Enter to close this window" in success_run.stdout, (
+            "the wrapper must prompt for Enter even when the checker exits 0 - "
+            "otherwise a checker whose own internal [OK]/[FAIL] checks failed, but "
+            "which itself still exits 0 (exactly the shipped checker's behavior), "
+            "auto-closes the window before the user can read the failing check(s); "
+            f"got stdout={success_run.stdout!r}"
+        )
+
+        failure_run = run_wrapper_for_exit_code(5)
+        assert failure_run.returncode == 5, (
+            f"expected the wrapper to propagate the checker's own non-zero exit code, "
+            f"got {failure_run.returncode}; stdout={failure_run.stdout!r}"
+        )
+        assert "non-zero exit code (5)" in failure_run.stdout, (
+            f"expected the non-zero exit message, got stdout={failure_run.stdout!r}"
+        )
+        assert "press Enter to close this window" in failure_run.stdout, (
+            f"expected the pause prompt on failure too, got stdout={failure_run.stdout!r}"
+        )
+        print("readiness wrapper pause regression check: window pauses for Enter on both exit code 0 and non-zero, never auto-closes")
+
+
+def _run_get_property_value_endinvoke_regression_check(pwsh: str) -> None:
+    """Prove Get-PropertyValue correctly reads properties off a REAL EndInvoke() result.
+
+    Root cause (found 2026-07-01 while investigating why a user's screenshot still
+    showed a "Readiness output" popup wall even on code that should have suppressed it
+    via an AlreadyShown flag checked through Get-PropertyValue): [powershell]::EndInvoke()
+    wraps even a single output object in a PSDataCollection<PSObject> - confirmed
+    empirically in this sandbox - not the raw object. Direct dot-notation property
+    access ($Result.Status) transparently "reaches into" a collection with exactly one
+    element (PowerShell's own member-access adapter does this), but Get-PropertyValue's
+    own explicit `$Object.PSObject.Properties[$Name]` lookup does NOT get that same
+    treatment: it queries the wrapper collection's own properties (which of course never
+    has $Name), silently returning $DefaultValue every single time regardless of what the
+    real value inside actually was. This meant ANY call of the shape
+    `Get-PropertyValue $Result "SomeFlag" $false` against a Start-BackgroundUiWork/
+    EndInvoke() OnComplete "$Result" always returned $false, no matter what was really
+    set - which is exactly why the app's earlier AlreadyShown-based popup-suppression
+    fix could never have worked through that real code path (a bug that predated, and
+    was independent of, the specific AlreadyShown field itself - now removed entirely in
+    favor of never showing that popup at all, see
+    _run_readiness_window_regression_check). None of this project's other tests caught
+    this because they either called Get-SlaveReadinessResult directly (bypassing
+    EndInvoke() entirely) or stubbed out Start-BackgroundUiWork itself (also bypassing
+    EndInvoke() entirely) - this is the only test that drives a REAL RunspacePool +
+    BeginInvoke() + EndInvoke() and feeds its REAL return value into the REAL
+    Get-PropertyValue, matching the actual production code path exactly.
+
+    Fix: Get-PropertyValue now unwraps a same single-item, non-string, non-dictionary
+    ICollection before doing its property lookup, matching what direct dot-notation
+    access already does for that exact scenario - this protects every current and future
+    caller uniformly, not just the one call site that surfaced the bug.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-getpropertyvalue-check-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-getpropertyvalue-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+
+$iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+$pool = [runspacefactory]::CreateRunspacePool(1, 2, $iss, $Host)
+$pool.Open()
+$ps = [powershell]::Create()
+$ps.RunspacePool = $pool
+[void]$ps.AddScript({{ [pscustomobject]@{{ Status = "Ready"; SomeFlag = $true }} }})
+$async = $ps.BeginInvoke()
+while (-not $async.IsCompleted) {{ Start-Sleep -Milliseconds 10 }}
+$Result = $ps.EndInvoke($async)
+$ps.Dispose()
+$pool.Close()
+
+$results = [pscustomobject]@{{
+    ResultTypeName = $Result.GetType().Name
+    ResultCount = $Result.Count
+    DirectDotNotation = [bool]$Result.SomeFlag
+    ViaGetPropertyValue = [bool](Get-PropertyValue $Result "SomeFlag" $false)
+    MissingPropDefault = (Get-PropertyValue $Result "TotallyMissingProperty" "THE_DEFAULT")
+}}
+$results | ConvertTo-Json
+""".format(module_root=str(MODULE_ROOT)),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Get-PropertyValue/EndInvoke regression harness itself failed to run")
+
+        try:
+            parsed = json.loads(result.stdout.strip()) if result.stdout.strip() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse Get-PropertyValue/EndInvoke harness output as JSON")
+
+        assert parsed.get("ResultTypeName") == "PSDataCollection`1" and parsed.get("ResultCount") == 1, (
+            f"expected EndInvoke() to wrap the single output object in a 1-item "
+            f"PSDataCollection`1 (confirming the premise of this test still holds for "
+            f"this PowerShell version) - got type={parsed.get('ResultTypeName')!r} "
+            f"count={parsed.get('ResultCount')!r}"
+        )
+        assert parsed.get("DirectDotNotation") is True, (
+            "sanity check failed: direct dot-notation property access on the "
+            "EndInvoke() result should transparently unwrap the 1-item collection"
+        )
+        assert parsed.get("ViaGetPropertyValue") is True, (
+            "Get-PropertyValue must return the REAL property value when given a "
+            "1-item EndInvoke() collection wrapper, not silently fall back to the "
+            "default - this is exactly the bug that made an AlreadyShown-style "
+            "flag check against a background job's $Result always read as false"
+        )
+        assert parsed.get("MissingPropDefault") == "THE_DEFAULT", (
+            "Get-PropertyValue must still return the caller's default for a property "
+            "that genuinely does not exist on the unwrapped object, and must not "
+            "throw under Set-StrictMode -Version 2.0 while checking that"
+        )
+        print("Get-PropertyValue/EndInvoke regression check: property lookup against a real background-job result now matches direct dot-notation access")
 
 
 def main() -> int:
@@ -1163,7 +1376,18 @@ def main() -> int:
     assert "Duplicate-RunProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Preview-DraftProfile" in ui_tabs_module
     assert "function Get-ProfileEditorContext" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
-    assert "function Write-DebugLog" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    core_module_full = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert "function Write-DebugLog" in core_module_full
+    # See _run_get_property_value_endinvoke_regression_check docstring: EndInvoke()
+    # wraps even a single output object in a 1-item PSDataCollection, which
+    # Get-PropertyValue's property lookup did not account for, silently returning the
+    # default for every property of every Start-BackgroundUiWork OnComplete "$Result".
+    assert "ICollection" in core_module_full and "$Object.Count -eq 1" in core_module_full, (
+        "Get-PropertyValue must unwrap a same single-item, non-string, non-dictionary "
+        "collection before its property lookup, or every call site reading a property "
+        "off a background job's EndInvoke() result silently gets the default value back "
+        "no matter what was really set"
+    )
     assert "function Notify-ProfileTargetContextChanged" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "ProfileEditorBanner" in ui_tabs_module
     assert "LogLevel" in settings
@@ -1200,7 +1424,7 @@ def main() -> int:
     assert "function Get-ReadinessCheckerWrapperCommand" in ui_slave_module
     assert "$psi.WorkingDirectory = $checkerDir" in ui_slave_module
     assert "Split-Path -Parent $Checker" in ui_slave_module
-    assert "Press Enter to close this window" in ui_slave_module
+    assert "press Enter to close this window" in ui_slave_module
 
     # UseShellExecute=$true is required to guarantee the checker opens a genuinely new,
     # separate console window instead of silently sharing the UI's own (see
@@ -1212,11 +1436,37 @@ def main() -> int:
         "$true - UseShellExecute=$false does not create a new console, it silently "
         "shares whatever console (if any) the UI's own process is attached to"
     )
-    assert "AlreadyShown = $true" in ui_slave_module and "AlreadyShown = $false" in ui_slave_module, (
-        "Get-SlaveReadinessResult must mark separate-window results AlreadyShown=$true "
-        "so the caller does not pop a duplicate confirmation dialog"
+    # AlreadyShown was a first-pass fix for the duplicate-popup bug that turned out to be
+    # provably dead code (ShowOutput and ShowCheckerWindow are always the same value in
+    # the only caller, so the flag it gated was always true whenever read) - removed
+    # entirely in favor of unconditionally never showing that popup. Guard against it
+    # (or an equivalent dead flag under a different name) creeping back in.
+    assert "AlreadyShown" not in ui_slave_module, (
+        "AlreadyShown was removed as dead code (see git history) - do not reintroduce a "
+        "flag that only ever gates a popup no caller can reach the 'false' branch of"
     )
-    assert 'Get-PropertyValue $Result "AlreadyShown" $false' in ui_slave_module
+    assert 'Show-Info ([string]$Result.Output) "Readiness output"' not in ui_slave_module, (
+        "Start-SlaveReadinessCheck must not pop an app-level info dialog for a "
+        "Ready/Failed separate-window result - the checker's own window (which now "
+        "always pauses for Enter, see Get-ReadinessCheckerWrapperCommand) is already "
+        "sufficient, and a second popup per completed check is what piled up into a "
+        "wall of stacked dialogs when several checks completed close together"
+    )
+    # Get-ReadinessCheckerWrapperCommand must pause for Enter unconditionally, not only
+    # when its own $exitCode is non-zero - the shipped checker script exits 0
+    # unconditionally regardless of whether its own internal [OK]/[FAIL] checks passed,
+    # so gating the pause behind a non-zero exit code auto-closed the window before the
+    # user could read a failing check inside an exit-0 run.
+    assert "if (`$exitCode -ne 0) {" not in ui_slave_module, (
+        "the pause-for-Enter prompt must not be gated behind a non-zero exit code check "
+        "- the shipped checker script can exit 0 even when its own internal checks "
+        "reported [FAIL], so this condition auto-closed the window before those "
+        "failures could be read"
+    )
+    assert "Readiness checker finished (exit code 0)." in ui_slave_module, (
+        "expected an explicit exit-0 success message distinct from the non-zero-exit "
+        "message, printed just before the now-unconditional pause prompt"
+    )
     assert 'Row.Cells["Readiness"].Value -eq "Checking..."' in ui_slave_module, (
         "Start-SlaveReadinessCheck must ignore repeat clicks while a check for that row "
         "is already in flight, or repeated clicking piles up one background job + one "

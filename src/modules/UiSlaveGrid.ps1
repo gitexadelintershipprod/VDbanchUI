@@ -163,6 +163,16 @@ function Get-ReadinessCheckerWrapperCommand {
         [string]$CheckerArgs
     )
     $innerCommand = "& $QuotedChecker $CheckerArgs"
+    # ALWAYS pause for Enter before this window closes, regardless of the
+    # checker's own exit code - never auto-close. This used to only pause on
+    # a non-zero exit code, on the assumption that exit code 0 meant nothing
+    # worth reviewing. That assumption is wrong for checker scripts (like the
+    # shipped one) that print their own per-check [OK]/[FAIL] report lines
+    # but still exit 0 regardless of whether individual checks passed - exit
+    # code 0 here means "the script itself ran to completion", not "every
+    # check inside it passed". With the old code, a run with one or more
+    # internal [FAIL] lines but exit code 0 closed the window before the
+    # user had any chance to read which check(s) failed.
     return @"
 `$ErrorActionPreference = 'Stop'
 try {
@@ -174,12 +184,14 @@ try {
     Write-Host `$_.Exception.Message -ForegroundColor Red
     `$exitCode = 1
 }
-if (`$exitCode -ne 0) {
-    Write-Host ''
+Write-Host ''
+if (`$exitCode -eq 0) {
+    Write-Host 'Readiness checker finished (exit code 0).' -ForegroundColor Green
+} else {
     Write-Host ('Readiness checker finished with a non-zero exit code (' + `$exitCode + ').') -ForegroundColor Yellow
-    Write-Host 'Press Enter to close this window...'
-    `$null = Read-Host
 }
+Write-Host 'Review the output above, then press Enter to close this window...'
+`$null = Read-Host
 exit `$exitCode
 "@
 }
@@ -198,7 +210,6 @@ function Get-SlaveReadinessResult {
         return [pscustomobject]@{
             Status = "Checker missing"
             Output = ""
-            AlreadyShown = $false
         }
     }
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -216,13 +227,10 @@ function Get-SlaveReadinessResult {
         $psi.WorkingDirectory = $checkerDir
     }
     if ($ShowCheckerWindow) {
-        # Wrap the checker invocation so the window behaves well in BOTH
-        # outcomes: on success it closes itself immediately (no leftover
-        # window to dismiss); on failure it prints the real error and waits
-        # for Enter, so the user actually gets to read it instead of the
-        # window flashing open and closing before they can see what happened
-        # (this is what made a checker script param mismatch look like a
-        # silent/"strange" failure previously).
+        # Wrap the checker invocation so the window ALWAYS pauses for Enter
+        # before closing, regardless of the checker's own exit code - see
+        # Get-ReadinessCheckerWrapperCommand for why exit code 0 alone is not
+        # a safe signal that there is nothing worth reading.
         $wrapperCommand = Get-ReadinessCheckerWrapperCommand $quotedChecker $checkerArgs
         $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command " + (Quote-ProcessArgument $wrapperCommand)
         # UseShellExecute MUST be $true here to actually get a brand-new,
@@ -257,10 +265,6 @@ function Get-SlaveReadinessResult {
             return [pscustomobject]@{
                 Status = if ($p.ExitCode -eq 0) { "Ready" } else { "Failed" }
                 Output = "Readiness checker ran in a separate PowerShell window (exit code $($p.ExitCode))."
-                # The user already watched the real output live in that
-                # separate window, so the caller must not pop a duplicate
-                # confirmation dialog on top of it.
-                AlreadyShown = $true
             }
         }
         $out = $p.StandardOutput.ReadToEnd()
@@ -270,13 +274,11 @@ function Get-SlaveReadinessResult {
         return [pscustomobject]@{
             Status = $status
             Output = ($out + [Environment]::NewLine + $err).Trim()
-            AlreadyShown = $false
         }
     } catch {
         return [pscustomobject]@{
             Status = "Error"
             Output = $_.Exception.Message
-            AlreadyShown = $false
         }
     }
 }
@@ -389,15 +391,17 @@ function Start-SlaveReadinessCheck {
                 Show-Warning "Readiness checker path is missing or does not exist."
             } elseif ($status -eq "Error") {
                 Show-Warning ("Readiness checker failed to start: " + [string]$Result.Output)
-            } elseif (-not [bool](Get-PropertyValue $Result "AlreadyShown" $false) -and -not [string]::IsNullOrWhiteSpace([string]$Result.Output)) {
-                # AlreadyShown means the checker ran in its own separate
-                # window and the user already watched the real output live
-                # there; popping a redundant "ran in a separate window"
-                # dialog on top of it added nothing except another window to
-                # dismiss, and piled up badly when several checks were
-                # in flight or re-run.
-                Show-Info ([string]$Result.Output) "Readiness output"
             }
+            # Deliberately NO popup for "Ready"/"Failed" here. Those statuses
+            # only happen via the separate checker window (ShowCheckerWindow
+            # is always equal to ShowOutput - see below), which is now
+            # guaranteed to stay open, on both success AND failure, until the
+            # user presses Enter in it (see Get-ReadinessCheckerWrapperCommand)
+            # - it is already the single, sufficient place to read the
+            # result. A second, app-level "it ran" confirmation dialog on top
+            # of an already-open, already-waiting-for-input window adds
+            # nothing and is exactly what piled up into a wall of stacked
+            # dialogs when several checks completed close together.
         }
         Refresh-ConfigPreview
     }
