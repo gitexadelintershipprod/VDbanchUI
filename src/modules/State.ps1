@@ -428,6 +428,21 @@ function Apply-SlaveDefaults {
     $hostName = [string](Get-PropertyValue $Slave "Host" "")
     $user = [string](Get-PropertyValue $Slave "User" "")
     $vdbenchPath = [string](Get-PropertyValue $Slave "VdbenchPath" "")
+    # TestTarget exists ONLY to migrate a slave saved by a much older version
+    # of this app (before the richer Targets array existed) into the current
+    # Targets format, exactly once, when genuinely non-blank on input. It
+    # must NEVER be defaulted-then-written-back here: doing so used to make
+    # an untouched, freshly-added slave (Targets still empty, TestTarget
+    # never set by the user) look, on the very NEXT call to this function -
+    # which happens on almost any UI interaction, since both
+    # Capture-SlaveGrid and Populate-SlaveGrid call this - EXACTLY like a
+    # genuine legacy slave that already had a custom TestTarget, silently
+    # auto-selecting a default target the user never touched via Browse
+    # (real bug, found 2026-07-01, from a user report that a brand new
+    # slave row's Targets cell already showed something selected). Read the
+    # raw value once, use it only for the one-time migration check/call
+    # below, and pass it straight through unchanged for the returned
+    # object - never widen it with a computed default.
     $testTarget = [string](Get-PropertyValue $Slave "TestTarget" "")
     $targets = @(Normalize-TargetEntries @(Get-PropertyValue $Slave "Targets" @()))
     if ($targets.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($testTarget)) {
@@ -439,9 +454,6 @@ function Apply-SlaveDefaults {
     }
     if ([string]::IsNullOrWhiteSpace($vdbenchPath)) {
         $vdbenchPath = Get-DefaultVdbenchPathForOs $osType
-    }
-    if ([string]::IsNullOrWhiteSpace($testTarget)) {
-        $testTarget = Get-DefaultTestTargetForOs $osType
     }
     if ([string]::IsNullOrWhiteSpace($sshAlias)) {
         $sshAlias = Get-DefaultSshAliasForSlave $name $hostName

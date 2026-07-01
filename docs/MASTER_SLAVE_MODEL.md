@@ -75,6 +75,33 @@ Each slave entry contains:
 Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
 Each enabled host must pass readiness and have at least one selected target before a run can start.
 
+### Why a newly-added slave's Targets could show something selected with zero Browse clicks
+
+A freshly-added slave (via **Add slave**) always starts with an empty `Targets` list -
+nothing is, or should be, selected until the row's own **Browse** button is used to pick
+something explicitly.
+
+`Targets` used to become non-empty on its own, with a `Selected=true` entry, purely from
+normal use of the app - saving, switching tabs, or any grid edit - with no Browse click
+at all. Root cause: `Apply-SlaveDefaults` (`State.ps1`) is called on almost every one of
+those interactions (`Capture-SlaveGrid` on save/edit, `Populate-SlaveGrid` on load/
+refresh), and it used to default a blank, legacy `TestTarget` field (a much older,
+single-target field with no UI representation anymore, fully superseded by the current
+`Targets` array) to a computed value and write that computed value back into the
+returned slave object's own `TestTarget`. The *next* time `Apply-SlaveDefaults` ran on
+that same slave - which happens almost immediately, since the functions above run
+constantly - it saw a now non-blank `TestTarget` and, seeing `Targets` still empty,
+treated this exactly like a genuine, pre-existing legacy slave (from a version of the
+app that predates the `Targets` array entirely) that needed migrating, and
+unconditionally marked that value `Selected=true`.
+
+Fixed: `Apply-SlaveDefaults` now reads `TestTarget` once, uses it only for that one-time
+migration check, and passes it straight through completely unchanged into the returned
+object - it is never widened with a computed default. A slave's `Targets` now only ever
+becomes non-empty through an explicit **Browse** selection, or through migrating a
+genuinely pre-existing legacy `TestTarget` value from an old `slaves.json` (which still
+works correctly, and still only happens once).
+
 ### Why remote disk/folder discovery could fail with "'X' is not recognized..."
 
 Clicking **Browse** (or **New folder**) on a slave row runs a small script on that host

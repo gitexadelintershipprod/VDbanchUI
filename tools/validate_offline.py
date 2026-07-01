@@ -505,6 +505,7 @@ Invoke-AppSelfTest
     _run_get_property_value_endinvoke_regression_check(pwsh)
     _run_remote_ssh_quoting_regression_check(pwsh)
     _run_ssh_user_regression_check(pwsh)
+    _run_auto_target_selection_regression_check(pwsh)
     return True
 
 
@@ -1651,6 +1652,135 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         print("SSH user regression check: -l <user> correctly included when configured, correctly omitted when blank")
 
 
+def _run_auto_target_selection_regression_check(pwsh: str) -> None:
+    """Reproduce the "a target shows as selected but I never picked one" bug end-to-end.
+
+    Root cause (found 2026-07-01, from a user report that a Targets cell already showed
+    a selection right after adding a new slave, with no Browse click at all):
+    Apply-SlaveDefaults (State.ps1) used to default a blank TestTarget (a legacy,
+    pre-Targets-array field with no UI representation anymore) to
+    Get-DefaultTestTargetForOs(...) and then WRITE THAT COMPUTED DEFAULT BACK into the
+    returned object's own TestTarget field. Apply-SlaveDefaults runs on almost every UI
+    interaction (Capture-SlaveGrid on save/edit, Populate-SlaveGrid on load/refresh), so
+    the very NEXT call to it - which happens almost immediately after adding any new
+    slave - saw a now non-blank TestTarget (from the PREVIOUS call's own defaulting) and
+    treated it as if it were genuine, pre-existing legacy data requiring migration into
+    the Targets array, unconditionally marking it Selected=true - with zero Browse click,
+    zero user interaction of any kind.
+
+    Fix: Apply-SlaveDefaults reads the raw TestTarget once for the one-time legacy
+    migration check/call only, and passes it straight through unchanged into the
+    returned object - it is never widened with a computed default, so a genuinely blank
+    TestTarget stays blank forever (matching what Capture-SlaveGrid already explicitly
+    sets it to on every save), and the migration path only ever fires for a TRULY
+    pre-existing (never-computed) legacy value.
+
+    This check drives the real Apply-SlaveDefaults through a real pwsh process for a
+    freshly-added-slave shape across 10 repeated calls (simulating many UI interactions
+    in a row) and asserts Targets never becomes non-empty, while a genuinely
+    pre-populated legacy TestTarget (the ACTUAL, intended migration scenario) still
+    correctly migrates into a Selected Targets entry exactly once, without duplicating
+    on subsequent calls.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-auto-target-check-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-auto-target-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:Settings = [pscustomobject]@{{ PrivateKey = "" }}
+. (Join-Path "{module_root}" "Core.ps1")
+. (Join-Path "{module_root}" "State.ps1")
+
+# Exact shape of a freshly-added slave: Add-NewSlaveRow sets Targets to @() via
+# Set-SlaveRowTargets and never touches TestTarget at all.
+$fresh = [pscustomobject]@{{
+    Enabled = $false; Name = "Windows-001"; Host = "10.50.11.176"; OsType = "Windows"
+    User = "administrator"; VdbenchPath = "C:\\vdbench"; SshAlias = "Windows-001"; Targets = @()
+}}
+$maxTargetsSeenAcrossPasses = 0
+for ($i = 1; $i -le 10; $i++) {{
+    $fresh = Apply-SlaveDefaults $fresh
+    if ($fresh.Targets.Count -gt $maxTargetsSeenAcrossPasses) {{
+        $maxTargetsSeenAcrossPasses = $fresh.Targets.Count
+    }}
+}}
+
+# Genuine legacy migration scenario: an old-format slave saved by a much older
+# version of this app, with ONLY TestTarget set and no Targets array at all -
+# THIS is the one case that must still correctly migrate.
+$legacy = [pscustomobject]@{{
+    Enabled = $true; Name = "legacy-001"; Host = "10.0.0.50"; OsType = "Linux"
+    VdbenchPath = "/opt/vdbench"; TestTarget = "/dev/sdc"; SshAlias = "legacy-001"
+}}
+$migrated = Apply-SlaveDefaults $legacy
+$migratedAgain = Apply-SlaveDefaults $migrated
+
+$results = [pscustomobject]@{{
+    FreshSlaveFinalTargetsCount = $fresh.Targets.Count
+    FreshSlaveMaxTargetsSeenAcrossPasses = $maxTargetsSeenAcrossPasses
+    FreshSlaveFinalTestTarget = $fresh.TestTarget
+    MigratedTargetsCount = $migrated.Targets.Count
+    MigratedTargetValue = if ($migrated.Targets.Count -gt 0) {{ [string]$migrated.Targets[0].Target }} else {{ "" }}
+    MigratedTargetSelected = if ($migrated.Targets.Count -gt 0) {{ [bool]$migrated.Targets[0].Selected }} else {{ $false }}
+    MigratedAgainTargetsCount = $migratedAgain.Targets.Count
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Auto-target-selection regression harness itself failed to run")
+
+        results_path = Path(tmp_dir) / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse auto-target-selection harness output as JSON")
+
+        assert parsed.get("FreshSlaveMaxTargetsSeenAcrossPasses") == 0, (
+            f"a freshly-added slave (Targets=@(), TestTarget never set by the user) "
+            f"must NEVER end up with a non-empty Targets array after any number of "
+            f"repeated Apply-SlaveDefaults calls (which happen on almost every UI "
+            f"interaction) - got max Targets.Count={parsed.get('FreshSlaveMaxTargetsSeenAcrossPasses')!r} "
+            f"across 10 passes; this is exactly the bug where a target appeared "
+            f"Selected=true on a brand new slave row with zero Browse clicks"
+        )
+        assert parsed.get("FreshSlaveFinalTargetsCount") == 0
+        assert parsed.get("FreshSlaveFinalTestTarget") == "", (
+            f"a freshly-added slave's TestTarget must stay blank forever (never widened "
+            f"with a computed default) - got {parsed.get('FreshSlaveFinalTestTarget')!r}"
+        )
+
+        assert parsed.get("MigratedTargetsCount") == 1, (
+            f"a genuinely pre-existing legacy TestTarget must still migrate into exactly "
+            f"one Targets entry - got count={parsed.get('MigratedTargetsCount')!r}"
+        )
+        assert parsed.get("MigratedTargetValue") == "/dev/sdc"
+        assert parsed.get("MigratedTargetSelected") is True, (
+            "the genuinely migrated legacy target must be marked Selected=true (this "
+            "is the one legitimate case the whole migration mechanism exists for)"
+        )
+        assert parsed.get("MigratedAgainTargetsCount") == 1, (
+            f"re-running Apply-SlaveDefaults on an already-migrated slave must not "
+            f"duplicate the migrated target - got count={parsed.get('MigratedAgainTargetsCount')!r}"
+        )
+        print("auto-target-selection regression check: fresh slaves never auto-select a target across repeated calls, genuine legacy migration still works exactly once")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -1924,6 +2054,17 @@ def main() -> int:
         "real shipped checker script needs -WindowsHosts/-LinuxHosts (chosen by the "
         "row's OS) to know which host to actually check, confirmed by manually "
         "running it; an empty template silently skips checking the specific slave"
+    )
+    # See _run_auto_target_selection_regression_check docstring: Apply-SlaveDefaults
+    # must never default a blank TestTarget and write that COMPUTED value back into the
+    # returned object - doing so poisoned the very next call (which happens on almost
+    # every UI interaction) into treating it as genuine pre-existing legacy data,
+    # silently auto-selecting a target the user never touched via Browse.
+    assert "Get-DefaultTestTargetForOs $osType" not in state_module_full, (
+        "Apply-SlaveDefaults must not default a blank TestTarget via "
+        "Get-DefaultTestTargetForOs and write it back into the returned object - the "
+        "computed default becomes indistinguishable from genuine legacy data on the "
+        "very next call, silently auto-selecting a target with zero user interaction"
     )
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
