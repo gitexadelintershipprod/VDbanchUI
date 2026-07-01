@@ -1,7 +1,10 @@
 $script:SlaveGridRefreshing = $false
 
 function Get-SlaveRowState {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    # Untyped $Row (not [System.Windows.Forms.DataGridViewRow]) so this can be
+    # unit-tested with a plain mock object without WinForms loaded; PowerShell
+    # calls members duck-typed regardless of the declared parameter type.
+    param($Row)
     if ($null -eq $Row) {
         return @{ Targets = @(); ReadinessOutput = "" }
     }
@@ -21,11 +24,23 @@ function Get-SlaveRowState {
 }
 
 function Get-SlaveRowTargets {
-    param([System.Windows.Forms.DataGridViewRow]$Row)
+    param($Row)
     if ($null -eq $Row) {
         return @()
     }
-    return @(Normalize-TargetEntries @(Get-SlaveRowState $Row).Targets)
+    # NOTE: do not write "@(Get-SlaveRowState $Row).Targets" here. Under
+    # Set-StrictMode -Version 2.0 (enabled app-wide), wrapping a function
+    # call that returns a single hashtable/object in @() before accessing a
+    # property triggers PowerShell's per-element "member enumeration" on the
+    # resulting 1-item array instead of plain property access. When that
+    # property's value is an empty collection - true for every slave row
+    # until targets are picked via Browse - member enumeration collects zero
+    # results, and PowerShell raises "The property 'Targets' cannot be found
+    # on this object" even though the property exists. Accessing the
+    # property directly on the un-wrapped return value avoids this; @() is
+    # still applied to the final result to guarantee an array.
+    $state = Get-SlaveRowState $Row
+    return @(Normalize-TargetEntries $state.Targets)
 }
 
 function Set-SlaveRowTargets {
