@@ -502,6 +502,7 @@ Invoke-AppSelfTest
     _run_slave_targets_regression_check(pwsh)
     _run_readiness_window_regression_check(pwsh)
     _run_readiness_wrapper_pause_regression_check(pwsh)
+    _run_get_property_value_endinvoke_regression_check(pwsh)
     return True
 
 
@@ -1193,6 +1194,111 @@ Get-ReadinessCheckerWrapperCommand $quotedChecker ""
         print("readiness wrapper pause regression check: window pauses for Enter on both exit code 0 and non-zero, never auto-closes")
 
 
+def _run_get_property_value_endinvoke_regression_check(pwsh: str) -> None:
+    """Prove Get-PropertyValue correctly reads properties off a REAL EndInvoke() result.
+
+    Root cause (found 2026-07-01 while investigating why a user's screenshot still
+    showed a "Readiness output" popup wall even on code that should have suppressed it
+    via an AlreadyShown flag checked through Get-PropertyValue): [powershell]::EndInvoke()
+    wraps even a single output object in a PSDataCollection<PSObject> - confirmed
+    empirically in this sandbox - not the raw object. Direct dot-notation property
+    access ($Result.Status) transparently "reaches into" a collection with exactly one
+    element (PowerShell's own member-access adapter does this), but Get-PropertyValue's
+    own explicit `$Object.PSObject.Properties[$Name]` lookup does NOT get that same
+    treatment: it queries the wrapper collection's own properties (which of course never
+    has $Name), silently returning $DefaultValue every single time regardless of what the
+    real value inside actually was. This meant ANY call of the shape
+    `Get-PropertyValue $Result "SomeFlag" $false` against a Start-BackgroundUiWork/
+    EndInvoke() OnComplete "$Result" always returned $false, no matter what was really
+    set - which is exactly why the app's earlier AlreadyShown-based popup-suppression
+    fix could never have worked through that real code path (a bug that predated, and
+    was independent of, the specific AlreadyShown field itself - now removed entirely in
+    favor of never showing that popup at all, see
+    _run_readiness_window_regression_check). None of this project's other tests caught
+    this because they either called Get-SlaveReadinessResult directly (bypassing
+    EndInvoke() entirely) or stubbed out Start-BackgroundUiWork itself (also bypassing
+    EndInvoke() entirely) - this is the only test that drives a REAL RunspacePool +
+    BeginInvoke() + EndInvoke() and feeds its REAL return value into the REAL
+    Get-PropertyValue, matching the actual production code path exactly.
+
+    Fix: Get-PropertyValue now unwraps a same single-item, non-string, non-dictionary
+    ICollection before doing its property lookup, matching what direct dot-notation
+    access already does for that exact scenario - this protects every current and future
+    caller uniformly, not just the one call site that surfaced the bug.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-getpropertyvalue-check-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-getpropertyvalue-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+
+$iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+$pool = [runspacefactory]::CreateRunspacePool(1, 2, $iss, $Host)
+$pool.Open()
+$ps = [powershell]::Create()
+$ps.RunspacePool = $pool
+[void]$ps.AddScript({{ [pscustomobject]@{{ Status = "Ready"; SomeFlag = $true }} }})
+$async = $ps.BeginInvoke()
+while (-not $async.IsCompleted) {{ Start-Sleep -Milliseconds 10 }}
+$Result = $ps.EndInvoke($async)
+$ps.Dispose()
+$pool.Close()
+
+$results = [pscustomobject]@{{
+    ResultTypeName = $Result.GetType().Name
+    ResultCount = $Result.Count
+    DirectDotNotation = [bool]$Result.SomeFlag
+    ViaGetPropertyValue = [bool](Get-PropertyValue $Result "SomeFlag" $false)
+    MissingPropDefault = (Get-PropertyValue $Result "TotallyMissingProperty" "THE_DEFAULT")
+}}
+$results | ConvertTo-Json
+""".format(module_root=str(MODULE_ROOT)),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Get-PropertyValue/EndInvoke regression harness itself failed to run")
+
+        try:
+            parsed = json.loads(result.stdout.strip()) if result.stdout.strip() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse Get-PropertyValue/EndInvoke harness output as JSON")
+
+        assert parsed.get("ResultTypeName") == "PSDataCollection`1" and parsed.get("ResultCount") == 1, (
+            f"expected EndInvoke() to wrap the single output object in a 1-item "
+            f"PSDataCollection`1 (confirming the premise of this test still holds for "
+            f"this PowerShell version) - got type={parsed.get('ResultTypeName')!r} "
+            f"count={parsed.get('ResultCount')!r}"
+        )
+        assert parsed.get("DirectDotNotation") is True, (
+            "sanity check failed: direct dot-notation property access on the "
+            "EndInvoke() result should transparently unwrap the 1-item collection"
+        )
+        assert parsed.get("ViaGetPropertyValue") is True, (
+            "Get-PropertyValue must return the REAL property value when given a "
+            "1-item EndInvoke() collection wrapper, not silently fall back to the "
+            "default - this is exactly the bug that made an AlreadyShown-style "
+            "flag check against a background job's $Result always read as false"
+        )
+        assert parsed.get("MissingPropDefault") == "THE_DEFAULT", (
+            "Get-PropertyValue must still return the caller's default for a property "
+            "that genuinely does not exist on the unwrapped object, and must not "
+            "throw under Set-StrictMode -Version 2.0 while checking that"
+        )
+        print("Get-PropertyValue/EndInvoke regression check: property lookup against a real background-job result now matches direct dot-notation access")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -1270,7 +1376,18 @@ def main() -> int:
     assert "Duplicate-RunProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Preview-DraftProfile" in ui_tabs_module
     assert "function Get-ProfileEditorContext" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
-    assert "function Write-DebugLog" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    core_module_full = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert "function Write-DebugLog" in core_module_full
+    # See _run_get_property_value_endinvoke_regression_check docstring: EndInvoke()
+    # wraps even a single output object in a 1-item PSDataCollection, which
+    # Get-PropertyValue's property lookup did not account for, silently returning the
+    # default for every property of every Start-BackgroundUiWork OnComplete "$Result".
+    assert "ICollection" in core_module_full and "$Object.Count -eq 1" in core_module_full, (
+        "Get-PropertyValue must unwrap a same single-item, non-string, non-dictionary "
+        "collection before its property lookup, or every call site reading a property "
+        "off a background job's EndInvoke() result silently gets the default value back "
+        "no matter what was really set"
+    )
     assert "function Notify-ProfileTargetContextChanged" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "ProfileEditorBanner" in ui_tabs_module
     assert "LogLevel" in settings
