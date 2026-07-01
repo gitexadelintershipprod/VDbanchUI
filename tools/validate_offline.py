@@ -10,6 +10,7 @@ parameter files from the same catalog shape used by the UI.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -300,6 +301,59 @@ def validate_modules():
             assert text.count("{") == text.count("}"), f"unbalanced braces in module: {name}"
 
 
+# `.Count` / `.Length` are PowerShell-provided members present on every array
+# (even empty ones), so they never trigger the member-enumeration bug below.
+_ARRAY_WRAP_PROPERTY_SAFE_MEMBERS = {"Count", "Length"}
+_ARRAY_WRAP_PROPERTY_PATTERN = re.compile(r"@\([^()\n]*\)\.([A-Za-z_]\w*)\b(?!\s*\()")
+
+
+def validate_no_array_wrap_property_access():
+    """Statically ban `@(Expr).Property` for any Property other than Count/Length.
+
+    Root cause of a real production bug (found 2026-07-01, see
+    Get-SlaveRowTargets in UiSlaveGrid.ps1's git history): under
+    `Set-StrictMode -Version 2.0` (enabled app-wide via VdbenchUI.ps1),
+    wrapping a function call (or any single object) in the array
+    sub-expression operator `@()` and then accessing a *custom* property on
+    the result triggers PowerShell's per-element "member enumeration" on the
+    resulting array instead of plain property access on the original object.
+    When that property's value is itself an empty collection for every
+    element (e.g. a freshly-added slave row with no targets picked yet),
+    member enumeration collects zero results and PowerShell raises "The
+    property 'X' cannot be found on this object" -- even though the property
+    demonstrably exists. This reproduces with a two-line snippet with no
+    WinForms/app code involved at all:
+
+        Set-StrictMode -Version 2.0
+        @(@{ Targets = @() }).Targets   # throws "cannot be found"
+        (@{ Targets = @() }).Targets    # returns @() correctly
+
+    The fix is always the same: access the property directly on the
+    un-wrapped expression, e.g. `(Expr).Property`, and apply @() (if needed)
+    to the *result* of that property access instead: `@((Expr).Property)`.
+    This scan allows `.Count`/`.Length` (safe, see above) and method calls
+    (`.Foo(...)`, which this bug does not affect) but fails the build on any
+    other `@(...).Property` usage anywhere in src/.
+    """
+    violations = []
+    for path in sorted(MODULE_ROOT.glob("*.ps1")) + sorted((ROOT / "src").glob("*.ps1")):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if line.strip().startswith("#"):
+                continue
+            for match in _ARRAY_WRAP_PROPERTY_PATTERN.finditer(line):
+                member = match.group(1)
+                if member in _ARRAY_WRAP_PROPERTY_SAFE_MEMBERS:
+                    continue
+                violations.append(f"{path.relative_to(ROOT)}:{lineno}: @(...).{member}  -->  {line.strip()}")
+    assert not violations, (
+        "Dangerous '@(Expr).Property' pattern found (member-enumeration bug under "
+        "Set-StrictMode -Version 2.0 when Property is an empty collection for every "
+        "element - see validate_no_array_wrap_property_access docstring):\n"
+        + "\n".join(violations)
+    )
+
+
 def validate_golden_fixtures():
     for name, expected in GOLDEN_FIXTURES.items():
         path = FIXTURE_ROOT / name
@@ -445,7 +499,129 @@ Invoke-AppSelfTest
             raise AssertionError("Invoke-AppSelfTest failed under real PowerShell execution")
 
     _run_readiness_regression_check(pwsh)
+    _run_slave_targets_regression_check(pwsh)
     return True
+
+
+def _run_slave_targets_regression_check(pwsh: str) -> None:
+    """Reproduce the "property 'Targets' cannot be found" crash end-to-end.
+
+    Root cause (found 2026-07-01): Get-SlaveRowTargets used to read
+    `@(Get-SlaveRowState $Row).Targets` -- wrapping the function call in @()
+    before accessing .Targets. Under Set-StrictMode -Version 2.0, that
+    triggers PowerShell's per-element "member enumeration" on the resulting
+    1-item array instead of plain property access; when .Targets is an empty
+    array (true for every slave row until the user picks targets via
+    Browse), member enumeration collects zero results and PowerShell raises
+    "The property 'Targets' cannot be found on this object" -- even though
+    the property demonstrably exists. This broke essentially every
+    interaction with a freshly-added slave (tab switches, Save, Browse,
+    Readiness, Enabled toggling) since Capture-SlaveGrid calls
+    Get-SlaveRowTargets for every row on every call.
+
+    This check drives the real Capture-SlaveGrid/Get-EnabledSlaves/
+    Get-ProfileEditorContext/Resolve-RunTestKind/Get-SlaveRowTargets
+    functions against a mocked SlaveGrid containing rows with zero targets
+    selected (the exact state right after "Add slave"), which is exactly
+    the scenario that used to crash.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-targets-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        harness_script = tmp_path / "run-targets-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:RunStateRoot = Join-Path $script:DataRoot "runs"
+$script:LogRoot = "{tmp_dir}/logs"
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+$script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:Settings = $null
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:Catalog = @()
+$script:CurrentProfile = $null
+$script:RunProfile = $null
+$script:ProfileEditorLocked = $true
+$script:LocalHostTargetGrid = $null
+$script:RefreshingLocalTargets = $false
+$script:RunModeCombo = $null
+$script:ModuleRoot = "{module_root}"
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+Initialize-AppState
+Set-PropertyValue $script:Settings "RunMode" "Master/Slave distributed run"
+
+function New-MockCellCollection {{
+    $cells = @{{}}
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","Notes")) {{
+        $cells[$col] = [pscustomobject]@{{ Value = "" }}
+    }}
+    return $cells
+}}
+function New-MockSlaveRow {{
+    param([string]$SlaveName, [string]$HostName)
+    $row = [pscustomobject]@{{ Tag = $null; IsNewRow = $false; Index = 0; Cells = (New-MockCellCollection) }}
+    $row.Cells["Name"].Value = $SlaveName
+    $row.Cells["Host"].Value = $HostName
+    $row.Cells["Enabled"].Value = $false
+    $row.Cells["OsType"].Value = "Windows"
+    return $row
+}}
+
+# Exact state right after clicking "Add slave" twice and entering a Host,
+# before ever touching Browse - zero targets selected on every row.
+$row1 = New-MockSlaveRow "slave-1" "10.50.11.183"
+$row2 = New-MockSlaveRow "slave-2" "10.50.11.184"
+$script:SlaveGrid = [pscustomobject]@{{ Rows = @($row1, $row2) }}
+
+$errors = @()
+function Test-Step {{
+    param([string]$Label, [scriptblock]$Action)
+    try {{
+        & $Action
+    }} catch {{
+        $script:errors += "$Label -- $($_.Exception.Message)"
+    }}
+}}
+
+Test-Step "Capture-SlaveGrid" {{ Capture-SlaveGrid }}
+Test-Step "Get-EnabledSlaves" {{ $null = @(Get-EnabledSlaves) }}
+Test-Step "Get-ProfileEditorContext" {{ $null = Get-ProfileEditorContext }}
+Test-Step "Resolve-RunTestKind" {{ $null = Resolve-RunTestKind }}
+Test-Step "Get-SlaveRowTargets (Browse button path)" {{ $null = @(Get-SlaveRowTargets $row1) }}
+Test-Step "Get-SelectedTargetEntries(Get-SlaveRowTargets) (Readiness button path)" {{ $null = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $row1)) }}
+
+if ($errors.Count -gt 0) {{
+    foreach ($e in $errors) {{ Write-Host "STEP FAILED: $e" }}
+    exit 1
+}}
+Write-Host "All slave-targets regression steps passed"
+""".format(app_root=str(ROOT), tmp_dir=tmp_dir.replace("\\", "/"), module_root=str(MODULE_ROOT)),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True,
+        )
+        print(result.stdout.strip())
+        if result.returncode != 0:
+            print(result.stderr.strip())
+            raise AssertionError(
+                "Slave-targets regression check failed: a freshly-added slave row with "
+                "no targets selected yet crashed one of Capture-SlaveGrid/Get-EnabledSlaves/"
+                "Get-ProfileEditorContext/Resolve-RunTestKind/Get-SlaveRowTargets"
+            )
 
 
 def _run_readiness_regression_check(pwsh: str) -> None:
@@ -597,6 +773,7 @@ def main() -> int:
 
     validate_catalog(catalog)
     validate_modules()
+    validate_no_array_wrap_property_access()
     validate_golden_fixtures()
     powershell_checks_ran = run_powershell_checks()
 

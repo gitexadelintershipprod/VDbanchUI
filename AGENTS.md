@@ -39,6 +39,26 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     never in Timer/event-handler closures). Also beware that a single `[runspace]` can only
     run one pipeline at a time — concurrent background jobs need a `RunspacePool`, not a
     shared `Runspace` (see `Initialize-BackgroundRunspace`).
+  - Beware: **never write `@(Expr).Property`** (array-wrap a single object/function-call
+    result, then dot into a custom property) anywhere in `src/`. Under
+    `Set-StrictMode -Version 2.0` (enabled app-wide), this triggers PowerShell's per-element
+    "member enumeration" on the resulting 1-item array instead of plain property access; if
+    `Property`'s value happens to be an empty collection (e.g. a slave row with no targets
+    picked yet), enumeration collects zero results and PowerShell throws "The property 'X'
+    cannot be found on this object" — even though the property demonstrably exists. Reproduces
+    with zero app code: `Set-StrictMode -Version 2.0; @(@{ Targets = @() }).Targets` throws,
+    while `(@{ Targets = @() }).Targets` returns `@()` correctly. This is exactly the bug
+    behind a real production crash (`Get-SlaveRowTargets` in `UiSlaveGrid.ps1`) that broke
+    almost every interaction with a freshly-added slave. Fix: drop the inner `@()` and access
+    the property on the bare expression, wrapping the *result* in `@()` if you need an array:
+    `@((Expr).Property)`. `validate_offline.py`'s `validate_no_array_wrap_property_access()`
+    statically bans this pattern app-wide (except `.Count`/`.Length`, which are always safe) —
+    do not bypass or weaken that check.
+  - Relatedly: capturing a function's return value via plain `$var = Some-Function` (or
+    passing it as an unwrapped argument) can also give `$var` `$null` instead of an empty
+    array if the function outputs zero pipeline objects — wrap the *call site* in `@()`
+    (`$var = @(Some-Function)`) whenever the function might legitimately return nothing, before
+    touching `.Count` or any property directly on the result.
   - `python3 tools/validate_offline.py` automatically detects `pwsh` on PATH and runs the
     real syntax-parse + `Invoke-AppSelfTest` checks as part of the normal offline validation
     (prints "real PowerShell syntax + self-test checks: ran"). If `pwsh` is missing it skips
