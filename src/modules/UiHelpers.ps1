@@ -177,20 +177,19 @@ function Invoke-GridBatchUpdate {
     }
 }
 
-$script:BackgroundRunspace = $null
-$script:BackgroundRunspaceLock = New-Object object
+$script:BackgroundRunspacePool = $null
+$script:BackgroundUiJobs = @{}
+$script:BackgroundUiPollTimer = $null
 
 function Initialize-BackgroundRunspace {
-    if ($null -ne $script:BackgroundRunspace) {
+    # Uses a RunspacePool (not a single shared Runspace) because a single
+    # Runspace can only run one pipeline at a time: two background jobs
+    # started close together (e.g. Readiness + Ping, or two slave rows)
+    # would otherwise fail with "Pipelines cannot be run concurrently."
+    if ($null -ne $script:BackgroundRunspacePool) {
         return
     }
-    $script:BackgroundRunspace = [runspacefactory]::CreateRunspace()
-    $script:BackgroundRunspace.Open()
-
-    $ps = [powershell]::Create()
-    $ps.Runspace = $script:BackgroundRunspace
-    try {
-        $initScript = @"
+    $initScript = @"
 Set-StrictMode -Version 2.0
 `$ErrorActionPreference = 'Stop'
 `$script:AppRoot = '$([string]$script:AppRoot -replace "'", "''")'
@@ -209,49 +208,39 @@ Set-StrictMode -Version 2.0
 `$script:LocalHostTargets = @()
 `$script:Catalog = @()
 "@
-        [void]$ps.AddScript($initScript)
-        foreach ($moduleName in @(
-            "Core.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
-            "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1"
-        )) {
-            $modulePath = (Join-Path $script:ModuleRoot $moduleName) -replace "'", "''"
-            [void]$ps.AddScript(". '$modulePath'")
-        }
-        $null = $ps.Invoke()
-        if ($ps.HadErrors) {
-            $errors = @($ps.Streams.Error | ForEach-Object { $_.ToString() })
-            throw ("Background runspace initialization failed: {0}" -f ($errors -join "; "))
-        }
-        Write-DebugLog "Background runspace initialized"
-    } finally {
-        $ps.Dispose()
-    }
-}
+    Ensure-Directory $script:LogRoot
+    $initScriptPath = Join-Path $script:LogRoot "background-init.generated.ps1"
+    Set-Content -LiteralPath $initScriptPath -Value $initScript -Encoding UTF8
 
-function Invoke-BackgroundUiWorkItem {
-    param(
-        [scriptblock]$Work,
-        [hashtable]$Context,
-        $Runspace = $null
-    )
-    if ($null -eq $Runspace) {
-        if ($null -eq $script:BackgroundRunspace) {
-            Initialize-BackgroundRunspace
-        }
-        $Runspace = $script:BackgroundRunspace
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    [void]$iss.StartupScripts.Add($initScriptPath)
+    foreach ($moduleName in @(
+        "Core.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
+        "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1"
+    )) {
+        [void]$iss.StartupScripts.Add((Join-Path $script:ModuleRoot $moduleName))
     }
-    [System.Threading.Monitor]::Enter($script:BackgroundRunspaceLock)
+
+    $pool = [runspacefactory]::CreateRunspacePool(1, 4, $iss, $Host)
+    $pool.Open()
+
+    # Validate the pool actually initializes cleanly (catches bad module paths
+    # or startup script errors immediately instead of failing silently later).
+    $probe = [powershell]::Create()
+    $probe.RunspacePool = $pool
+    [void]$probe.AddScript("Get-Command Get-SlaveReadinessResult -ErrorAction Stop | Out-Null")
     try {
-        $previous = [runspace]::DefaultRunspace
-        try {
-            [runspace]::DefaultRunspace = $Runspace
-            return & $Work $Context
-        } finally {
-            [runspace]::DefaultRunspace = $previous
+        $null = $probe.Invoke()
+        if ($probe.HadErrors) {
+            $errors = @($probe.Streams.Error | ForEach-Object { $_.ToString() })
+            throw ("Background runspace pool initialization failed: {0}" -f ($errors -join "; "))
         }
     } finally {
-        [System.Threading.Monitor]::Exit($script:BackgroundRunspaceLock)
+        $probe.Dispose()
     }
+
+    $script:BackgroundRunspacePool = $pool
+    Write-DebugLog "Background runspace pool initialized"
 }
 
 function Get-BackgroundUiErrorMessage {
@@ -263,15 +252,73 @@ function Get-BackgroundUiErrorMessage {
     if ($null -ne $ErrorObject.PSObject.Properties["Exception"] -and $null -ne $ErrorObject.Exception) {
         $candidate = $ErrorObject.Exception
     }
+    # Unwrap nested exceptions (e.g. MethodInvocationException from EndInvoke)
+    # down to the innermost message, which is the actual root cause.
+    while ($null -ne $candidate.PSObject.Properties["InnerException"] -and $null -ne $candidate.InnerException) {
+        $candidate = $candidate.InnerException
+    }
     if ($null -ne $candidate.PSObject.Properties["Message"]) {
         return [string]$candidate.Message
     }
     return [string]$candidate
 }
 
+function Initialize-BackgroundUiPollTimer {
+    if ($null -ne $script:BackgroundUiPollTimer) {
+        return
+    }
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 120
+    # IMPORTANT: PowerShell scriptblocks bound to .NET events (Add_Tick) do NOT
+    # capture local variables from the function that created the timer unless
+    # .GetNewClosure() is used. Pending jobs are therefore tracked in the
+    # $script:BackgroundUiJobs dictionary instead of relying on closures here.
+    $timer.Add_Tick({
+        param($sender, $eventArgs)
+        if ($script:BackgroundUiJobs.Count -eq 0) {
+            return
+        }
+        $doneIds = @()
+        foreach ($jobId in @($script:BackgroundUiJobs.Keys)) {
+            $job = $script:BackgroundUiJobs[$jobId]
+            if (-not $job.Async.IsCompleted) {
+                continue
+            }
+            $doneIds += $jobId
+            $workResult = $null
+            $workErrorMessage = $null
+            try {
+                $workResult = $job.PowerShellInstance.EndInvoke($job.Async)
+                if ($job.PowerShellInstance.HadErrors) {
+                    $workErrorMessage = @($job.PowerShellInstance.Streams.Error | ForEach-Object { $_.ToString() }) -join "; "
+                }
+            } catch {
+                $workErrorMessage = Get-BackgroundUiErrorMessage $_
+            } finally {
+                $job.PowerShellInstance.Dispose()
+            }
+            Write-DebugLog ("Background UI work finished: id={0} error={1}" -f $jobId, [bool]$workErrorMessage)
+            try {
+                if ($null -ne $workErrorMessage) {
+                    & $job.OnComplete $null $workErrorMessage $job.Context
+                } else {
+                    & $job.OnComplete $workResult $null $job.Context
+                }
+            } catch {
+                Write-AppLog ("Background UI OnComplete handler failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+            }
+        }
+        foreach ($jobId in $doneIds) {
+            [void]$script:BackgroundUiJobs.Remove($jobId)
+        }
+    })
+    $timer.Start()
+    $script:BackgroundUiPollTimer = $timer
+}
+
 function Start-BackgroundUiWork {
     param(
-        [System.Windows.Forms.Control]$Owner,
+        $Owner,
         [scriptblock]$OnComplete,
         [hashtable]$Context = @{},
         [scriptblock]$Work = $null,
@@ -293,11 +340,12 @@ function Start-BackgroundUiWork {
         }
         return
     }
-    if ($null -eq $script:BackgroundRunspace) {
+    if ($null -eq $script:BackgroundRunspacePool) {
         Initialize-BackgroundRunspace
     }
+    Initialize-BackgroundUiPollTimer
     $ps = [powershell]::Create()
-    $ps.Runspace = $script:BackgroundRunspace
+    $ps.RunspacePool = $script:BackgroundRunspacePool
     if (-not [string]::IsNullOrWhiteSpace($CommandName)) {
         [void]$ps.AddCommand($CommandName).AddParameter("Context", $Context)
     } else {
@@ -306,35 +354,13 @@ function Start-BackgroundUiWork {
             & $Work $Context
         }).AddArgument($Work).AddArgument($Context)
     }
-    Write-DebugLog ("Background UI work started: {0}" -f ($(if ($CommandName) { $CommandName } else { "scriptblock" })))
+    $jobId = [guid]::NewGuid().ToString()
+    Write-DebugLog ("Background UI work started: id={0} command={1}" -f $jobId, ($(if ($CommandName) { $CommandName } else { "scriptblock" })))
     $async = $ps.BeginInvoke()
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 100
-    $timer.Add_Tick({
-        param($sender, $eventArgs)
-        if (-not $async.IsCompleted) {
-            return
-        }
-        $sender.Stop()
-        $sender.Dispose()
-        $workResult = $null
-        $workErrorMessage = $null
-        try {
-            $workResult = $ps.EndInvoke($async)
-            if ($ps.HadErrors) {
-                $workErrorMessage = @($ps.Streams.Error | ForEach-Object { $_.ToString() }) -join "; "
-            }
-        } catch {
-            $workErrorMessage = Get-BackgroundUiErrorMessage $_
-        } finally {
-            $ps.Dispose()
-        }
-        Write-DebugLog ("Background UI work finished: error={0}" -f [bool]$workErrorMessage)
-        if ($null -ne $workErrorMessage) {
-            & $OnComplete $null $workErrorMessage $Context
-        } else {
-            & $OnComplete $workResult $null $Context
-        }
-    })
-    $timer.Start()
+    $script:BackgroundUiJobs[$jobId] = [pscustomobject]@{
+        PowerShellInstance = $ps
+        Async = $async
+        OnComplete = $OnComplete
+        Context = $Context
+    }
 }

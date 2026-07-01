@@ -158,7 +158,11 @@ function Get-SlaveReadinessResult {
     $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target
     $quotedChecker = Quote-ProcessArgument $Checker
     if ($ShowCheckerWindow) {
-        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -NoExit -File $quotedChecker $checkerArgs"
+        # No -NoExit: the console window shows live script output and closes
+        # automatically when the checker finishes, so WaitForExit() below
+        # returns promptly and the Readiness status updates without the user
+        # having to manually close the window.
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
         $psi.CreateNoWindow = $false
     } else {
         $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
