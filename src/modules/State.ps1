@@ -490,6 +490,36 @@ function Normalize-SlaveEntry {
     return Apply-SlaveDefaults $Item
 }
 
+function Migrate-LegacySettings {
+    # Settings values that shipped as defaults in earlier versions but turned out
+    # to be broken/harmful. Merge-DefaultProperties only fills in MISSING keys, so
+    # a machine whose data/settings.json was already seeded with a bad default
+    # would otherwise keep it forever. Each entry here is only applied if the
+    # current value still exactly matches the old broken default, so intentional
+    # user customizations are never overwritten.
+    param([object]$Settings)
+    $changed = $false
+    $legacyDefaults = @{
+        # Real-world readiness checker scripts commonly use [CmdletBinding()],
+        # which makes PowerShell throw "A parameter cannot be found that matches
+        # parameter name 'HostName'." for ANY unrecognized named parameter. Most
+        # checker scripts (see docs/MASTER_SLAVE_MODEL.md) are written to check
+        # every configured host in one run and take no arguments at all, so the
+        # safe default is empty; per-host tokens remain available for checker
+        # scripts that explicitly declare matching parameters.
+        "ReadinessCheckerArguments" = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
+    }
+    foreach ($key in $legacyDefaults.Keys) {
+        $current = [string](Get-PropertyValue $Settings $key "")
+        if ($current -eq $legacyDefaults[$key]) {
+            Set-PropertyValue $Settings $key ""
+            Write-DebugLog ("Migrated legacy default setting '{0}' to empty string" -f $key)
+            $changed = $true
+        }
+    }
+    return $changed
+}
+
 function Initialize-AppState {
     Ensure-Directory $script:DataRoot
     Ensure-Directory $script:ProfileRoot
@@ -502,8 +532,12 @@ function Initialize-AppState {
     if ($null -eq $script:Settings) {
         $script:Settings = $defaultSettings
         Write-JsonFile $script:SettingsPath $script:Settings
-    } elseif (Merge-DefaultProperties $script:Settings $defaultSettings) {
-        Write-JsonFile $script:SettingsPath $script:Settings
+    } else {
+        $mergedChanged = Merge-DefaultProperties $script:Settings $defaultSettings
+        $migratedChanged = Migrate-LegacySettings $script:Settings
+        if ($mergedChanged -or $migratedChanged) {
+            Write-JsonFile $script:SettingsPath $script:Settings
+        }
     }
 
     $script:Catalog = @(Read-JsonFile $script:CatalogPath @())

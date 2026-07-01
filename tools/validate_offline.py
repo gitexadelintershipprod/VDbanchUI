@@ -444,7 +444,151 @@ Invoke-AppSelfTest
             print(result.stderr.strip())
             raise AssertionError("Invoke-AppSelfTest failed under real PowerShell execution")
 
+    _run_readiness_regression_check(pwsh)
     return True
+
+
+def _run_readiness_regression_check(pwsh: str) -> None:
+    """Reproduce the real Readiness-check bug end-to-end and prove the fix.
+
+    Root cause (found by actually installing pwsh and running the code,
+    2026-07-01): the shipped ReadinessCheckerArguments default
+    ("-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}") throws
+    "A parameter cannot be found that matches parameter name 'HostName'."
+    against any checker script using [CmdletBinding()] with no matching
+    parameters declared -- which is exactly how real-world "check every
+    configured host in one run" checker scripts are commonly written (see
+    docs/MASTER_SLAVE_MODEL.md). This regression check builds such a fake
+    checker, calls the real Get-SlaveReadinessResult with both the legacy and
+    current default, and asserts the legacy one fails with that exact message
+    while the current default succeeds -- plus verifies the checker's own
+    working directory is set deterministically (its own folder) rather than
+    inherited from whatever launched the UI, which is what let stray output
+    end up outside the real Vdbench install.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-readiness-check-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        # powershell.exe does not exist on Linux; Get-SlaveReadinessResult
+        # hardcodes that filename (matching the real Windows target), so give
+        # subprocess a PATH-resolvable shim that forwards to pwsh.
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        shim_path = shim_dir / "powershell.exe"
+        shim_path.write_text(f"#!/bin/sh\nexec \"{pwsh}\" \"$@\"\n", encoding="utf-8")
+        shim_path.chmod(0o755)
+
+        checker_dir = tmp_path / "checker-home"
+        checker_dir.mkdir()
+        checker_path = checker_dir / "04-Check-Vdbench-Hosts-Readiness.ps1"
+        checker_path.write_text(
+            "[CmdletBinding()]\n"
+            "param()\n"
+            "Write-Host 'Checking Master readiness'\n"
+            "Write-Host '[OK]  MASTER  fake host check'\n"
+            "New-Item -ItemType Directory -Path '.\\relative-output' -Force | Out-Null\n"
+            "Set-Content -Path '.\\relative-output\\marker.txt' -Value 'created by fake checker'\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+
+        wrong_launch_dir = tmp_path / "wrong-launch-dir"
+        wrong_launch_dir.mkdir()
+
+        harness_script = tmp_path / "run-readiness-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:ModuleRoot = "{module_root}"
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+Set-Location "{wrong_launch_dir}"
+
+$legacy = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}" $false
+$current = Get-SlaveReadinessResult "10.0.0.1" "C:\\vdbench" "C:\\vdbench\\test" "{checker_path}" "" $false
+
+# A machine that already ran an earlier version has data/settings.json seeded
+# with the old broken default forever, since Merge-DefaultProperties only ever
+# ADDS missing keys. Prove Migrate-LegacySettings actually cleans that up, and
+# leaves a deliberately-customized value alone.
+$legacySettings = [pscustomobject]@{{ ReadinessCheckerArguments = "-HostName {{Host}} -VdbenchPath {{VdbenchPath}} -Target {{Target}}" }}
+$migratedLegacy = Migrate-LegacySettings $legacySettings
+$customSettings = [pscustomobject]@{{ ReadinessCheckerArguments = "-MyCustomFlag foo" }}
+$migratedCustom = Migrate-LegacySettings $customSettings
+
+$results = [pscustomobject]@{{
+    LegacyStatus = $legacy.Status
+    LegacyOutput = $legacy.Output
+    CurrentStatus = $current.Status
+    MarkerNextToChecker = (Test-Path (Join-Path "{checker_dir}" "relative-output/marker.txt"))
+    MarkerInWrongDir = (Test-Path (Join-Path "{wrong_launch_dir}" "relative-output"))
+    MigratedLegacyChanged = [bool]$migratedLegacy
+    MigratedLegacyValue = $legacySettings.ReadinessCheckerArguments
+    MigratedCustomChanged = [bool]$migratedCustom
+    MigratedCustomValue = $customSettings.ReadinessCheckerArguments
+}}
+$results | ConvertTo-Json
+""".format(
+                module_root=str(MODULE_ROOT),
+                wrong_launch_dir=str(wrong_launch_dir),
+                checker_path=str(checker_path),
+                checker_dir=str(checker_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = str(shim_dir) + ":" + env.get("PATH", "")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, cwd=str(wrong_launch_dir), env=env,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Readiness regression harness itself failed to run")
+
+        try:
+            parsed = json.loads(result.stdout.strip()) if result.stdout.strip() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Could not parse readiness regression harness output as JSON")
+
+        assert parsed.get("LegacyStatus") == "Failed", (
+            f"expected legacy ReadinessCheckerArguments default to fail against a "
+            f"[CmdletBinding()] checker, got status={parsed.get('LegacyStatus')!r}"
+        )
+        assert "parameter cannot be found" in str(parsed.get("LegacyOutput", "")), (
+            f"expected the exact PowerShell parameter-binding error, got: {parsed.get('LegacyOutput')!r}"
+        )
+        assert parsed.get("CurrentStatus") == "Ready", (
+            f"expected empty-args current default to succeed, got status={parsed.get('CurrentStatus')!r}"
+        )
+        assert not parsed.get("MarkerInWrongDir"), (
+            "checker's relative-path output leaked into the directory the UI happened "
+            "to be launched from instead of staying next to the checker script"
+        )
+        assert parsed.get("MarkerNextToChecker"), (
+            "checker's relative-path output should land next to the checker script "
+            "itself (WorkingDirectory fix), matching how it behaves when a user runs "
+            "it manually from Explorer"
+        )
+        assert parsed.get("MigratedLegacyChanged") and parsed.get("MigratedLegacyValue") == "", (
+            f"Migrate-LegacySettings should clear the legacy default to empty, "
+            f"got changed={parsed.get('MigratedLegacyChanged')!r} value={parsed.get('MigratedLegacyValue')!r}"
+        )
+        assert not parsed.get("MigratedCustomChanged") and parsed.get("MigratedCustomValue") == "-MyCustomFlag foo", (
+            f"Migrate-LegacySettings must not touch a deliberately customized value, "
+            f"got changed={parsed.get('MigratedCustomChanged')!r} value={parsed.get('MigratedCustomValue')!r}"
+        )
+        print("readiness regression check: legacy default fails as expected, current default + WorkingDirectory fix verified")
 
 
 def main() -> int:
@@ -556,6 +700,27 @@ def main() -> int:
     assert "BackgroundWorker" not in ui_helpers_module
     assert "$ps.BeginInvoke()" in ui_helpers_module
     assert "CommandName" in ui_helpers_module
+
+    assert "function Get-ReadinessCheckerWrapperCommand" in ui_slave_module
+    assert "$psi.WorkingDirectory = $checkerDir" in ui_slave_module
+    assert "Split-Path -Parent $Checker" in ui_slave_module
+    assert "Press Enter to close this window" in ui_slave_module
+
+    state_module_full = (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Migrate-LegacySettings" in state_module_full
+    assert "Migrate-LegacySettings $script:Settings" in state_module_full
+    # The old default broke any checker script using [CmdletBinding()] (PowerShell
+    # throws "A parameter cannot be found..." for unknown named params). Both the
+    # shipped default AND the migration for already-initialized settings.json
+    # files must agree on the same legacy value being replaced with "".
+    legacy_readiness_args = "-HostName {Host} -VdbenchPath {VdbenchPath} -Target {Target}"
+    assert legacy_readiness_args in state_module_full
+    assert settings.get("ReadinessCheckerArguments") == "", (
+        "default-settings.json should ship an empty ReadinessCheckerArguments: "
+        "most checker scripts check every configured host in one run and take "
+        "no arguments, and scripts using [CmdletBinding()] hard-error on any "
+        "unrecognized named parameter"
+    )
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
     assert "-Context $readyContext" in ui_slave_module
