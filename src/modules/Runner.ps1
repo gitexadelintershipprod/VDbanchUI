@@ -276,7 +276,7 @@ function Initialize-TestFilesForRun {
         $sshParts = New-RemoteSshArguments $item.Owner
         if ([string]$item.OsType -eq "Linux") {
             $quotedPath = Convert-ToShellSingleQuoted $path
-            $remote = "mkdir -p -- `"$(dirname -- $quotedPath)`" && : > $quotedPath"
+            $remote = "mkdir -p -- `"`$(dirname -- $quotedPath)`" && : > $quotedPath"
             [void]$sshParts.Add("sh")
             [void]$sshParts.Add("-lc")
             [void]$sshParts.Add((Quote-ProcessArgument $remote))

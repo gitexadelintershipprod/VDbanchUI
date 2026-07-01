@@ -308,6 +308,145 @@ def validate_golden_fixtures():
         assert content == expected, f"golden fixture drift in {name}"
 
 
+def run_powershell_checks() -> bool:
+    """Actually parse and execute PowerShell where possible.
+
+    This project's real logic runs in Windows PowerShell/WinForms, which the
+    string-matching checks above cannot execute. When `pwsh` (PowerShell 7+)
+    is available on PATH -- e.g. after installing it via
+    https://aka.ms/install-powershell.sh -- this parses every .ps1 file for
+    syntax errors and runs the headless self-test (Invoke-AppSelfTest), which
+    exercises Initialize-AppState, profile creation, and config generation
+    end-to-end without requiring System.Windows.Forms.
+
+    Returns True if checks ran and passed, False if pwsh was unavailable
+    (checks are skipped, not failed, so this still works in CI without
+    PowerShell installed).
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("pwsh not found on PATH; skipping real PowerShell syntax/self-test checks")
+        print("  (install via https://aka.ms/install-powershell.sh for stronger validation)")
+        return False
+
+    ps1_files = sorted(MODULE_ROOT.glob("*.ps1")) + sorted((ROOT / "src").glob("*.ps1")) + sorted((ROOT / "tools").glob("*.ps1"))
+    parse_script = r"""
+$hadErrors = $false
+foreach ($path in $args) {
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) {
+        $hadErrors = $true
+        Write-Host "PARSE ERROR: $path"
+        foreach ($e in $errors) { Write-Host ("  " + $e.Message + " at line " + $e.Extent.StartLineNumber) }
+    }
+}
+if ($hadErrors) { exit 1 }
+Write-Host "All $($args.Count) .ps1 files parsed without syntax errors."
+"""
+    with tempfile.TemporaryDirectory(prefix="vdbench-parsecheck-") as parse_tmp_dir:
+        parse_script_path = Path(parse_tmp_dir) / "parse-check.ps1"
+        parse_script_path.write_text(parse_script, encoding="utf-8")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(parse_script_path), *[str(p) for p in ps1_files]],
+            capture_output=True, text=True,
+        )
+    print(result.stdout.strip())
+    if result.returncode != 0:
+        print(result.stderr.strip())
+        raise AssertionError("PowerShell syntax check failed (see PARSE ERROR lines above)")
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-selftest-") as tmp_dir:
+        selftest_script = r"""
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:RunStateRoot = Join-Path $script:DataRoot "runs"
+$script:LogRoot = "{tmp_dir}/logs"
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+$script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:Settings = $null
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:Catalog = @()
+$script:CurrentProfile = $null
+$script:RunProfile = $null
+$script:ParameterControls = @{{}}
+$script:SettingsControls = @{{}}
+$script:RefreshingProfileEditor = $false
+$script:CurrentProcess = $null
+$script:CurrentRunId = $null
+$script:KillRequested = $false
+$script:LogQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
+$script:Form = $null
+$script:SettingsStatusBox = $null
+$script:SlaveGrid = $null
+$script:ProfileNameBox = $null
+$script:ProfileParamTabs = $null
+$script:RunModeCombo = $null
+$script:RunProfileSelector = $null
+$script:RunSummaryBox = $null
+$script:AdvancedActiveBox = $null
+$script:AdvancedDisabledBox = $null
+$script:ConfigPreviewBox = $null
+$script:RunLogBox = $null
+$script:RunStatusLabel = $null
+$script:RunChart = $null
+$script:RunMetricIndex = 0
+$script:ReportsGrid = $null
+$script:ReportDetailBox = $null
+$script:ActiveStdoutPath = $null
+$script:ActiveStderrPath = $null
+$script:MainTabControl = $null
+$script:LocalHostTab = $null
+$script:MasterSlaveTab = $null
+$script:LocalHostInfoBox = $null
+$script:LocalHostTargetGrid = $null
+$script:RefreshingLocalTargets = $false
+$script:RunModeIndicator = $null
+$script:AppToolTip = $null
+$script:RunFinishedNotified = $false
+$script:MainTabToolTipText = ""
+$script:UiRefreshTimer = $null
+$script:DpiAwarenessInitialized = $false
+$script:AppExceptionLoggingRegistered = $false
+$script:ProfileEditorLocked = $true
+$script:ProfileEditorTestKind = ""
+$script:ProfileEditorLastTestKind = ""
+$script:ProfileNewButton = $null
+$script:ProfileSaveButton = $null
+$script:ProfilePreviewButton = $null
+$script:ProfileEditorBanner = $null
+$script:ModuleRoot = "{module_root}"
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","SelfTest.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+Invoke-AppSelfTest
+""".format(app_root=str(ROOT), tmp_dir=tmp_dir.replace("\\", "/"), module_root=str(MODULE_ROOT))
+        selftest_path = Path(tmp_dir) / "run-selftest.ps1"
+        selftest_path.write_text(selftest_script, encoding="utf-8")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(selftest_path)],
+            capture_output=True, text=True,
+        )
+        print(result.stdout.strip())
+        if result.returncode != 0:
+            print(result.stderr.strip())
+            raise AssertionError("Invoke-AppSelfTest failed under real PowerShell execution")
+
+    return True
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -315,6 +454,7 @@ def main() -> int:
     validate_catalog(catalog)
     validate_modules()
     validate_golden_fixtures()
+    powershell_checks_ran = run_powershell_checks()
 
     missing_settings = REQUIRED_SETTINGS - set(settings)
     assert not missing_settings, f"missing default settings: {sorted(missing_settings)}"
@@ -405,9 +545,14 @@ def main() -> int:
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Start-BackgroundUiWork" in ui_helpers_module
     assert "function Initialize-BackgroundRunspace" in ui_helpers_module
-    assert "Invoke-BackgroundUiWorkItem" in ui_helpers_module
     assert "BackgroundUiWorkerJobs" not in ui_helpers_module
     assert "BackgroundUiCompletionQueue" not in ui_helpers_module
+    assert "$script:BackgroundRunspacePool" in ui_helpers_module
+    assert "CreateRunspacePool" in ui_helpers_module
+    assert "StartupScripts" in ui_helpers_module
+    assert "$script:BackgroundUiJobs" in ui_helpers_module
+    assert "function Initialize-BackgroundUiPollTimer" in ui_helpers_module
+    assert "InnerException" in ui_helpers_module
     assert "BackgroundWorker" not in ui_helpers_module
     assert "$ps.BeginInvoke()" in ui_helpers_module
     assert "CommandName" in ui_helpers_module
@@ -518,6 +663,7 @@ def main() -> int:
     print(f"catalog parameters: {len(catalog)}")
     print(f"modules: {len(REQUIRED_MODULES)}")
     print("sample configs: raw local, raw distributed, filesystem local, filesystem distributed")
+    print(f"real PowerShell syntax + self-test checks: {'ran' if powershell_checks_ran else 'skipped (pwsh not installed)'}")
     return 0
 
 
