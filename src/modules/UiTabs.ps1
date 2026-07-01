@@ -11,13 +11,13 @@ function Build-SettingsTab {
         @{ Key = "VdbenchRoot"; Label = "Vdbench root"; Browse = "folder" },
         @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
-        @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file" },
+        @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file"; Hint = "Script run when clicking Readiness/Recheck. It opens in its own PowerShell window; leave 'Readiness args template' empty unless your script declares matching parameters." },
         @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file" },
         @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder"; Hint = "Default Vdbench path for Windows slaves." },
         @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none"; Hint = "Default Vdbench path for Linux slaves." },
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },
         @{ Key = "PrivateKey"; Label = "Private key"; Browse = "file" },
-        @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none" },
+        @{ Key = "ReadinessCheckerArguments"; Label = "Readiness args template"; Browse = "none"; Hint = "Leave EMPTY unless your Readiness checker script declares -HostName/-VdbenchPath/-Target parameters. Most checker scripts test every configured host in one run and take no arguments; passing unknown named parameters to a script using [CmdletBinding()] throws a 'parameter cannot be found' error." },
         @{ Key = "SlaveShell"; Label = "Slave shell"; Browse = "none" }
     )
 

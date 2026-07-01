@@ -75,6 +75,44 @@ Each slave entry contains:
 Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
 Each enabled host must pass readiness and have at least one selected target before a run can start.
 
+### Readiness checker script contract
+
+`Settings → Readiness checker` points at an external `.ps1` script (not part of this
+repo) that the UI launches in its own PowerShell window whenever **Readiness** is
+clicked. Two settings govern this launch:
+
+- **Readiness checker** — absolute path to the script.
+- **Readiness args template** — optional `{Host}` / `{VdbenchPath}` / `{Target}`
+  substitutions appended as `-HostName ... -VdbenchPath ... -Target ...`.
+
+**The shipped default for "Readiness args template" is empty.** Most real checker
+scripts (including the common `NN-Check-*-Readiness.ps1` provisioning style) test
+every configured host — master and all slaves — in a single run and take no
+parameters at all. If such a script also uses `[CmdletBinding()]` (very common),
+passing it an unrecognized named parameter like `-HostName` makes PowerShell throw:
+
+```
+A parameter cannot be found that matches parameter name 'HostName'.
+```
+
+This is what "Readiness ჩეკი" doing nothing / throwing a confusing error from the UI
+usually means: the app was passing arguments the checker script doesn't declare.
+Only fill in "Readiness args template" if your specific checker script explicitly
+declares matching parameters (e.g. its own `param([string]$HostName, ...)` block).
+
+The checker process's working directory is always set to the folder containing the
+checker script itself — the same as double-clicking / "Run with PowerShell" on it
+from Explorer. This matters because a checker script that references any relative
+path (e.g. writing its own log or a scratch folder) will otherwise inherit whatever
+directory the UI app happened to be launched from, which can silently create files
+outside the real Vdbench install (for example, a stray `vdbench` folder next to the
+checker script instead of inside the actual `C:\vdbench`).
+
+On upgrade, a machine with an already-initialized `data/settings.json` that still
+has the old default template gets it automatically cleared to empty (see
+`Migrate-LegacySettings` in `State.ps1`); a deliberately customized template is left
+untouched.
+
 ## Generated Vdbench Shape
 
 For distributed runs, enabled slaves are rendered into `hd=` entries and their test

@@ -138,6 +138,33 @@ function Get-SlavePingStatus {
     }
 }
 
+function Get-ReadinessCheckerWrapperCommand {
+    param(
+        [string]$QuotedChecker,
+        [string]$CheckerArgs
+    )
+    $innerCommand = "& $QuotedChecker $CheckerArgs"
+    return @"
+`$ErrorActionPreference = 'Stop'
+try {
+    $innerCommand
+    `$exitCode = if (`$null -ne `$LASTEXITCODE) { `$LASTEXITCODE } else { 0 }
+} catch {
+    Write-Host ''
+    Write-Host 'Readiness checker failed:' -ForegroundColor Red
+    Write-Host `$_.Exception.Message -ForegroundColor Red
+    `$exitCode = 1
+}
+if (`$exitCode -ne 0) {
+    Write-Host ''
+    Write-Host ('Readiness checker finished with a non-zero exit code (' + `$exitCode + ').') -ForegroundColor Yellow
+    Write-Host 'Press Enter to close this window...'
+    `$null = Read-Host
+}
+exit `$exitCode
+"@
+}
+
 function Get-SlaveReadinessResult {
     param(
         [string]$HostName,
@@ -157,12 +184,26 @@ function Get-SlaveReadinessResult {
     $psi.FileName = "powershell.exe"
     $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target
     $quotedChecker = Quote-ProcessArgument $Checker
+    # Run the checker from its own containing folder, matching exactly what
+    # happens when a user double-clicks / "Run with PowerShell"s it from
+    # Explorer. Without this, the checker inherits whatever directory the
+    # main UI app happened to be launched from, so any relative path the
+    # checker (or a script it shells out to) uses can silently create files
+    # or folders in an unexpected location instead of alongside the checker.
+    $checkerDir = Split-Path -Parent $Checker
+    if (-not [string]::IsNullOrWhiteSpace($checkerDir) -and (Test-Path -LiteralPath $checkerDir)) {
+        $psi.WorkingDirectory = $checkerDir
+    }
     if ($ShowCheckerWindow) {
-        # No -NoExit: the console window shows live script output and closes
-        # automatically when the checker finishes, so WaitForExit() below
-        # returns promptly and the Readiness status updates without the user
-        # having to manually close the window.
-        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
+        # Wrap the checker invocation so the window behaves well in BOTH
+        # outcomes: on success it closes itself immediately (no leftover
+        # window to dismiss); on failure it prints the real error and waits
+        # for Enter, so the user actually gets to read it instead of the
+        # window flashing open and closing before they can see what happened
+        # (this is what made a checker script param mismatch look like a
+        # silent/"strange" failure previously).
+        $wrapperCommand = Get-ReadinessCheckerWrapperCommand $quotedChecker $checkerArgs
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command " + (Quote-ProcessArgument $wrapperCommand)
         $psi.CreateNoWindow = $false
     } else {
         $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedChecker $checkerArgs"
