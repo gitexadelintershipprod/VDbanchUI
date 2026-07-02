@@ -370,15 +370,34 @@ function Get-LegacyTargetEntries {
 }
 
 function Get-DefaultSshAliasForSlave {
+    # Defaults SshAlias to the slave's own Host/IP, never its display Name.
+    # SshAlias is what every SSH-based connection actually uses (this app's
+    # own direct ssh.exe calls for Browse/New folder/test-file prep, AND
+    # vdbench's own "system=" parameter for the real distributed run) - see
+    # every "$systemName = SshAlias; if blank, fall back to Host" call site.
+    # Name is purely a friendly display label typed into the grid with no
+    # guaranteed relationship to anything resolvable on the network (unlike
+    # Host, which is explicitly labeled "Host / IP" and expected to be a
+    # directly-connectable address). Defaulting to Name here used to make
+    # every freshly-added (or Name/Host-edited) slave connect by whatever
+    # arbitrary label the user typed as a name - e.g. "linux-002" - instead
+    # of the IP address right next to it, failing outright unless that exact
+    # string happened to also be a resolvable hostname (real bug, found
+    # 2026-07-02, from a direct user report: "Browse ... couldn't connect to
+    # the server by name ... why does it connect by name at all, every
+    # connection should be by IP address only"). SshAlias remains a
+    # user-editable override for anyone who genuinely has a matching `Host
+    # <alias>` entry in their own ssh config and wants to use it instead -
+    # this only changes what a slave defaults to before the user touches it.
     param(
         [string]$Name,
         [string]$HostName
     )
-    if (-not [string]::IsNullOrWhiteSpace($Name)) {
-        return $Name.Trim()
-    }
     if (-not [string]::IsNullOrWhiteSpace($HostName)) {
         return $HostName.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Name)) {
+        return $Name.Trim()
     }
     return ""
 }
