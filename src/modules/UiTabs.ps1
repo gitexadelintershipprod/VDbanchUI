@@ -331,6 +331,147 @@ function Get-TargetGridRows {
     return @($targets)
 }
 
+function New-TargetListView {
+    $listView = New-Object System.Windows.Forms.ListView
+    $listView.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $listView.View = [System.Windows.Forms.View]::Details
+    $listView.CheckBoxes = $true
+    $listView.FullRowSelect = $true
+    $listView.GridLines = $true
+    $listView.HideSelection = $false
+    $listView.MultiSelect = $false
+    [void]$listView.Columns.Add("Kind", 100)
+    [void]$listView.Columns.Add("Target", 260)
+    [void]$listView.Columns.Add("Description", 420)
+    return $listView
+}
+
+function Sync-TargetListViewItemStyle {
+    param([System.Windows.Forms.ListViewItem]$Item)
+    if ($null -eq $Item) {
+        return
+    }
+    if ($Item.Checked) {
+        $Item.BackColor = [System.Drawing.Color]::Honeydew
+    } else {
+        $Item.BackColor = [System.Drawing.Color]::White
+    }
+}
+
+function Set-TargetListViewTargets {
+    param(
+        [System.Windows.Forms.ListView]$ListView,
+        [object[]]$Targets
+    )
+    $ListView.BeginUpdate()
+    try {
+        $ListView.Items.Clear()
+        foreach ($target in @(Normalize-TargetEntries $Targets)) {
+            $kind = [string](Get-PropertyValue $target "Kind" "")
+            $path = [string](Get-PropertyValue $target "Target" "")
+            $description = [string](Get-PropertyValue $target "Description" "")
+            $selected = [bool](Get-PropertyValue $target "Selected" $false)
+            $createFile = [bool](Get-PropertyValue $target "CreateFile" $false)
+            if ($selected -and $kind -eq "Test file") {
+                $createFile = $true
+            }
+            $item = New-Object System.Windows.Forms.ListViewItem $kind
+            $item.Checked = $selected
+            [void]$item.SubItems.Add($path)
+            [void]$item.SubItems.Add($description)
+            $item.Tag = (New-TargetSelection -Kind $kind -Target $path -Description $description -Selected $selected -CreateFile $createFile)
+            Sync-TargetListViewItemStyle $item
+            [void]$ListView.Items.Add($item)
+        }
+    } finally {
+        $ListView.EndUpdate()
+    }
+}
+
+function Get-TargetListViewTargets {
+    param([System.Windows.Forms.ListView]$ListView)
+    if ($null -eq $ListView) {
+        return @()
+    }
+    $targets = @()
+    foreach ($item in $ListView.Items) {
+        $stored = $item.Tag
+        $kind = [string](Get-PropertyValue $stored "Kind" ([string]$item.Text))
+        $path = ""
+        if ($item.SubItems.Count -ge 1) {
+            $path = [string]$item.SubItems[0].Text
+        }
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            $path = [string](Get-PropertyValue $stored "Target" "")
+        }
+        $description = ""
+        if ($item.SubItems.Count -ge 2) {
+            $description = [string]$item.SubItems[1].Text
+        }
+        $createFile = [bool](Get-PropertyValue $stored "CreateFile" $false)
+        if ($item.Checked -and $kind -eq "Test file") {
+            $createFile = $true
+        }
+        $targets += New-TargetSelection `
+            -Kind $kind `
+            -Target $path `
+            -Description $description `
+            -Selected $item.Checked `
+            -CreateFile $createFile
+    }
+    return @($targets)
+}
+
+function Update-TargetListViewSelectionCounter {
+    param(
+        [System.Windows.Forms.Label]$Label,
+        [System.Windows.Forms.ListView]$ListView
+    )
+    if ($null -eq $Label -or $null -eq $ListView) {
+        return
+    }
+    $count = @(Get-SelectedTargetEntries @(Get-TargetListViewTargets $ListView)).Count
+    $Label.Text = ("{0} target(s) selected" -f $count)
+}
+
+function Register-TargetListViewHandlers {
+    param(
+        [System.Windows.Forms.ListView]$ListView,
+        [System.Windows.Forms.Label]$CounterLabel
+    )
+    $ListView.Tag = @{
+        CounterLabel = $CounterLabel
+    }
+    $ListView.Add_ItemChecked({
+        param($sender, $eventArgs)
+        $item = $eventArgs.Item
+        if ($null -eq $item) {
+            return
+        }
+        $stored = $item.Tag
+        $kind = [string](Get-PropertyValue $stored "Kind" ([string]$item.Text))
+        $path = ""
+        if ($item.SubItems.Count -ge 1) {
+            $path = [string]$item.SubItems[0].Text
+        }
+        $description = ""
+        if ($item.SubItems.Count -ge 2) {
+            $description = [string]$item.SubItems[1].Text
+        }
+        $createFile = [bool](Get-PropertyValue $stored "CreateFile" $false)
+        if ($item.Checked -and $kind -eq "Test file") {
+            $createFile = $true
+        }
+        $item.Tag = New-TargetSelection -Kind $kind -Target $path -Description $description -Selected $item.Checked -CreateFile $createFile
+        Sync-TargetListViewItemStyle $item
+        $label = $null
+        if ($null -ne $sender.Tag) {
+            $label = $sender.Tag.CounterLabel
+        }
+        Update-TargetListViewSelectionCounter $label $sender
+    })
+}
+
 function Sync-TargetGridRowSelectionStyle {
     param([System.Windows.Forms.DataGridViewRow]$Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
