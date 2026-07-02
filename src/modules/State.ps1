@@ -102,6 +102,66 @@ function Sync-CommonProfileParameters {
     Set-ProfileParamEnabled $Profile "storage.threads" $false
 }
 
+function Sync-EditorProfileParametersToCommon {
+    param(
+        [object]$Profile,
+        [string]$TestKind
+    )
+    if ($null -eq $Profile) {
+        return
+    }
+    if ($TestKind -eq "Raw/block") {
+        foreach ($pair in @(
+                @("common.threads", "workload.threads"),
+                @("common.xfersize", "workload.xfersize"),
+                @("common.rate", "run.iorate")
+            )) {
+            Set-ProfileParamValue $Profile $pair[0] (Get-ProfileParamValue $Profile $pair[1] "")
+            Set-ProfileParamEnabled $Profile $pair[0] (Get-ProfileParamEnabled $Profile $pair[1])
+        }
+    } elseif ($TestKind -eq "Filesystem") {
+        foreach ($pair in @(
+                @("common.threads", "fwd.threads"),
+                @("common.xfersize", "fwd.xfersize"),
+                @("common.rate", "run.fwdrate")
+            )) {
+            Set-ProfileParamValue $Profile $pair[0] (Get-ProfileParamValue $Profile $pair[1] "")
+            Set-ProfileParamEnabled $Profile $pair[0] (Get-ProfileParamEnabled $Profile $pair[1])
+        }
+    }
+    Sync-CommonProfileParameters $Profile
+}
+
+function Get-ProfileTargetDisplayValue {
+    param([string]$Key)
+    $targets = @()
+    if ($Key -eq "storage.lun") {
+        if (Is-DistributedMode) {
+            foreach ($slave in @(Get-EnabledSlaves)) {
+                $targets += @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "raw")
+            }
+        } else {
+            $targets = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore) "raw")
+        }
+    } elseif ($Key -eq "fsd.anchor") {
+        if (Is-DistributedMode) {
+            foreach ($slave in @(Get-EnabledSlaves)) {
+                $targets += @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "fs")
+            }
+        } else {
+            $targets = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore) "fs")
+        }
+    }
+    if ($targets.Count -eq 0) {
+        return "(select target on Local Host or Master / Slave tab)"
+    }
+    if ($targets.Count -eq 1) {
+        return [string]$targets[0].Target
+    }
+    $paths = @($targets | ForEach-Object { [string]$_.Target })
+    return ("{0} targets: {1}" -f $targets.Count, ($paths -join "; "))
+}
+
 function Get-ProfileEditorContext {
     if (Get-Command Capture-LocalHostTargets -ErrorAction SilentlyContinue) {
         Capture-LocalHostTargets
@@ -135,9 +195,9 @@ function Get-ProfileEditorContext {
     $visibleSections = @("General")
     if (-not $locked) {
         if ($testKind -eq "Raw/block") {
-            $visibleSections += "Raw / SD"
+            $visibleSections += @("SD", "WD")
         } elseif ($testKind -eq "Filesystem") {
-            $visibleSections += "Filesystem"
+            $visibleSections += @("FSD", "FWD", "FS Run")
         }
     }
     return [pscustomobject]@{

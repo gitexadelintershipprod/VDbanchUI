@@ -290,6 +290,7 @@ def validate_catalog(catalog: list[dict]):
         assert item["AppliesTo"] in {"both", "raw", "fs"}, f"bad AppliesTo for {key}: {item['AppliesTo']}"
         if item["Type"] == "dropdown":
             assert item["Options"], f"dropdown parameter has no options: {key}"
+        assert "SortOrder" in item, f"catalog item missing SortOrder: {key}"
 
 
 def validate_modules():
@@ -2054,7 +2055,16 @@ def main() -> int:
     assert "function Get-LocalHostTargetStore" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Pick-TargetForCurrentProfile" not in ui_tabs_module
     assert 'New-Button "Pick target" 760' not in ui_tabs_module
-    assert '@("storage.lun", "fsd.anchor")' in ui_tabs_module
+    assert "TargetDerived" in ui_tabs_module
+    assert "Get-ProfileTargetDisplayValue" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "Sync-EditorProfileParametersToCommon" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
+    assert '"Section": "SD"' in catalog_text
+    assert '"Section": "WD"' in catalog_text
+    assert '"Section": "FSD"' in catalog_text
+    assert '"Section": "FWD"' in catalog_text
+    assert '"Section": "FS Run"' in catalog_text
+    assert "SortOrder" in catalog_text
     assert "DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed" in ui_tabs_module
     assert "GetTabRect" in ui_tabs_module
     assert "TextRenderer]::DrawText" in ui_tabs_module
