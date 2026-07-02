@@ -794,42 +794,49 @@ function Show-SlaveTargetPicker {
     $toolbar.Controls.Add($refreshButton)
     $toolbar.Controls.Add($newFolderButton)
     $toolbar.Controls.Add($addPathButton)
-    $hint = New-Label "Check Use or click any row to select (turns green). Double-click also toggles. Then Save selection." 10 40 960 24
+    $hint = New-Label "Tick the checkbox on the left of each target you want (row turns green). Then Save selection." 10 40 960 24
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $toolbar.Controls.Add($hint)
 
-    $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $grid.AllowUserToAddRows = $false
-    $grid.AllowUserToDeleteRows = $false
-    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
-    $grid.MultiSelect = $false
-    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    Add-TargetSelectionColumns $grid
-    $layout.Controls.Add($grid, 0, 1)
+    $selectAllButton = New-Button "Select all" 310 8 80 28
+    $clearAllButton = New-Button "Clear all" 396 8 80 28
+    $toolbar.Controls.Add($selectAllButton)
+    $toolbar.Controls.Add($clearAllButton)
+
+    $listView = New-TargetListView
+    $layout.Controls.Add($listView, 0, 1)
 
     $counterLabel = New-Label "0 target(s) selected" 500 14 200 22
     $counterLabel.ForeColor = [System.Drawing.Color]::DimGray
 
-  $reloadGrid = {
+    $reloadList = {
         param([object[]]$Items)
-        Set-TargetGridRows $grid $Items
-        foreach ($gridRow in $grid.Rows) {
-            Invoke-TargetGridRowChanged -Grid $grid -Row $gridRow
+        Set-TargetListViewTargets -ListView $listView -Targets $Items
+        Update-TargetListViewSelectionCounter $counterLabel $listView
+    }
+    Register-TargetListViewHandlers -ListView $listView -CounterLabel $counterLabel
+    & $reloadList $merged
+
+    $selectAllButton.Add_Click({
+        foreach ($item in $listView.Items) {
+            $item.Checked = $true
+            Sync-TargetListViewItemStyle $item
         }
-        Update-TargetGridSelectionCounter $counterLabel $grid
-    }
-    Register-TargetSelectionGridHandlers -Grid $grid -OnRowChanged {
-        param($Grid, $Row)
-        Update-TargetGridSelectionCounter $counterLabel $Grid
-    }
-    & $reloadGrid $merged
+        Update-TargetListViewSelectionCounter $counterLabel $listView
+    })
+    $clearAllButton.Add_Click({
+        foreach ($item in $listView.Items) {
+            $item.Checked = $false
+            Sync-TargetListViewItemStyle $item
+        }
+        Update-TargetListViewSelectionCounter $counterLabel $listView
+    })
 
     $refreshButton.Add_Click({
         try {
             $discovered = @(Get-SlaveTargetInventory $Row -Force)
-            $current = @(Get-TargetGridRows $grid)
-            & $reloadGrid @(Merge-TargetSelections $discovered $current)
+            $current = @(Get-TargetListViewTargets $listView)
+            & $reloadList @(Merge-TargetSelections $discovered $current)
         } catch {
             Show-Warning ("Refresh failed: " + $_.Exception.Message)
         }
@@ -842,9 +849,9 @@ function Show-SlaveTargetPicker {
                 return
             }
             New-HostFolderPath -Row $Row -Path $path
-            $current = @(Get-TargetGridRows $grid)
+            $current = @(Get-TargetListViewTargets $listView)
             $entry = New-TargetSelection -Kind "Filesystem" -Target $path -Description "Created from UI" -Selected $true
-            & $reloadGrid @(Merge-TargetSelections @($entry) $current)
+            & $reloadList @(Merge-TargetSelections @($entry) $current)
         } catch {
             Show-Warning ("Create folder failed: " + $_.Exception.Message)
         }
@@ -856,9 +863,9 @@ function Show-SlaveTargetPicker {
             return
         }
         $kind = if ($path -match '^\\\\\.\\|^/dev/') { "Raw disk" } elseif ($path -match '\.(dat|bin|img)$') { "Test file" } else { "Filesystem" }
-        $current = @(Get-TargetGridRows $grid)
+        $current = @(Get-TargetListViewTargets $listView)
         $entry = New-TargetSelection -Kind $kind -Target $path -Description "Manual entry" -Selected $true
-        & $reloadGrid @(Merge-TargetSelections @($entry) $current)
+        & $reloadList @(Merge-TargetSelections @($entry) $current)
     })
 
     $buttonPanel = New-Object System.Windows.Forms.Panel
@@ -867,14 +874,13 @@ function Show-SlaveTargetPicker {
     $dialog.Controls.Add($buttonPanel)
 
     $buttonPanel.Controls.Add($counterLabel)
-    Update-TargetGridSelectionCounter $counterLabel $grid
+    Update-TargetListViewSelectionCounter $counterLabel $listView
 
     $okButton = New-Button "Save selection" 720 9 125 28
     $okButton.Add_Click({
-        $grid.EndEdit()
-        $rows = @(Get-TargetGridRows $grid)
+        $rows = @(Get-TargetListViewTargets $listView)
         if (@(Get-SelectedTargetEntries $rows).Count -eq 0) {
-            Show-Warning "Select at least one target (click a row or check Use), then Save selection."
+            Show-Warning "Tick at least one checkbox on the left, then Save selection."
             return
         }
         $dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -890,7 +896,7 @@ function Show-SlaveTargetPicker {
     if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
         return $null
     }
-    return @(Get-TargetGridRows $grid)
+    return @(Get-TargetListViewTargets $listView)
 }
 
 function Browse-SlaveTargetsForRow {
@@ -980,7 +986,7 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, click a row to select, Save selection - the slave Use column turns on automatically." 0 0 1100 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, tick the checkbox beside each disk/folder, Save selection." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid

@@ -2270,17 +2270,14 @@ def main() -> int:
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
-    assert "TargetSelectionOnRowChanged" in ui_tabs_module, (
-        "Register-TargetSelectionGridHandlers must store the row-changed callback on "
-        "Grid.Tag - local scriptblock variables are not visible inside WinForms event handlers"
+    assert "New-TargetListView" in ui_tabs_module
+    assert "CheckBoxes = `$true" in ui_tabs_module or "CheckBoxes = $true" in ui_tabs_module
+    assert "Get-TargetListViewTargets" in ui_slave_module
+    assert "New-TargetListView" in ui_slave_module
+    assert "Add-TargetSelectionColumns `$grid" not in ui_slave_module, (
+        "Show-SlaveTargetPicker must use ListView checkboxes, not DataGridViewCheckBoxColumn - "
+        "the latter does not render reliably on Windows in this dialog"
     )
-    assert "$notifyRowChanged" not in ui_tabs_module, (
-        "Register-TargetSelectionGridHandlers must not reference $notifyRowChanged from "
-        "event handlers - that local variable is out of scope when the handler fires"
-    )
-    assert "Initialize-TargetSelectionGrid" in ui_tabs_module
-    assert "Add_CellContentClick" in ui_tabs_module
-    assert "CellContentClick" in ui_slave_module or "Register-TargetSelectionGridHandlers" in ui_slave_module
     assert "Sync-TargetGridRowSelectionStyle" in ui_tabs_module
     assert "[System.Drawing.Color]::SystemColors" not in ui_tabs_module, (
         "SystemColors is its own type, not a property of Color - "
