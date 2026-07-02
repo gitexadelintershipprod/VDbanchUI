@@ -794,7 +794,7 @@ function Show-SlaveTargetPicker {
     $toolbar.Controls.Add($refreshButton)
     $toolbar.Controls.Add($newFolderButton)
     $toolbar.Controls.Add($addPathButton)
-    $hint = New-Label "Check Use for each target you want. Row highlight alone does not select. Double-click a row to toggle Use." 10 40 960 24
+    $hint = New-Label "Click any row to select it (turns green). You can also check Use directly. Then Save selection." 10 40 960 24
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $toolbar.Controls.Add($hint)
 
@@ -808,12 +808,24 @@ function Show-SlaveTargetPicker {
     Add-TargetSelectionColumns $grid
     $layout.Controls.Add($grid, 0, 1)
 
+    $counterLabel = New-Label "0 target(s) selected" 500 14 200 22
+    $counterLabel.ForeColor = [System.Drawing.Color]::DimGray
+
+  $syncPickerRow = {
+        param([System.Windows.Forms.DataGridViewRow]$GridRow)
+        if ($null -eq $GridRow) {
+            return
+        }
+        Sync-TargetGridRowSelectionStyle $GridRow
+        Update-TargetCreateFileEditability $GridRow
+    }
   $reloadGrid = {
         param([object[]]$Items)
         Set-TargetGridRows $grid $Items
         foreach ($gridRow in $grid.Rows) {
-            Update-TargetCreateFileEditability $gridRow
+            & $syncPickerRow $gridRow
         }
+        Update-TargetGridSelectionCounter $counterLabel $grid
     }
     & $reloadGrid $merged
 
@@ -862,16 +874,23 @@ function Show-SlaveTargetPicker {
     $grid.Add_CellValueChanged({
         param($sender, $eventArgs)
         if ($eventArgs.RowIndex -ge 0) {
-            Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
+            & $syncPickerRow $sender.Rows[$eventArgs.RowIndex]
+            Update-TargetGridSelectionCounter $counterLabel $sender
         }
     })
-    $grid.Add_CellDoubleClick({
+    $grid.Add_CellClick({
         param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -ge 0) {
-            $row = $sender.Rows[$eventArgs.RowIndex]
-            $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
-            Update-TargetCreateFileEditability $row
+        if ($eventArgs.RowIndex -lt 0) {
+            return
         }
+        $column = $sender.Columns[$eventArgs.ColumnIndex]
+        if ($column.Name -eq "Selected") {
+            return
+        }
+        $row = $sender.Rows[$eventArgs.RowIndex]
+        $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
+        & $syncPickerRow $row
+        Update-TargetGridSelectionCounter $counterLabel $sender
     })
 
     $buttonPanel = New-Object System.Windows.Forms.Panel
@@ -879,12 +898,15 @@ function Show-SlaveTargetPicker {
     $buttonPanel.Height = 46
     $dialog.Controls.Add($buttonPanel)
 
+    $buttonPanel.Controls.Add($counterLabel)
+    Update-TargetGridSelectionCounter $counterLabel $grid
+
     $okButton = New-Button "Save selection" 720 9 125 28
     $okButton.Add_Click({
         $grid.EndEdit()
         $rows = @(Get-TargetGridRows $grid)
         if (@(Get-SelectedTargetEntries $rows).Count -eq 0) {
-            Show-Warning "Check Use for at least one target. Row highlight alone does not select a target."
+            Show-Warning "Select at least one target (click a row or check Use), then Save selection."
             return
         }
         $dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -918,6 +940,9 @@ function Browse-SlaveTargetsForRow {
         $selected = Show-SlaveTargetPicker -Row $Row -Inventory $targets -Existing (Get-SlaveRowTargets $Row)
         if ($null -ne $selected) {
             Set-SlaveRowTargets $Row $selected
+            if (@(Get-SelectedTargetEntries $selected).Count -gt 0) {
+                $Row.Cells["Enabled"].Value = $true
+            }
             Capture-SlaveGrid
             Refresh-ConfigPreview
             Notify-ProfileTargetContextChanged "slave-target-picker"
@@ -987,7 +1012,7 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Use (left column) includes the slave in a run. After Browse, check Use in the target dialog for each disk/folder, then Save selection." 0 0 1100 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, click a row to select, Save selection - the slave Use column turns on automatically." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid

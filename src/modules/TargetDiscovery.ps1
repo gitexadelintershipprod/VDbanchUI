@@ -11,6 +11,53 @@ function New-TargetRecord {
     }
 }
 
+function Test-SelectableLinuxFilesystemMount {
+    param([object]$Item)
+    $target = [string](Get-PropertyValue $Item "Target" "")
+    $description = [string](Get-PropertyValue $Item "Description" "")
+    if ([string]::IsNullOrWhiteSpace($target)) {
+        return $false
+    }
+    $skipTypes = @(
+        "proc", "sysfs", "devtmpfs", "tmpfs", "pstore", "bpf", "debugfs", "tracefs",
+        "mqueue", "hugetlbfs", "securityfs", "configfs", "fusectl", "autofs", "devpts",
+        "ramfs", "nsfs", "binfmt_misc", "efivarfs", "squashfs", "overlay", "rpc_pipefs"
+    )
+    $fstype = ""
+    if (-not [string]::IsNullOrWhiteSpace($description)) {
+        $fstype = ([string]($description -split '\s+')[-1]).ToLowerInvariant()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($fstype)) {
+        foreach ($skip in $skipTypes) {
+            if ($fstype -eq $skip -or $fstype -like ($skip + "*")) {
+                return $false
+            }
+        }
+    }
+    if ($target -match '^/(proc|sys|dev|run)(/|$)') {
+        return $false
+    }
+    return $true
+}
+
+function Filter-TargetInventoryRecords {
+    param(
+        [object[]]$Items,
+        [string]$OsType = ""
+    )
+    $result = @()
+    foreach ($item in @($Items)) {
+        $kind = [string](Get-PropertyValue $item "Kind" "")
+        if ($kind -eq "Filesystem" -and $OsType -eq "Linux") {
+            if (-not (Test-SelectableLinuxFilesystemMount $item)) {
+                continue
+            }
+        }
+        $result += $item
+    }
+    return @($result)
+}
+
 function Convert-TargetInventoryOutput {
     param([string]$Text)
     $items = @()
@@ -189,7 +236,7 @@ function Get-RemoteSlaveTargetInventoryCore {
     [void]$sshParts.Add((Quote-ProcessArgument $SystemName))
 
     if ($OsType -eq "Linux") {
-        $remoteScript = 'for d in /sys/block/*; do name=${d##*/}; case "$name" in loop*|ram*) continue;; esac; size=$(cat "$d/size" 2>/dev/null); bytes=$((size*512)); echo "Raw disk|/dev/$name|bytes=$bytes"; done; if command -v findmnt >/dev/null 2>&1; then findmnt -rn -o TARGET,SOURCE,FSTYPE | while read target source fstype; do echo "Filesystem|$target|$source $fstype"; done; fi'
+        $remoteScript = 'for d in /sys/block/*; do name=${d##*/}; case "$name" in loop*|ram*) continue;; esac; size=$(cat "$d/size" 2>/dev/null); bytes=$((size*512)); echo "Raw disk|/dev/$name|bytes=$bytes"; done; if command -v findmnt >/dev/null 2>&1; then findmnt -rn -o TARGET,SOURCE,FSTYPE | while read target source fstype; do case "$fstype" in proc|sysfs|devtmpfs|tmpfs|cgroup2|cgroup|pstore|bpf|debugfs|tracefs|mqueue|hugetlbfs|securityfs|configfs|fusectl|autofs|devpts|ramfs|nsfs|binfmt_misc|efivarfs|squashfs|overlay|rpc_pipefs) continue;; esac; case "$target" in /proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*) continue;; esac; echo "Filesystem|$target|$source $fstype"; done; fi'
     } else {
         $remoteScript = '$ErrorActionPreference="SilentlyContinue"; Get-CimInstance Win32_DiskDrive | ForEach-Object { "Raw disk|\\.\PhysicalDrive$($_.Index)|$($_.Model) $($_.Size)" }; Get-CimInstance Win32_Volume | Where-Object { $_.DriveLetter } | ForEach-Object { "Filesystem|$($_.DriveLetter)\|$($_.Label) $($_.FileSystem) $($_.Capacity)" }'
     }
@@ -201,7 +248,7 @@ function Get-RemoteSlaveTargetInventoryCore {
     if ($result.ExitCode -ne 0) {
         throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
     }
-    $targets = @(Convert-TargetInventoryOutput $result.StdOut)
+    $targets = @(Filter-TargetInventoryRecords (Convert-TargetInventoryOutput $result.StdOut) $OsType)
     $targets += New-TargetRecord "Test file" (Get-DefaultTestFileTargetForOs $OsType) "Raw/file target; create/overwrite is controlled by the target checkbox."
     if ($targets.Count -eq 0) {
         throw "Remote discovery returned no targets."

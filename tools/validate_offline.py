@@ -507,6 +507,7 @@ Invoke-AppSelfTest
     _run_ssh_user_regression_check(pwsh)
     _run_auto_target_selection_regression_check(pwsh)
     _run_ssh_alias_default_regression_check(pwsh)
+    _run_linux_filesystem_filter_regression_check(pwsh)
     return True
 
 
@@ -1888,6 +1889,72 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         print("SSH alias default regression check: a freshly-added slave now connects by Host/IP by default, not by its display Name")
 
 
+def _run_linux_filesystem_filter_regression_check(pwsh: str) -> None:
+    """Verify Linux discovery filters pseudo/virtual filesystem mounts.
+
+    Root cause: findmnt returns every mount including /proc, /sys, tmpfs,
+    cgroup*, etc. - dozens of rows where only a handful are real test targets.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-fsfilter-check-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-fsfilter-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+. (Join-Path "{module_root}" "Core.ps1")
+. (Join-Path "{module_root}" "TargetDiscovery.ps1")
+
+$noise = @(
+    (New-TargetRecord "Filesystem" "/proc" "proc proc"),
+    (New-TargetRecord "Filesystem" "/sys" "sysfs sysfs"),
+    (New-TargetRecord "Filesystem" "/run" "tmpfs tmpfs")
+)
+$real = @(
+    (New-TargetRecord "Filesystem" "/" "/dev/sda1 ext4"),
+    (New-TargetRecord "Filesystem" "/stresstest" "/dev/sdb1 xfs")
+)
+$filtered = @(Filter-TargetInventoryRecords ($noise + $real) "Linux")
+$results = [pscustomobject]@{{
+    ProcSelectable = (Test-SelectableLinuxFilesystemMount $noise[0])
+    RootSelectable = (Test-SelectableLinuxFilesystemMount $real[0])
+    StressSelectable = (Test-SelectableLinuxFilesystemMount $real[1])
+    FilteredCount = $filtered.Count
+    FilteredTargets = (($filtered | ForEach-Object {{ $_.Target }}) -join ",")
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("Linux filesystem filter regression harness failed to run")
+
+        parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
+        assert parsed.get("ProcSelectable") is False, (
+            f"/proc must be filtered out as a pseudo filesystem, got {parsed.get('ProcSelectable')!r}"
+        )
+        assert parsed.get("RootSelectable") is True
+        assert parsed.get("StressSelectable") is True
+        assert parsed.get("FilteredCount") == 2, (
+            f"expected 2 real filesystem mounts after filtering, got {parsed.get('FilteredCount')!r}"
+        )
+        assert "/stresstest" in str(parsed.get("FilteredTargets", "")), (
+            f"real mount /stresstest must survive filtering, got {parsed.get('FilteredTargets')!r}"
+        )
+        print("Linux filesystem filter regression check: pseudo mounts filtered, real mounts kept")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -1995,6 +2062,11 @@ def main() -> int:
     assert "function New-FlowToolbar" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     target_discovery_module = (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
     assert "function Get-CachedTargetInventory" in target_discovery_module
+    assert "function Filter-TargetInventoryRecords" in target_discovery_module
+    assert "function Test-SelectableLinuxFilesystemMount" in target_discovery_module
+    assert "/proc|/proc/*" in target_discovery_module, (
+        "Linux remote discovery must filter pseudo mount points like /proc from findmnt"
+    )
     runner_module_full = (MODULE_ROOT / "Runner.ps1").read_text(encoding="utf-8")
     core_module_for_ssh = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     # See _run_remote_ssh_quoting_regression_check docstring: OpenSSH rejoins all
@@ -2198,16 +2270,21 @@ def main() -> int:
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
-    assert "Add_CellDoubleClick" in ui_slave_module, (
-        "Show-SlaveTargetPicker must support double-click to toggle Use, matching the "
-        "Local Host tab - row highlight alone does not select a target"
+    assert "Add_CellClick" in ui_slave_module, (
+        "Show-SlaveTargetPicker must support single-click on a row to toggle Use"
+    )
+    assert "Sync-TargetGridRowSelectionStyle" in ui_tabs_module
+    assert "Update-TargetGridSelectionCounter" in ui_tabs_module
+    assert "target(s) selected" in ui_slave_module
+    assert '$Row.Cells["Enabled"].Value = $true' in ui_slave_module, (
+        "Browse-SlaveTargetsForRow must auto-enable the slave Use column after a "
+        "successful Save selection with at least one target checked"
     )
     assert "Get-SelectedTargetEntries $rows).Count -eq 0" in ui_slave_module, (
         "Show-SlaveTargetPicker must refuse Save selection when no Use checkbox is "
         "checked, instead of silently saving an empty Targets summary"
     )
-    assert "Row highlight alone does not select" in ui_slave_module
-    assert "After Browse, check Use in the target dialog" in ui_slave_module
+    assert "vdbench creates test files at run time" in ui_tabs_module.lower()
     assert 'Get-PropertyValue $row.Cells["Selected"].Value $false' in ui_tabs_module, (
         "Get-TargetGridRows must read checkbox values via Get-PropertyValue so "
         "untouched WinForms checkboxes (DBNull) do not throw under Set-StrictMode"
