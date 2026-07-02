@@ -2270,7 +2270,14 @@ def main() -> int:
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
-    assert "Register-TargetSelectionGridHandlers" in ui_tabs_module
+    assert "TargetSelectionOnRowChanged" in ui_tabs_module, (
+        "Register-TargetSelectionGridHandlers must store the row-changed callback on "
+        "Grid.Tag - local scriptblock variables are not visible inside WinForms event handlers"
+    )
+    assert "$notifyRowChanged" not in ui_tabs_module, (
+        "Register-TargetSelectionGridHandlers must not reference $notifyRowChanged from "
+        "event handlers - that local variable is out of scope when the handler fires"
+    )
     assert "Initialize-TargetSelectionGrid" in ui_tabs_module
     assert "Add_CellContentClick" in ui_tabs_module
     assert "CellContentClick" in ui_slave_module or "Register-TargetSelectionGridHandlers" in ui_slave_module
