@@ -131,6 +131,7 @@ function Invoke-AppSelfTest {
         $script:RunProfile = $script:CurrentProfile
         $script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target "C:\vdbench\fs_test" -Selected $true))
         $fs = Build-VdbenchConfig
+        Assert-SelfTestContains $fs.Text "create_anchors=yes" "filesystem create_anchors"
         Assert-SelfTestContains $fs.Text "fsd=fsd1,anchor=C:\vdbench\fs_test" "filesystem definition"
         Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1" "filesystem workload"
         Assert-SelfTestContains $fs.Text "operation=read" "filesystem workload operation"
@@ -161,6 +162,7 @@ function Invoke-AppSelfTest {
         $script:CurrentProfile = New-DefaultProfile "SelfTest-Filesystem-Distributed"
         $script:RunProfile = $script:CurrentProfile
         $fsDistributed = Build-VdbenchConfig
+        Assert-SelfTestContains $fsDistributed.Text "create_anchors=yes" "distributed filesystem create_anchors"
         Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002_1,anchor=/mnt/test" "distributed filesystem definition"
         Assert-SelfTestContains $fsDistributed.Text "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" "distributed filesystem workload host binding"
         Assert-SelfTestContains $fsDistributed.Text "rd=rd1,fwd=fwd*" "distributed filesystem run fanout"

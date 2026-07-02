@@ -177,6 +177,8 @@ def render_config(
         f"* Mode={'Master/Slave distributed run' if distributed else 'Single local run'}",
         "",
     ]
+    if test_kind == "Filesystem":
+        lines.extend(["create_anchors=yes", ""])
     local_target_rows = local_targets if local_targets is not None else profile.get("LocalTargets", [])
 
     if distributed:
@@ -2394,6 +2396,7 @@ def main() -> int:
     fs_local_targets = [{"Kind": "Filesystem", "Target": "C:\\vdbench\\fs_test", "Selected": True}]
     fs_config = render_config(catalog, settings, fs, local_targets=fs_local_targets, test_kind="Filesystem")
     assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
+    assert "create_anchors=yes" in fs_config
     assert "fwd=fwd1,fsd=fsd1" in fs_config
     assert "operation=read" in fs_config
     assert "rd=rd1,fwd=fwd1" in fs_config
@@ -2417,6 +2420,7 @@ def main() -> int:
             }
         ],
     )
+    assert "create_anchors=yes" in fs_distributed
     assert "fsd=fsd_test_002_1,anchor=/mnt/test" in fs_distributed
     assert "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" in fs_distributed
     assert "rd=rd1,fwd=fwd*" in fs_distributed

@@ -413,6 +413,11 @@ function Build-VdbenchConfig {
         }
         [void]$lines.Add("")
 
+        if ($testKind -eq "Filesystem") {
+            [void]$lines.Add("create_anchors=yes")
+            [void]$lines.Add("")
+        }
+
     if ($distributed) {
         $slaves = @(Get-EnabledSlaves)
         if ($slaves.Count -eq 0) {
