@@ -1,4 +1,6 @@
 $script:SlaveGridRefreshing = $false
+$script:SlaveHostListView = $null
+$script:SlaveHostListSyncing = $false
 
 function Get-SlaveRowState {
     # Untyped $Row (not [System.Windows.Forms.DataGridViewRow]) so this can be
@@ -86,6 +88,168 @@ function Sync-SlaveRowEnabledState {
     if (-not (Test-SlaveRowReady $Row)) {
         $Row.Cells["Enabled"].Value = $false
     }
+    Update-SlaveHostListView
+}
+
+function Get-SlaveHostListKey {
+    param($Row)
+    $hostName = [string]$Row.Cells["Host"].Value
+    $name = [string]$Row.Cells["Name"].Value
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        $name = $hostName
+    }
+    return ("{0}|{1}" -f $hostName.ToLowerInvariant(), $name.ToLowerInvariant())
+}
+
+function Find-SlaveGridRowByHostKey {
+    param([string]$Key)
+    if ($null -eq $script:SlaveGrid -or [string]::IsNullOrWhiteSpace($Key)) {
+        return $null
+    }
+    foreach ($row in $script:SlaveGrid.Rows) {
+        if ($row.IsNewRow) {
+            continue
+        }
+        if ((Get-SlaveHostListKey $row) -eq $Key) {
+            return $row
+        }
+    }
+    return $null
+}
+
+function Sync-SlaveHostListViewItemStyle {
+    param([System.Windows.Forms.ListViewItem]$Item)
+    if ($null -eq $Item) {
+        return
+    }
+    if ($Item.Checked) {
+        $Item.BackColor = [System.Drawing.Color]::Honeydew
+    } else {
+        $Item.BackColor = [System.Drawing.Color]::White
+    }
+}
+
+function Update-SlaveHostListView {
+    if ($null -eq $script:SlaveHostListView -or $null -eq $script:SlaveGrid) {
+        return
+    }
+    $selectedKey = ""
+    if ($script:SlaveHostListView.SelectedItems.Count -gt 0) {
+        $selectedKey = [string]$script:SlaveHostListView.SelectedItems[0].Tag
+    }
+    $script:SlaveHostListSyncing = $true
+    try {
+        $script:SlaveHostListView.BeginUpdate()
+        $script:SlaveHostListView.Items.Clear()
+        foreach ($row in $script:SlaveGrid.Rows) {
+            if ($row.IsNewRow) {
+                continue
+            }
+            $hostName = [string]$row.Cells["Host"].Value
+            if ([string]::IsNullOrWhiteSpace($hostName)) {
+                continue
+            }
+            $name = [string]$row.Cells["Name"].Value
+            if ([string]::IsNullOrWhiteSpace($name)) {
+                $name = $hostName
+            }
+            $key = Get-SlaveHostListKey $row
+            $item = New-Object System.Windows.Forms.ListViewItem $name
+            $item.Checked = [bool](Get-PropertyValue $row.Cells["Enabled"].Value $false)
+            [void]$item.SubItems.Add($hostName)
+            [void]$item.SubItems.Add([string]$row.Cells["OsType"].Value)
+            [void]$item.SubItems.Add([string]$row.Cells["Targets"].Value)
+            [void]$item.SubItems.Add([string]$row.Cells["Readiness"].Value)
+            $item.Tag = $key
+            Sync-SlaveHostListViewItemStyle $item
+            [void]$script:SlaveHostListView.Items.Add($item)
+            if ($key -eq $selectedKey) {
+                $item.Selected = $true
+            }
+        }
+    } finally {
+        $script:SlaveHostListView.EndUpdate()
+        $script:SlaveHostListSyncing = $false
+    }
+}
+
+function New-SlaveHostListView {
+    $listView = New-Object System.Windows.Forms.ListView
+    $listView.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $listView.View = [System.Windows.Forms.View]::Details
+    $listView.CheckBoxes = $true
+    $listView.FullRowSelect = $true
+    $listView.GridLines = $true
+    $listView.HideSelection = $false
+    $listView.MultiSelect = $false
+    [void]$listView.Columns.Add("Name", 140)
+    [void]$listView.Columns.Add("Host", 150)
+    [void]$listView.Columns.Add("OS", 70)
+    [void]$listView.Columns.Add("Targets", 160)
+    [void]$listView.Columns.Add("Ready", 80)
+    return $listView
+}
+
+function Register-SlaveHostListViewHandlers {
+    $script:SlaveHostListView.Add_ItemChecked({
+        param($sender, $eventArgs)
+        if ($script:SlaveHostListSyncing) {
+            return
+        }
+        $item = $eventArgs.Item
+        if ($null -eq $item) {
+            return
+        }
+        $row = Find-SlaveGridRowByHostKey ([string]$item.Tag)
+        if ($null -eq $row) {
+            return
+        }
+        if ($item.Checked -and -not (Test-SlaveRowReady $row)) {
+            $script:SlaveHostListSyncing = $true
+            try {
+                $item.Checked = $false
+            } finally {
+                $script:SlaveHostListSyncing = $false
+            }
+            Sync-SlaveHostListViewItemStyle $item
+            Show-Warning "Host must pass readiness before it can be enabled."
+            return
+        }
+        $row.Cells["Enabled"].Value = $item.Checked
+        Sync-SlaveHostListViewItemStyle $item
+        Capture-SlaveGrid
+        Refresh-ConfigPreview
+        Notify-ProfileTargetContextChanged "slave-host-list"
+    })
+    $script:SlaveHostListView.Add_SelectedIndexChanged({
+        param($sender, $eventArgs)
+        if ($script:SlaveHostListSyncing -or $null -eq $script:SlaveGrid) {
+            return
+        }
+        if ($sender.SelectedItems.Count -eq 0) {
+            return
+        }
+        $row = Find-SlaveGridRowByHostKey ([string]$sender.SelectedItems[0].Tag)
+        if ($null -ne $row) {
+            $script:SlaveGrid.CurrentCell = $row.Cells["Host"]
+        }
+    })
+}
+
+function Build-SlaveHostListPanel {
+    $panel = New-Object System.Windows.Forms.Panel
+    $panel.Dock = [System.Windows.Forms.DockStyle]::Fill
+
+    $hint = New-Label "Tick the checkbox to include a host in the run. Host must be Ready first." 0 0 760 20
+    $hint.Dock = [System.Windows.Forms.DockStyle]::Top
+    $hint.Height = 22
+    $hint.ForeColor = [System.Drawing.Color]::DimGray
+    $panel.Controls.Add($hint)
+
+    $script:SlaveHostListView = New-SlaveHostListView
+    $panel.Controls.Add($script:SlaveHostListView)
+    Register-SlaveHostListViewHandlers
+    return $panel
 }
 
 function Update-SlaveRowReadiness {
@@ -539,6 +703,7 @@ function Build-SlaveGrid {
     $enabledCol.Name = "Enabled"
     $enabledCol.HeaderText = "Use"
     $enabledCol.FillWeight = 40
+    $enabledCol.Visible = $false
     $grid.Columns.Add($enabledCol) | Out-Null
 
     foreach ($name in @("Name", "Host")) {
@@ -642,6 +807,7 @@ function Build-SlaveGrid {
                 Refresh-ConfigPreview
                 Notify-ProfileTargetContextChanged "slave-enabled"
             }
+            Update-SlaveHostListView
             return
         }
         if (@("OsType", "Name", "Host", "VdbenchPath", "User", "SshAlias") -contains $columnName) {
@@ -651,6 +817,7 @@ function Build-SlaveGrid {
             if (@("Host", "OsType", "VdbenchPath", "Name") -contains $columnName) {
                 Reset-SlaveRowReadiness $row
             }
+            Update-SlaveHostListView
         }
     })
 
@@ -696,6 +863,7 @@ function Populate-SlaveGrid {
     } finally {
         $script:SlaveGridRefreshing = $false
     }
+    Update-SlaveHostListView
 }
 
 function Capture-SlaveGrid {
@@ -717,7 +885,7 @@ function Capture-SlaveGrid {
         }
         $state = Get-SlaveRowState $row
         $items += Apply-SlaveDefaults ([pscustomobject]@{
-            Enabled = [bool]$row.Cells["Enabled"].Value
+            Enabled = [bool](Get-PropertyValue $row.Cells["Enabled"].Value $false)
             Name = $name
             Host = $hostName
             OsType = [string]$row.Cells["OsType"].Value
@@ -917,6 +1085,7 @@ function Browse-SlaveTargetsForRow {
             if (@(Get-SelectedTargetEntries $selected).Count -gt 0) {
                 $Row.Cells["Enabled"].Value = $true
             }
+            Update-SlaveHostListView
             Capture-SlaveGrid
             Refresh-ConfigPreview
             Notify-ProfileTargetContextChanged "slave-target-picker"
@@ -945,6 +1114,7 @@ function Add-NewSlaveRow {
     Apply-SlaveGridRowDefaults -Row $row -RefreshSshAlias:$true
     Set-SlaveRowTargets $row @()
     $script:SlaveGrid.CurrentCell = $row.Cells["Host"]
+    Update-SlaveHostListView
 }
 
 function Build-MasterSlaveTab {
@@ -952,9 +1122,10 @@ function Build-MasterSlaveTab {
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.RowCount = 2
+    $container.RowCount = 3
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 130)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
@@ -970,6 +1141,10 @@ function Build-MasterSlaveTab {
         $row = Get-SelectedSlaveRow
         if ($row -and -not $row.IsNewRow) {
             $script:SlaveGrid.Rows.Remove($row)
+            Update-SlaveHostListView
+            Capture-SlaveGrid
+            Refresh-ConfigPreview
+            Notify-ProfileTargetContextChanged "slave-removed"
         }
     })
     $toolbar.Controls.Add($removeButton)
@@ -986,11 +1161,14 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, tick the checkbox beside each disk/folder, Save selection." 0 0 1100 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness, Browse targets (tick each disk/folder), Save selection, then tick the host checkbox above the grid." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
+    $hostListPanel = Build-SlaveHostListPanel
+    $container.Controls.Add($hostListPanel, 0, 1)
+
     $script:SlaveGrid = Build-SlaveGrid
-    $container.Controls.Add($script:SlaveGrid, 0, 1)
+    $container.Controls.Add($script:SlaveGrid, 0, 2)
     Populate-SlaveGrid
     return $tab
 }
