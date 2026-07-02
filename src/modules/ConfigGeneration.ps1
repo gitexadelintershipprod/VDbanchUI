@@ -548,7 +548,6 @@ function Build-VdbenchConfig {
                     $targetIndex++
                     $parts = New-Object System.Collections.Generic.List[string]
                     [void]$parts.Add(("fsd=fsd_{0}_{1}" -f $safeName, $targetIndex))
-                    [void]$parts.Add(("host={0}" -f $slave.Name))
                     [void]$parts.Add(("anchor={0}" -f ([string]$target.Target)))
                     foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
                         if ($def.Key -eq "fsd.anchor") {
@@ -583,25 +582,49 @@ function Build-VdbenchConfig {
         [void]$lines.Add("")
 
         [void]$lines.Add("* Filesystem workload")
-        $fwdParts = New-Object System.Collections.Generic.List[string]
-        [void]$fwdParts.Add(("fwd={0}" -f $fwdName))
         if ($distributed) {
-            [void]$fwdParts.Add("fsd=fsd*")
-        } elseif (@(Get-SelectedTargetEntries @(Get-LocalHostTargetStore) "fs").Count -gt 1) {
-            [void]$fwdParts.Add("fsd=fsd*")
+            $slaves = @(Get-EnabledSlaves)
+            foreach ($slave in $slaves) {
+                $safeName = ([string]$slave.Name) -replace "[^A-Za-z0-9_]", "_"
+                $targets = @(Get-SelectedTargetEntries @(Get-PropertyValue $slave "Targets" @()) "fs")
+                $targetIndex = 0
+                foreach ($target in $targets) {
+                    $targetIndex++
+                    $fsdId = ("fsd_{0}_{1}" -f $safeName, $targetIndex)
+                    $fwdId = ("fwd_{0}_{1}" -f $safeName, $targetIndex)
+                    $fwdParts = New-Object System.Collections.Generic.List[string]
+                    [void]$fwdParts.Add(("fwd={0}" -f $fwdId))
+                    [void]$fwdParts.Add(("fsd={0}" -f $fsdId))
+                    [void]$fwdParts.Add(("host={0}" -f $slave.Name))
+                    foreach ($def in Get-DefinitionsForLine "fwd" $testKind) {
+                        Add-EnabledParameter $fwdParts $disabled $def "fwd"
+                    }
+                    [void]$lines.Add(($fwdParts -join ","))
+                }
+            }
         } else {
-            [void]$fwdParts.Add(("fsd={0}" -f $fsdName))
+            $fwdParts = New-Object System.Collections.Generic.List[string]
+            [void]$fwdParts.Add(("fwd={0}" -f $fwdName))
+            if (@(Get-SelectedTargetEntries @(Get-LocalHostTargetStore) "fs").Count -gt 1) {
+                [void]$fwdParts.Add("fsd=fsd*")
+            } else {
+                [void]$fwdParts.Add(("fsd={0}" -f $fsdName))
+            }
+            foreach ($def in Get-DefinitionsForLine "fwd" $testKind) {
+                Add-EnabledParameter $fwdParts $disabled $def "fwd"
+            }
+            [void]$lines.Add(($fwdParts -join ","))
         }
-        foreach ($def in Get-DefinitionsForLine "fwd" $testKind) {
-            Add-EnabledParameter $fwdParts $disabled $def "fwd"
-        }
-        [void]$lines.Add(($fwdParts -join ","))
         [void]$lines.Add("")
 
         [void]$lines.Add("* Run definition")
         $rdParts = New-Object System.Collections.Generic.List[string]
         [void]$rdParts.Add(("rd={0}" -f $rdName))
-        [void]$rdParts.Add(("fwd={0}" -f $fwdName))
+        if ($distributed) {
+            [void]$rdParts.Add("fwd=fwd*")
+        } else {
+            [void]$rdParts.Add(("fwd={0}" -f $fwdName))
+        }
         foreach ($def in Get-DefinitionsForLine "run" $testKind) {
             Add-EnabledParameter $rdParts $disabled $def "run"
         }

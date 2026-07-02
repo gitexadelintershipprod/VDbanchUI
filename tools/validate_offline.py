@@ -68,7 +68,7 @@ GOLDEN_FIXTURES = {
     "raw-local.txt": "sd=sd1,lun=C:\\vdbench\\testfile.dat",
     "raw-distributed.txt": "sd=sd_test_001,host=test-001,lun=/dev/sdb",
     "fs-local.txt": "fsd=fsd1,anchor=C:\\vdbench\\fs_test",
-    "fs-distributed.txt": "fsd=fsd_test_002,host=test-002,anchor=/mnt/test",
+    "fs-distributed.txt": "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002",
 }
 
 
@@ -244,7 +244,7 @@ def render_config(
                 safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slave["Name"])
                 fs_targets = [t for t in slave.get("Targets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
                 for index, target in enumerate(fs_targets, start=1):
-                    parts = [f"fsd=fsd_{safe_name}_{index}", f"host={slave['Name']}", f"anchor={target['Target']}"]
+                    parts = [f"fsd=fsd_{safe_name}_{index}", f"anchor={target['Target']}"]
                     for definition in catalog:
                         if definition["Key"] == "fsd.anchor":
                             continue
@@ -265,11 +265,24 @@ def render_config(
         lines.append("")
 
         local_fs_count = len([t for t in local_target_rows if t.get("Selected") and t.get("Kind") == "Filesystem"])
-        parts = [f"fwd={fwd_name}", "fsd=fsd*" if distributed or local_fs_count > 1 else f"fsd={fsd_name}"]
-        add_params(parts, disabled, catalog, profile, "fwd", test_kind)
-        lines.extend(["* Filesystem workload", ",".join(parts), ""])
-
-        parts = [f"rd={rd_name}", f"fwd={fwd_name}"]
+        if distributed:
+            lines.append("* Filesystem workload")
+            for slave in slaves or []:
+                safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slave["Name"])
+                fs_targets = [t for t in slave.get("Targets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
+                for index, target in enumerate(fs_targets, start=1):
+                    fsd_id = f"fsd_{safe_name}_{index}"
+                    fwd_id = f"fwd_{safe_name}_{index}"
+                    parts = [f"fwd={fwd_id}", f"fsd={fsd_id}", f"host={slave['Name']}"]
+                    add_params(parts, disabled, catalog, profile, "fwd", test_kind)
+                    lines.append(",".join(parts))
+            lines.append("")
+            parts = [f"rd={rd_name}", "fwd=fwd*"]
+        else:
+            parts = [f"fwd={fwd_name}", "fsd=fsd*" if local_fs_count > 1 else f"fsd={fsd_name}"]
+            add_params(parts, disabled, catalog, profile, "fwd", test_kind)
+            lines.extend(["* Filesystem workload", ",".join(parts), ""])
+            parts = [f"rd={rd_name}", f"fwd={fwd_name}"]
         add_params(parts, disabled, catalog, profile, "run", test_kind)
         lines.extend(["* Run definition", ",".join(parts)])
 
@@ -2404,8 +2417,9 @@ def main() -> int:
             }
         ],
     )
-    assert "fsd=fsd_test_002_1,host=test-002,anchor=/mnt/test" in fs_distributed
-    assert "fwd=fwd1,fsd=fsd*" in fs_distributed
+    assert "fsd=fsd_test_002_1,anchor=/mnt/test" in fs_distributed
+    assert "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" in fs_distributed
+    assert "rd=rd1,fwd=fwd*" in fs_distributed
 
     print("offline validation ok")
     print(f"catalog parameters: {len(catalog)}")

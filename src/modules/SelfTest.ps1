@@ -161,8 +161,9 @@ function Invoke-AppSelfTest {
         $script:CurrentProfile = New-DefaultProfile "SelfTest-Filesystem-Distributed"
         $script:RunProfile = $script:CurrentProfile
         $fsDistributed = Build-VdbenchConfig
-        Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002_1,host=test-002,anchor=/mnt/test" "distributed filesystem definition"
-        Assert-SelfTestContains $fsDistributed.Text "fwd=fwd1,fsd=fsd*" "distributed filesystem workload fanout"
+        Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002_1,anchor=/mnt/test" "distributed filesystem definition"
+        Assert-SelfTestContains $fsDistributed.Text "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" "distributed filesystem workload host binding"
+        Assert-SelfTestContains $fsDistributed.Text "rd=rd1,fwd=fwd*" "distributed filesystem run fanout"
 
         Set-PropertyValue $script:Settings "RunMode" "Single local run"
         $script:LocalHostTargets = @(

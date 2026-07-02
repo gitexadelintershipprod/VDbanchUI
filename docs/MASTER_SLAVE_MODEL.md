@@ -388,9 +388,9 @@ Example filesystem shape:
 ```text
 hd=default,shell=ssh
 hd=test001,system=10.10.10.11,vdbench=/opt/vdbench
-fsd=fsd_test001_1,host=test001,anchor=/mnt/test,depth=1,width=1,files=100,size=1m
-fwd=fwd1,fsd=fsd*,operation=read,xfersize=4k,fileio=random,fileselect=random
-rd=rd1,fwd=fwd1,fwdrate=max,elapsed=300,interval=1,format=no
+fsd=fsd_test001_1,anchor=/mnt/test,depth=1,width=1,files=100,size=1m
+fwd=fwd_test001_1,fsd=fsd_test001_1,host=test001,operation=read,xfersize=4k,fileio=random,fileselect=random
+rd=rd1,fwd=fwd*,fwdrate=max,elapsed=300,interval=1,format=no
 ```
 
 Exact command behavior can still be adjusted in the advanced/manual parameter area.
