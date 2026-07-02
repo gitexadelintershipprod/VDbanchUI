@@ -794,7 +794,7 @@ function Show-SlaveTargetPicker {
     $toolbar.Controls.Add($refreshButton)
     $toolbar.Controls.Add($newFolderButton)
     $toolbar.Controls.Add($addPathButton)
-    $hint = New-Label "Click any row to select it (turns green). You can also check Use directly. Then Save selection." 10 40 960 24
+    $hint = New-Label "Check Use or click any row to select (turns green). Double-click also toggles. Then Save selection." 10 40 960 24
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $toolbar.Controls.Add($hint)
 
@@ -811,21 +811,17 @@ function Show-SlaveTargetPicker {
     $counterLabel = New-Label "0 target(s) selected" 500 14 200 22
     $counterLabel.ForeColor = [System.Drawing.Color]::DimGray
 
-  $syncPickerRow = {
-        param([System.Windows.Forms.DataGridViewRow]$GridRow)
-        if ($null -eq $GridRow) {
-            return
-        }
-        Sync-TargetGridRowSelectionStyle $GridRow
-        Update-TargetCreateFileEditability $GridRow
-    }
   $reloadGrid = {
         param([object[]]$Items)
         Set-TargetGridRows $grid $Items
         foreach ($gridRow in $grid.Rows) {
-            & $syncPickerRow $gridRow
+            Invoke-TargetGridRowChanged -Grid $grid -Row $gridRow
         }
         Update-TargetGridSelectionCounter $counterLabel $grid
+    }
+    Register-TargetSelectionGridHandlers -Grid $grid -OnRowChanged {
+        param($Grid, $Row)
+        Update-TargetGridSelectionCounter $counterLabel $Grid
     }
     & $reloadGrid $merged
 
@@ -863,34 +859,6 @@ function Show-SlaveTargetPicker {
         $current = @(Get-TargetGridRows $grid)
         $entry = New-TargetSelection -Kind $kind -Target $path -Description "Manual entry" -Selected $true
         & $reloadGrid @(Merge-TargetSelections @($entry) $current)
-    })
-
-    $grid.Add_CurrentCellDirtyStateChanged({
-        param($sender, $eventArgs)
-        if ($sender.IsCurrentCellDirty) {
-            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
-        }
-    })
-    $grid.Add_CellValueChanged({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -ge 0) {
-            & $syncPickerRow $sender.Rows[$eventArgs.RowIndex]
-            Update-TargetGridSelectionCounter $counterLabel $sender
-        }
-    })
-    $grid.Add_CellClick({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -lt 0) {
-            return
-        }
-        $column = $sender.Columns[$eventArgs.ColumnIndex]
-        if ($column.Name -eq "Selected") {
-            return
-        }
-        $row = $sender.Rows[$eventArgs.RowIndex]
-        $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
-        & $syncPickerRow $row
-        Update-TargetGridSelectionCounter $counterLabel $sender
     })
 
     $buttonPanel = New-Object System.Windows.Forms.Panel

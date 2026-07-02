@@ -2270,9 +2270,10 @@ def main() -> int:
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
-    assert "Add_CellClick" in ui_slave_module, (
-        "Show-SlaveTargetPicker must support single-click on a row to toggle Use"
-    )
+    assert "Register-TargetSelectionGridHandlers" in ui_tabs_module
+    assert "Initialize-TargetSelectionGrid" in ui_tabs_module
+    assert "Add_CellContentClick" in ui_tabs_module
+    assert "CellContentClick" in ui_slave_module or "Register-TargetSelectionGridHandlers" in ui_slave_module
     assert "Sync-TargetGridRowSelectionStyle" in ui_tabs_module
     assert "[System.Drawing.Color]::SystemColors" not in ui_tabs_module, (
         "SystemColors is its own type, not a property of Color - "
@@ -2281,6 +2282,7 @@ def main() -> int:
     )
     assert "[System.Drawing.SystemColors]::Highlight" in ui_tabs_module
     assert "Update-TargetGridSelectionCounter" in ui_tabs_module
+    assert "$selectedCol.MinimumWidth = 48" in ui_tabs_module or "MinimumWidth = 48" in ui_tabs_module
     assert "target(s) selected" in ui_slave_module
     assert '$Row.Cells["Enabled"].Value = $true' in ui_slave_module, (
         "Browse-SlaveTargetsForRow must auto-enable the slave Use column after a "

@@ -155,7 +155,13 @@ function Add-TargetSelectionColumns {
     $selectedCol = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
     $selectedCol.Name = "Selected"
     $selectedCol.HeaderText = "Use"
-    $selectedCol.FillWeight = 35
+    $selectedCol.FillWeight = 55
+    $selectedCol.MinimumWidth = 48
+    $selectedCol.Width = 52
+    $selectedCol.ThreeState = $false
+    $selectedCol.TrueValue = $true
+    $selectedCol.FalseValue = $false
+    $selectedCol.ValueType = [bool]
     $Grid.Columns.Add($selectedCol) | Out-Null
     foreach ($name in @("Kind", "Target")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
@@ -171,12 +177,104 @@ function Add-TargetSelectionColumns {
     $createCol.Name = "CreateFile"
     $createCol.HeaderText = "Create/overwrite file"
     $createCol.FillWeight = 80
+    $createCol.MinimumWidth = 48
+    $createCol.ThreeState = $false
+    $createCol.TrueValue = $true
+    $createCol.FalseValue = $false
+    $createCol.ValueType = [bool]
     $Grid.Columns.Add($createCol) | Out-Null
     $descCol = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $descCol.Name = "Description"
     $descCol.HeaderText = "Description"
     $descCol.ReadOnly = $true
     $Grid.Columns.Add($descCol) | Out-Null
+}
+
+function Initialize-TargetSelectionGrid {
+    param([System.Windows.Forms.DataGridView]$Grid)
+    $Grid.ReadOnly = $false
+    $Grid.EditMode = [System.Windows.Forms.DataGridViewEditMode]::EditOnEnter
+    $Grid.StandardTab = $true
+}
+
+function Invoke-TargetGridRowChanged {
+    param(
+        [System.Windows.Forms.DataGridView]$Grid,
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [scriptblock]$Extra
+    )
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    Sync-TargetGridRowSelectionStyle $Row
+    Update-TargetCreateFileEditability $Row
+    if ($null -ne $Extra) {
+        & $Extra $Grid $Row
+    }
+}
+
+function Register-TargetSelectionGridHandlers {
+    param(
+        [System.Windows.Forms.DataGridView]$Grid,
+        [scriptblock]$OnRowChanged
+    )
+    Initialize-TargetSelectionGrid $Grid
+    $notifyRowChanged = {
+        param(
+            [System.Windows.Forms.DataGridView]$Sender,
+            [System.Windows.Forms.DataGridViewRow]$GridRow
+        )
+        Invoke-TargetGridRowChanged -Grid $Sender -Row $GridRow -Extra $OnRowChanged
+    }
+    $Grid.Add_CurrentCellDirtyStateChanged({
+        param($sender, $eventArgs)
+        if ($sender.IsCurrentCellDirty) {
+            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
+        }
+    })
+    $Grid.Add_CellValueChanged({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -ge 0) {
+            & $notifyRowChanged $sender $sender.Rows[$eventArgs.RowIndex]
+        }
+    })
+    $Grid.Add_CellContentClick({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -lt 0) {
+            return
+        }
+        $row = $sender.Rows[$eventArgs.RowIndex]
+        $column = $sender.Columns[$eventArgs.ColumnIndex]
+        if ($column.Name -eq "CreateFile") {
+            if ($row.Cells["CreateFile"].ReadOnly) {
+                return
+            }
+            return
+        }
+        if ($column.Name -eq "Selected") {
+            $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
+            $row.Cells["Selected"].Value = -not $current
+            $sender.InvalidateCell($row.Cells["Selected"])
+            & $notifyRowChanged $sender $row
+            return
+        }
+        if ($column.Name -in @("Kind", "Target", "Description")) {
+            $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
+            $row.Cells["Selected"].Value = -not $current
+            $sender.InvalidateCell($row.Cells["Selected"])
+            & $notifyRowChanged $sender $row
+        }
+    })
+    $Grid.Add_CellDoubleClick({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -lt 0) {
+            return
+        }
+        $row = $sender.Rows[$eventArgs.RowIndex]
+        $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
+        $sender.InvalidateCell($row.Cells["Selected"])
+        & $notifyRowChanged $sender $row
+    })
 }
 
 function Set-TargetGridRows {
@@ -448,43 +546,22 @@ function Build-LocalHostTab {
 
     $script:LocalHostTargetGrid = New-Object System.Windows.Forms.DataGridView
     $script:LocalHostTargetGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostTargetGrid.ReadOnly = $false
     $script:LocalHostTargetGrid.AllowUserToAddRows = $false
     $script:LocalHostTargetGrid.AllowUserToDeleteRows = $false
     $script:LocalHostTargetGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
     $script:LocalHostTargetGrid.MultiSelect = $false
     $script:LocalHostTargetGrid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
     Add-TargetSelectionColumns $script:LocalHostTargetGrid
-    $script:LocalHostTargetGrid.Add_CurrentCellDirtyStateChanged({
-        param($sender, $eventArgs)
-        if ($sender.IsCurrentCellDirty) {
-            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
-        }
-    })
-    $script:LocalHostTargetGrid.Add_CellValueChanged({
-        param($sender, $eventArgs)
+    Register-TargetSelectionGridHandlers -Grid $script:LocalHostTargetGrid -OnRowChanged {
+        param($Grid, $Row)
         if ($script:RefreshingLocalTargets) {
             return
         }
-        if ($eventArgs.RowIndex -ge 0) {
-            Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
-            Capture-LocalHostTargets
-            Refresh-ConfigPreview
-            Refresh-RunTabSummary
-            Notify-ProfileTargetContextChanged "local-host-grid"
-        }
-    })
-    $script:LocalHostTargetGrid.Add_CellDoubleClick({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -ge 0) {
-            $row = $sender.Rows[$eventArgs.RowIndex]
-            $row.Cells["Selected"].Value = -not [bool]$row.Cells["Selected"].Value
-            Capture-LocalHostTargets
-            Refresh-ConfigPreview
-            Refresh-RunTabSummary
-            Notify-ProfileTargetContextChanged "local-host-grid-doubleclick"
-        }
-    })
+        Capture-LocalHostTargets
+        Refresh-ConfigPreview
+        Refresh-RunTabSummary
+        Notify-ProfileTargetContextChanged "local-host-grid"
+    }
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
     Refresh-LocalHostTab
     return $tab
