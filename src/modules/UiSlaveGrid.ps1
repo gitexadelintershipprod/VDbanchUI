@@ -818,16 +818,24 @@ function Show-SlaveTargetPicker {
     & $reloadList $merged
 
     $selectAllButton.Add_Click({
-        foreach ($item in $listView.Items) {
-            $item.Checked = $true
-            Sync-TargetListViewItemStyle $item
+        Set-TargetListViewBulkSync -ListView $listView -Enabled $true
+        try {
+            foreach ($item in $listView.Items) {
+                Update-TargetListViewItemSelection -Item $item -Selected $true
+            }
+        } finally {
+            Set-TargetListViewBulkSync -ListView $listView -Enabled $false
         }
         Update-TargetListViewSelectionCounter $counterLabel $listView
     })
     $clearAllButton.Add_Click({
-        foreach ($item in $listView.Items) {
-            $item.Checked = $false
-            Sync-TargetListViewItemStyle $item
+        Set-TargetListViewBulkSync -ListView $listView -Enabled $true
+        try {
+            foreach ($item in $listView.Items) {
+                Update-TargetListViewItemSelection -Item $item -Selected $false
+            }
+        } finally {
+            Set-TargetListViewBulkSync -ListView $listView -Enabled $false
         }
         Update-TargetListViewSelectionCounter $counterLabel $listView
     })
