@@ -358,11 +358,96 @@ function Sync-TargetListViewItemStyle {
     }
 }
 
+function Set-TargetListViewBulkSync {
+    param(
+        [System.Windows.Forms.ListView]$ListView,
+        [bool]$Enabled
+    )
+    if ($null -eq $ListView) {
+        return
+    }
+    $tag = $ListView.Tag
+    if ($null -eq $tag) {
+        $tag = @{}
+    } elseif ($tag -isnot [hashtable]) {
+        $tag = @{ Data = $tag }
+    } else {
+        $tag = @{} + $tag
+    }
+    $tag['Syncing'] = $Enabled
+    $ListView.Tag = $tag
+}
+
+function Get-TargetListViewItemFields {
+    param(
+        [System.Windows.Forms.ListViewItem]$Item,
+        [object]$Stored = $null
+    )
+    if ($null -eq $Item) {
+        return @{
+            Kind = ""
+            Target = ""
+            Description = ""
+            CreateFile = $false
+        }
+    }
+    if ($null -eq $Stored) {
+        $Stored = Get-PropertyValue $Item "Tag" $null
+    }
+    $kind = [string](Get-PropertyValue $Stored "Kind" ([string]$Item.Text))
+    $path = ""
+    if ($Item.SubItems.Count -ge 2) {
+        $path = [string]$Item.SubItems[1].Text
+    }
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        $path = [string](Get-PropertyValue $Stored "Target" "")
+    }
+    $description = ""
+    if ($Item.SubItems.Count -ge 3) {
+        $description = [string]$Item.SubItems[2].Text
+    }
+    if ([string]::IsNullOrWhiteSpace($description)) {
+        $description = [string](Get-PropertyValue $Stored "Description" "")
+    }
+    $createFile = [bool](Get-PropertyValue $Stored "CreateFile" $false)
+    return @{
+        Kind = $kind
+        Target = $path
+        Description = $description
+        CreateFile = $createFile
+    }
+}
+
+function Update-TargetListViewItemSelection {
+    param(
+        [System.Windows.Forms.ListViewItem]$Item,
+        [bool]$Selected
+    )
+    if ($null -eq $Item) {
+        return
+    }
+    $fields = Get-TargetListViewItemFields -Item $Item
+    $createFile = [bool]$fields.CreateFile
+    if ($Selected -and [string]$fields.Kind -eq "Test file") {
+        $createFile = $true
+    }
+    # Tag must exist before Checked changes; ItemChecked fires synchronously under StrictMode.
+    $Item.Tag = New-TargetSelection `
+        -Kind ([string]$fields.Kind) `
+        -Target ([string]$fields.Target) `
+        -Description ([string]$fields.Description) `
+        -Selected $Selected `
+        -CreateFile $createFile
+    $Item.Checked = $Selected
+    Sync-TargetListViewItemStyle $Item
+}
+
 function Set-TargetListViewTargets {
     param(
         [System.Windows.Forms.ListView]$ListView,
         [object[]]$Targets
     )
+    Set-TargetListViewBulkSync -ListView $ListView -Enabled $true
     $ListView.BeginUpdate()
     try {
         $ListView.Items.Clear()
@@ -376,15 +461,14 @@ function Set-TargetListViewTargets {
                 $createFile = $true
             }
             $item = New-Object System.Windows.Forms.ListViewItem $kind
-            $item.Checked = $selected
             [void]$item.SubItems.Add($path)
             [void]$item.SubItems.Add($description)
-            $item.Tag = (New-TargetSelection -Kind $kind -Target $path -Description $description -Selected $selected -CreateFile $createFile)
-            Sync-TargetListViewItemStyle $item
+            Update-TargetListViewItemSelection -Item $item -Selected $selected
             [void]$ListView.Items.Add($item)
         }
     } finally {
         $ListView.EndUpdate()
+        Set-TargetListViewBulkSync -ListView $ListView -Enabled $false
     }
 }
 
@@ -395,27 +479,16 @@ function Get-TargetListViewTargets {
     }
     $targets = @()
     foreach ($item in $ListView.Items) {
-        $stored = $item.Tag
-        $kind = [string](Get-PropertyValue $stored "Kind" ([string]$item.Text))
-        $path = ""
-        if ($item.SubItems.Count -ge 1) {
-            $path = [string]$item.SubItems[0].Text
-        }
-        if ([string]::IsNullOrWhiteSpace($path)) {
-            $path = [string](Get-PropertyValue $stored "Target" "")
-        }
-        $description = ""
-        if ($item.SubItems.Count -ge 2) {
-            $description = [string]$item.SubItems[1].Text
-        }
-        $createFile = [bool](Get-PropertyValue $stored "CreateFile" $false)
-        if ($item.Checked -and $kind -eq "Test file") {
+        $stored = Get-PropertyValue $item "Tag" $null
+        $fields = Get-TargetListViewItemFields -Item $item -Stored $stored
+        $createFile = [bool]$fields.CreateFile
+        if ($item.Checked -and [string]$fields.Kind -eq "Test file") {
             $createFile = $true
         }
         $targets += New-TargetSelection `
-            -Kind $kind `
-            -Target $path `
-            -Description $description `
+            -Kind ([string]$fields.Kind) `
+            -Target ([string]$fields.Target) `
+            -Description ([string]$fields.Description) `
             -Selected $item.Checked `
             -CreateFile $createFile
     }
@@ -441,33 +514,19 @@ function Register-TargetListViewHandlers {
     )
     $ListView.Tag = @{
         CounterLabel = $CounterLabel
+        Syncing = $false
     }
     $ListView.Add_ItemChecked({
         param($sender, $eventArgs)
+        if ([bool](Get-PropertyValue $sender.Tag "Syncing" $false)) {
+            return
+        }
         $item = $eventArgs.Item
         if ($null -eq $item) {
             return
         }
-        $stored = $item.Tag
-        $kind = [string](Get-PropertyValue $stored "Kind" ([string]$item.Text))
-        $path = ""
-        if ($item.SubItems.Count -ge 1) {
-            $path = [string]$item.SubItems[0].Text
-        }
-        $description = ""
-        if ($item.SubItems.Count -ge 2) {
-            $description = [string]$item.SubItems[1].Text
-        }
-        $createFile = [bool](Get-PropertyValue $stored "CreateFile" $false)
-        if ($item.Checked -and $kind -eq "Test file") {
-            $createFile = $true
-        }
-        $item.Tag = New-TargetSelection -Kind $kind -Target $path -Description $description -Selected $item.Checked -CreateFile $createFile
-        Sync-TargetListViewItemStyle $item
-        $label = $null
-        if ($null -ne $sender.Tag) {
-            $label = $sender.Tag.CounterLabel
-        }
+        Update-TargetListViewItemSelection -Item $item -Selected $item.Checked
+        $label = Get-PropertyValue $sender.Tag "CounterLabel" $null
         Update-TargetListViewSelectionCounter $label $sender
     })
 }
