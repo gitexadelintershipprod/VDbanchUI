@@ -1,1 +1,1 @@
-fsd=fsd_test_002,host=test-002,anchor=/mnt/test
+fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002
