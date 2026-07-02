@@ -219,15 +219,58 @@ function Get-TargetGridRows {
     return @($targets)
 }
 
+function Sync-TargetGridRowSelectionStyle {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    $selected = [bool](Get-PropertyValue $Row.Cells["Selected"].Value $false)
+    if ($selected) {
+        $Row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Honeydew
+        $Row.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::LightGreen
+        $Row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::Black
+    } else {
+        $Row.DefaultCellStyle.BackColor = [System.Drawing.Color]::White
+        $Row.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::SystemColors.Highlight
+        $Row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::SystemColors.HighlightText
+    }
+}
+
+function Update-TargetGridSelectionCounter {
+    param(
+        [System.Windows.Forms.Label]$Label,
+        [System.Windows.Forms.DataGridView]$Grid
+    )
+    if ($null -eq $Label -or $null -eq $Grid) {
+        return
+    }
+    $count = @(Get-SelectedTargetEntries @(Get-TargetGridRows $Grid)).Count
+    $Label.Text = ("{0} target(s) selected" -f $count)
+}
+
 function Update-TargetCreateFileEditability {
     param([System.Windows.Forms.DataGridViewRow]$Row)
     if ($null -eq $Row -or $Row.IsNewRow) {
         return
     }
-    $isTestFile = ([string]$Row.Cells["Kind"].Value) -eq "Test file"
+    $kind = [string]$Row.Cells["Kind"].Value
+    $isTestFile = $kind -eq "Test file"
+    $isFilesystem = $kind -eq "Filesystem"
     $Row.Cells["CreateFile"].ReadOnly = -not $isTestFile
+    if ($isFilesystem) {
+        $Row.Cells["CreateFile"].Value = $false
+        $Row.Cells["CreateFile"].ToolTipText = "vdbench creates test files at run time from profile fsd.* parameters - no extra action needed here"
+        $Row.Cells["Kind"].ToolTipText = $Row.Cells["CreateFile"].ToolTipText
+        return
+    }
+    $Row.Cells["Kind"].ToolTipText = ""
+    $Row.Cells["CreateFile"].ToolTipText = ""
     if (-not $isTestFile) {
         $Row.Cells["CreateFile"].Value = $false
+        return
+    }
+    if ([bool](Get-PropertyValue $Row.Cells["Selected"].Value $false)) {
+        $Row.Cells["CreateFile"].Value = $true
     }
 }
 
