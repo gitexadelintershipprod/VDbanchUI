@@ -219,13 +219,15 @@ function Register-TargetSelectionGridHandlers {
         [scriptblock]$OnRowChanged
     )
     Initialize-TargetSelectionGrid $Grid
-    $notifyRowChanged = {
-        param(
-            [System.Windows.Forms.DataGridView]$Sender,
-            [System.Windows.Forms.DataGridViewRow]$GridRow
-        )
-        Invoke-TargetGridRowChanged -Grid $Sender -Row $GridRow -Extra $OnRowChanged
+    # Event-handler scriptblocks do not capture local variables (see AGENTS.md) -
+    # store the callback on the grid Tag so handlers can read it at fire time.
+    $tag = @{}
+    if ($null -ne $Grid.Tag -and $Grid.Tag -is [hashtable]) {
+        $tag = @{} + $Grid.Tag
     }
+    $tag.TargetSelectionOnRowChanged = $OnRowChanged
+    $Grid.Tag = $tag
+
     $Grid.Add_CurrentCellDirtyStateChanged({
         param($sender, $eventArgs)
         if ($sender.IsCurrentCellDirty) {
@@ -235,7 +237,11 @@ function Register-TargetSelectionGridHandlers {
     $Grid.Add_CellValueChanged({
         param($sender, $eventArgs)
         if ($eventArgs.RowIndex -ge 0) {
-            & $notifyRowChanged $sender $sender.Rows[$eventArgs.RowIndex]
+            $extra = $null
+            if ($null -ne $sender.Tag) {
+                $extra = $sender.Tag.TargetSelectionOnRowChanged
+            }
+            Invoke-TargetGridRowChanged -Grid $sender -Row $sender.Rows[$eventArgs.RowIndex] -Extra $extra
         }
     })
     $Grid.Add_CellContentClick({
@@ -251,18 +257,22 @@ function Register-TargetSelectionGridHandlers {
             }
             return
         }
+        $extra = $null
+        if ($null -ne $sender.Tag) {
+            $extra = $sender.Tag.TargetSelectionOnRowChanged
+        }
         if ($column.Name -eq "Selected") {
             $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
             $row.Cells["Selected"].Value = -not $current
             $sender.InvalidateCell($row.Cells["Selected"])
-            & $notifyRowChanged $sender $row
+            Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
             return
         }
         if ($column.Name -in @("Kind", "Target", "Description")) {
             $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
             $row.Cells["Selected"].Value = -not $current
             $sender.InvalidateCell($row.Cells["Selected"])
-            & $notifyRowChanged $sender $row
+            Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
         }
     })
     $Grid.Add_CellDoubleClick({
@@ -273,7 +283,11 @@ function Register-TargetSelectionGridHandlers {
         $row = $sender.Rows[$eventArgs.RowIndex]
         $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
         $sender.InvalidateCell($row.Cells["Selected"])
-        & $notifyRowChanged $sender $row
+        $extra = $null
+        if ($null -ne $sender.Tag) {
+            $extra = $sender.Tag.TargetSelectionOnRowChanged
+        }
+        Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
     })
 }
 
