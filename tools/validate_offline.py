@@ -2274,6 +2274,12 @@ def main() -> int:
         "Show-SlaveTargetPicker must support single-click on a row to toggle Use"
     )
     assert "Sync-TargetGridRowSelectionStyle" in ui_tabs_module
+    assert "[System.Drawing.Color]::SystemColors" not in ui_tabs_module, (
+        "SystemColors is its own type, not a property of Color - "
+        "[System.Drawing.Color]::SystemColors crashes Browse with "
+        "'The property SystemColors cannot be found on this object'"
+    )
+    assert "[System.Drawing.SystemColors]::Highlight" in ui_tabs_module
     assert "Update-TargetGridSelectionCounter" in ui_tabs_module
     assert "target(s) selected" in ui_slave_module
     assert '$Row.Cells["Enabled"].Value = $true' in ui_slave_module, (

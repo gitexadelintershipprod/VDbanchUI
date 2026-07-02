@@ -231,8 +231,8 @@ function Sync-TargetGridRowSelectionStyle {
         $Row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::Black
     } else {
         $Row.DefaultCellStyle.BackColor = [System.Drawing.Color]::White
-        $Row.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::SystemColors.Highlight
-        $Row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::SystemColors.HighlightText
+        $Row.DefaultCellStyle.SelectionBackColor = [System.Drawing.SystemColors]::Highlight
+        $Row.DefaultCellStyle.SelectionForeColor = [System.Drawing.SystemColors]::HighlightText
     }
 }
 
