@@ -924,15 +924,11 @@ function Refresh-ProfileEditor {
             Capture-ProfileEditor
         }
 
-        $previousKind = [string]$script:ProfileEditorLastTestKind
         $context = Get-ProfileEditorContext
         $script:ProfileEditorLocked = [bool]$context.Locked
         $script:ProfileEditorTestKind = [string]$context.TestKind
         Write-DebugLog ("Profile editor context: locked={0}; testKind={1}; sections={2}; resolvedError={3}" -f $context.Locked, $context.TestKind, ($context.VisibleSections -join ","), [string]$context.Resolved.Error)
 
-        if (Test-ProfileTabSelected -and -not [string]::IsNullOrWhiteSpace($previousKind) -and -not [string]::IsNullOrWhiteSpace($context.TestKind) -and $previousKind -ne $context.TestKind) {
-            Show-Warning "Target type changed; review profile parameters." "Profile parameters"
-        }
         if (-not [string]::IsNullOrWhiteSpace($context.TestKind)) {
             $script:ProfileEditorLastTestKind = [string]$context.TestKind
         }
