@@ -2272,8 +2272,19 @@ def main() -> int:
     assert "$timer.Tag" not in ui_slave_module
     assert "New-TargetListView" in ui_tabs_module
     assert "CheckBoxes = `$true" in ui_tabs_module or "CheckBoxes = $true" in ui_tabs_module
-    assert "Get-TargetListViewTargets" in ui_slave_module
+    assert "function Build-SlaveHostListPanel" in ui_slave_module
+    assert "function Update-SlaveHostListView" in ui_slave_module
+    assert "CheckBoxes = `$true" in ui_slave_module or "CheckBoxes = $true" in ui_slave_module
+    assert "$enabledCol.Visible = $false" in ui_slave_module, (
+        "Slave grid Enabled column must stay hidden; host enable/disable uses the "
+        "ListView checkboxes above the grid (DataGridView checkboxes are unreliable)"
+    )
+    assert "Get-PropertyValue $row.Cells[\"Enabled\"].Value $false" in ui_slave_module, (
+        "Capture-SlaveGrid must read Enabled via Get-PropertyValue so DBNull does not "
+        "throw under Set-StrictMode"
+    )
     assert "New-TargetListView" in ui_slave_module
+    assert "Get-TargetListViewTargets" in ui_slave_module
     assert "Add-TargetSelectionColumns `$grid" not in ui_slave_module, (
         "Show-SlaveTargetPicker must use ListView checkboxes, not DataGridViewCheckBoxColumn - "
         "the latter does not render reliably on Windows in this dialog"
@@ -2301,7 +2312,7 @@ def main() -> int:
         "Get-TargetGridRows must read checkbox values via Get-PropertyValue so "
         "untouched WinForms checkboxes (DBNull) do not throw under Set-StrictMode"
     )
-    assert "Browse targets, check Use in the target dialog" in state_module_full
+    assert "Browse targets, tick each disk/folder checkbox and Save selection, then tick the host checkbox above the grid." in state_module_full
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
     assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module
