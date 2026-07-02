@@ -2198,6 +2198,21 @@ def main() -> int:
     assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
+    assert "Add_CellDoubleClick" in ui_slave_module, (
+        "Show-SlaveTargetPicker must support double-click to toggle Use, matching the "
+        "Local Host tab - row highlight alone does not select a target"
+    )
+    assert "Get-SelectedTargetEntries $rows).Count -eq 0" in ui_slave_module, (
+        "Show-SlaveTargetPicker must refuse Save selection when no Use checkbox is "
+        "checked, instead of silently saving an empty Targets summary"
+    )
+    assert "Row highlight alone does not select" in ui_slave_module
+    assert "After Browse, check Use in the target dialog" in ui_slave_module
+    assert 'Get-PropertyValue $row.Cells["Selected"].Value $false' in ui_tabs_module, (
+        "Get-TargetGridRows must read checkbox values via Get-PropertyValue so "
+        "untouched WinForms checkboxes (DBNull) do not throw under Set-StrictMode"
+    )
+    assert "Browse targets, check Use in the target dialog" in state_module_full
     assert "function Initialize-DpiAwareness" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
     assert 'New-MainTabPage "Config Preview" "Preview"' in ui_tabs_module
     assert "$script:UiRefreshTimer.Interval = 500" in ui_tabs_module

@@ -213,8 +213,8 @@ function Get-TargetGridRows {
             -Kind ([string]$row.Cells["Kind"].Value) `
             -Target ([string]$row.Cells["Target"].Value) `
             -Description ([string]$row.Cells["Description"].Value) `
-            -Selected ([bool]$row.Cells["Selected"].Value) `
-            -CreateFile ([bool]$row.Cells["CreateFile"].Value)
+            -Selected ([bool](Get-PropertyValue $row.Cells["Selected"].Value $false)) `
+            -CreateFile ([bool](Get-PropertyValue $row.Cells["CreateFile"].Value $false))
     }
     return @($targets)
 }
