@@ -56,7 +56,9 @@ Each slave entry contains:
 - `OsType`
 - `VdbenchPath`
 - `Targets` (one or more selected raw/file/filesystem targets)
-- `SshAlias`
+- `SshAlias` — defaults to this row's own `Host`/IP; only edit it if you have a
+  matching `Host <alias>` entry in your own SSH config and specifically want to
+  connect through that instead (see below)
 - `ReadinessStatus` — `Not checked`, `Checking...`, `Ready`, `Failed`, `Error`, `Checker missing` (legacy `Pending` may still appear from older inventories)
 - `ReadinessCheckedAt` — ISO timestamp of the last readiness check
 - `ReadinessOutput` — optional checker output text
@@ -74,6 +76,35 @@ Each slave entry contains:
 
 Remote targets are discovered through SSH using the row's `SshAlias` when present, otherwise `Host`.
 Each enabled host must pass readiness and have at least one selected target before a run can start.
+
+### Why Browse (or a distributed run) could try to connect by name instead of IP
+
+Every SSH-based connection this app makes - its own direct `ssh.exe` calls for
+**Browse**/**New folder**/test-file preparation, and vdbench's own `system=` parameter
+for the actual distributed run (see "Generated Vdbench Shape" below) - connects using
+the row's `SshAlias`, falling back to `Host` only when `SshAlias` is blank.
+
+`SshAlias` used to default to the slave's **Name** whenever both a `Host`/IP and a
+`Name` were provided (the normal case when adding a slave) - even though `Name` is
+purely a display label typed into the grid with no guaranteed relationship to anything
+resolvable on the network, unlike `Host`, which is explicitly labeled "Host / IP" and
+expected to be a directly-connectable address. This made every freshly-added slave (or
+any slave with its `Name`/`Host` subsequently edited) try to connect by whatever
+arbitrary label was typed as its name, failing outright unless that exact string also
+happened to be independently resolvable (e.g. via DNS, a hosts file entry, or a
+matching entry in your own SSH config) - reported directly by a user as "Browse ...
+couldn't connect to the server by name ... every connection should be by IP address
+only".
+
+Fixed: `Get-DefaultSshAliasForSlave` (`State.ps1`) now prefers `Host` over `Name`, so a
+slave connects by its own IP/hostname by default and only ever falls back to `Name` as a
+last resort when `Host` itself is blank. `SshAlias` remains a user-editable override for
+anyone who genuinely has a matching `Host <alias>` entry in their own SSH config and
+wants to use it instead - this only changes what a slave defaults to before it is
+manually customized. An already-saved slave whose `SshAlias` was set by the old,
+Name-preferring default can be corrected by re-typing (or briefly editing and reverting)
+its `Host` or `Name` field, which re-triggers this default, or by editing the
+`SshAlias` cell directly.
 
 ### Why a newly-added slave's Targets could show something selected with zero Browse clicks
 

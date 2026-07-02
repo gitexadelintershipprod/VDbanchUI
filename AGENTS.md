@@ -162,6 +162,26 @@ installation. The single GUI app is `src/VdbenchUI.ps1`, launched on Windows via
     grep for every direct invocation of the underlying tool/protocol client and check
     each one individually rather than assuming they all consistently use the same
     tracked value.
+  - **Critical, previously-undetected bug found 2026-07-02 (connecting by name instead
+    of IP)**: never default a field that gets used as a real network destination (an SSH
+    target, a hostname to dial, etc.) to a purely cosmetic, user-typed display label,
+    even when that label and the real address are entered side-by-side in the same form
+    and might often look interchangeable to a developer. Here, `Get-DefaultSshAliasForSlave`
+    (`State.ps1`) preferred a slave's `Name` (an arbitrary label with zero guaranteed
+    relationship to anything resolvable on the network) over its `Host` (explicitly
+    labeled "Host / IP", meant to be directly connectable) when defaulting `SshAlias` -
+    the one field every SSH connection in this app actually dials (this app's own
+    `ssh.exe` calls AND vdbench's own `system=` parameter). This made every freshly-added
+    slave try to connect by whatever label the user happened to type as a name, only
+    "working" if that string was independently resolvable by coincidence - confirmed by a
+    direct user report after adding a slave with a real IP and an arbitrary name: Browse
+    failed with a "couldn't connect to the server by name" error, exactly matching the
+    mechanism. The lesson generalizes beyond this one field: when a UI form has both a
+    "real address/identifier" field and a "friendly label" field for the same entity, any
+    default that reads the label as a fallback for the address (or vice versa) needs its
+    precedence order double-checked explicitly, since both fields are usually populated
+    together and the bug is invisible until the label happens to differ from anything
+    actually resolvable.
   - **Related gotcha, also found 2026-07-01**: a function's `return @(X)` does NOT
     reliably survive the function-call boundary as an array when `X` is a single item -
     PowerShell silently collapses it back down to the bare scalar `X` for the CALLER,

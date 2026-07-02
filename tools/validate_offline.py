@@ -506,6 +506,7 @@ Invoke-AppSelfTest
     _run_remote_ssh_quoting_regression_check(pwsh)
     _run_ssh_user_regression_check(pwsh)
     _run_auto_target_selection_regression_check(pwsh)
+    _run_ssh_alias_default_regression_check(pwsh)
     return True
 
 
@@ -1781,6 +1782,112 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         print("auto-target-selection regression check: fresh slaves never auto-select a target across repeated calls, genuine legacy migration still works exactly once")
 
 
+def _run_ssh_alias_default_regression_check(pwsh: str) -> None:
+    """Reproduce the "couldn't connect to the server by name" bug end-to-end.
+
+    Root cause (found 2026-07-02, from a direct user report: after adding a slave with
+    both a Host/IP and a Name, clicking Browse failed because the app tried to connect
+    by the NAME, which is not resolvable on their network - only the IP is a real,
+    directly-connectable address): Get-DefaultSshAliasForSlave (State.ps1) preferred the
+    slave's Name over its Host/IP when defaulting SshAlias - the one field every
+    SSH-based connection in this app actually uses (this app's own direct ssh.exe calls
+    for Browse/New folder/test-file prep, AND vdbench's own "system=" parameter for the
+    real distributed run). Name is purely a display label typed into the grid with no
+    guaranteed relationship to anything resolvable on the network, unlike Host, which is
+    explicitly labeled "Host / IP" and expected to be directly connectable. Every
+    freshly-added slave (Add-NewSlaveRow always calls Apply-SlaveGridRowDefaults with
+    -RefreshSshAlias) - or any slave with its Name/Host subsequently edited - got its
+    SshAlias silently defaulted to its own Name, so any connection attempt was made
+    against an arbitrary label instead of the real address right next to it in the grid.
+
+    Fix: Get-DefaultSshAliasForSlave now prefers Host over Name, so a slave connects by
+    its own IP/hostname by default, and only ever uses Name as a last resort when Host
+    itself is blank. SshAlias remains a user-editable override for anyone who genuinely
+    has a matching `Host <alias>` entry in their own ssh config and wants to use it
+    instead.
+
+    This check drives the real Get-DefaultSshAliasForSlave and the real
+    Apply-SlaveDefaults (matching Add-NewSlaveRow's exact shape: Host and Name both
+    provided, Targets empty) through a real pwsh process and asserts the resulting
+    SshAlias is the Host/IP, not the Name - plus confirms Name is still used as a
+    fallback when Host is genuinely blank.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-sshalias-check-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-sshalias-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:Settings = [pscustomobject]@{{ PrivateKey = "" }}
+. (Join-Path "{module_root}" "Core.ps1")
+. (Join-Path "{module_root}" "State.ps1")
+
+$aliasWithBothHostAndName = Get-DefaultSshAliasForSlave "linux-002" "10.50.11.183"
+$aliasWithBlankHost = Get-DefaultSshAliasForSlave "linux-002" ""
+$aliasWithBothBlank = Get-DefaultSshAliasForSlave "" ""
+
+# Exact shape of Add-NewSlaveRow's freshly-added slave: Host and Name both provided,
+# Targets empty, going through the real Apply-SlaveDefaults normalization.
+$freshSlave = [pscustomobject]@{{
+    Enabled = $false; Name = "linux-002"; Host = "10.50.11.183"; OsType = "Linux"; Targets = @()
+}}
+$normalized = Apply-SlaveDefaults $freshSlave
+
+$results = [pscustomobject]@{{
+    AliasWithBothHostAndName = $aliasWithBothHostAndName
+    AliasWithBlankHost = $aliasWithBlankHost
+    AliasWithBothBlank = $aliasWithBothBlank
+    NormalizedSshAlias = $normalized.SshAlias
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("SSH alias default regression harness itself failed to run")
+
+        results_path = Path(tmp_dir) / "results.json"
+        try:
+            parsed = json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+        except json.JSONDecodeError:
+            print(result.stdout.strip())
+            raise AssertionError("Could not parse SSH alias default harness output as JSON")
+
+        assert parsed.get("AliasWithBothHostAndName") == "10.50.11.183", (
+            f"when both a Host/IP and a Name are provided (the normal 'Add slave' case), "
+            f"the default SshAlias must be the Host/IP, not the Name - got "
+            f"{parsed.get('AliasWithBothHostAndName')!r}. This is exactly the bug that "
+            f"made Browse/New folder/the real distributed run try to connect by an "
+            f"arbitrary display label instead of the real, directly-connectable address"
+        )
+        assert parsed.get("AliasWithBlankHost") == "linux-002", (
+            f"Name must still be used as a fallback when Host is genuinely blank - got "
+            f"{parsed.get('AliasWithBlankHost')!r}"
+        )
+        assert parsed.get("AliasWithBothBlank") == "", (
+            f"expected an empty default when both Host and Name are blank, got "
+            f"{parsed.get('AliasWithBothBlank')!r}"
+        )
+        assert parsed.get("NormalizedSshAlias") == "10.50.11.183", (
+            f"end-to-end: a freshly-added slave (matching Add-NewSlaveRow's exact "
+            f"shape) must have its SshAlias default to its own Host/IP after "
+            f"Apply-SlaveDefaults, got {parsed.get('NormalizedSshAlias')!r}"
+        )
+        print("SSH alias default regression check: a freshly-added slave now connects by Host/IP by default, not by its display Name")
+
+
 def main() -> int:
     settings = load_json(SETTINGS_PATH)
     catalog = load_json(CATALOG_PATH)
@@ -2065,6 +2172,23 @@ def main() -> int:
         "Get-DefaultTestTargetForOs and write it back into the returned object - the "
         "computed default becomes indistinguishable from genuine legacy data on the "
         "very next call, silently auto-selecting a target with zero user interaction"
+    )
+    # See _run_ssh_alias_default_regression_check docstring: Get-DefaultSshAliasForSlave
+    # must prefer Host/IP over the purely-cosmetic display Name, or every SSH-based
+    # connection (this app's own ssh.exe calls AND vdbench's own "system=" parameter)
+    # tries to connect by an arbitrary label instead of a real, resolvable address.
+    ssh_alias_fn_match = re.search(
+        r"function Get-DefaultSshAliasForSlave \{.*?\n\}", state_module_full, re.DOTALL,
+    )
+    assert ssh_alias_fn_match, "Get-DefaultSshAliasForSlave function not found in State.ps1"
+    ssh_alias_fn_body = ssh_alias_fn_match.group(0)
+    host_check_pos = ssh_alias_fn_body.find("IsNullOrWhiteSpace($HostName)")
+    name_check_pos = ssh_alias_fn_body.find("IsNullOrWhiteSpace($Name)")
+    assert host_check_pos != -1 and name_check_pos != -1 and host_check_pos < name_check_pos, (
+        "Get-DefaultSshAliasForSlave must check $HostName before $Name, so a slave's "
+        "SshAlias defaults to its own Host/IP rather than its display Name - the exact "
+        "bug that made Browse/New folder/the real distributed run try to connect by an "
+        "arbitrary label the user typed instead of the real address next to it"
     )
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
