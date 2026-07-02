@@ -386,6 +386,7 @@ rd=rd1,wd=wd1,iorate=max,elapsed=300,interval=1
 Example filesystem shape:
 
 ```text
+create_anchors=yes
 hd=default,shell=ssh
 hd=test001,system=10.10.10.11,vdbench=/opt/vdbench
 fsd=fsd_test001_1,anchor=/mnt/test,depth=1,width=1,files=100,size=1m
