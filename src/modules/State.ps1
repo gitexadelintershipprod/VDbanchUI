@@ -119,11 +119,17 @@ function Get-ProfileEditorContext {
         if ($errorText -like "*mixed raw and filesystem*") {
             $message = "Mixed raw and filesystem targets are not allowed. Adjust selections on the Local Host or Master/Slave tab."
         } elseif ($errorText -like "*No targets selected*") {
-            $message = "Select a target on the Local Host or Master/Slave tab to edit profile parameters."
+            if (Is-DistributedMode) {
+                $message = "On Master/Slave: Browse targets, check Use in the target dialog, click Save selection, then enable Use on the slave row."
+            } else {
+                $message = "On Local Host: check Use for at least one disk or folder target."
+            }
         } elseif (-not [string]::IsNullOrWhiteSpace($errorText)) {
             $message = $errorText
+        } elseif (Is-DistributedMode) {
+            $message = "On Master/Slave: Browse targets, check Use in the target dialog, click Save selection, then enable Use on the slave row."
         } else {
-            $message = "Select a target on the Local Host or Master/Slave tab to edit profile parameters."
+            $message = "On Local Host: check Use for at least one disk or folder target."
         }
     }
     $visibleSections = @("General")

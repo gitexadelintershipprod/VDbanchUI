@@ -780,7 +780,7 @@ function Show-SlaveTargetPicker {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 2
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 68)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $dialog.Controls.Add($layout)
 
@@ -794,6 +794,9 @@ function Show-SlaveTargetPicker {
     $toolbar.Controls.Add($refreshButton)
     $toolbar.Controls.Add($newFolderButton)
     $toolbar.Controls.Add($addPathButton)
+    $hint = New-Label "Check Use for each target you want. Row highlight alone does not select. Double-click a row to toggle Use." 10 40 960 24
+    $hint.ForeColor = [System.Drawing.Color]::DimGray
+    $toolbar.Controls.Add($hint)
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -862,6 +865,14 @@ function Show-SlaveTargetPicker {
             Update-TargetCreateFileEditability $sender.Rows[$eventArgs.RowIndex]
         }
     })
+    $grid.Add_CellDoubleClick({
+        param($sender, $eventArgs)
+        if ($eventArgs.RowIndex -ge 0) {
+            $row = $sender.Rows[$eventArgs.RowIndex]
+            $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
+            Update-TargetCreateFileEditability $row
+        }
+    })
 
     $buttonPanel = New-Object System.Windows.Forms.Panel
     $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
@@ -869,7 +880,16 @@ function Show-SlaveTargetPicker {
     $dialog.Controls.Add($buttonPanel)
 
     $okButton = New-Button "Save selection" 720 9 125 28
-    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $okButton.Add_Click({
+        $grid.EndEdit()
+        $rows = @(Get-TargetGridRows $grid)
+        if (@(Get-SelectedTargetEntries $rows).Count -eq 0) {
+            Show-Warning "Check Use for at least one target. Row highlight alone does not select a target."
+            return
+        }
+        $dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $dialog.Close()
+    })
     $buttonPanel.Controls.Add($okButton)
     $cancelButton = New-Button "Cancel" 855 9 80 28
     $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
@@ -967,7 +987,7 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness on each row to verify the host before enabling Use or browsing targets." 0 0 900 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Use (left column) includes the slave in a run. After Browse, check Use in the target dialog for each disk/folder, then Save selection." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
