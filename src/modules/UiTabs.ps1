@@ -814,17 +814,29 @@ function Add-ProfileEditorSectionTab {
         $panel.Controls.Add($h)
     }
     $y += 30
-    foreach ($def in @($script:Catalog | Where-Object { $_.Section -eq $section })) {
-        if (@("storage.lun", "fsd.anchor") -contains [string]$def.Key) {
-            continue
-        }
+    $lastGroup = ""
+    $defs = @($script:Catalog | Where-Object { [string]$_.Section -eq $Section } | Sort-Object {
+        [int](Get-PropertyValue $_ "SortOrder" 9999)
+    })
+    foreach ($def in $defs) {
         if ([bool](Get-PropertyValue $def "EditorHidden" $false)) {
             continue
         }
         if (-not (Definition-AppliesToKind $def $script:ProfileEditorTestKind)) {
             continue
         }
-        Add-ParameterRow $panel $def $y -ReadOnly:$ReadOnly
+        $group = [string](Get-PropertyValue $def "Group" "")
+        if (-not [string]::IsNullOrWhiteSpace($group) -and $group -ne $lastGroup) {
+            $groupLabel = New-Label $group 12 $y 900
+            $groupLabel.Font = New-Object System.Drawing.Font -ArgumentList $groupLabel.Font, ([System.Drawing.FontStyle]::Bold)
+            $groupLabel.ForeColor = [System.Drawing.Color]::DarkSlateGray
+            $groupLabel.Enabled = -not $ReadOnly
+            $panel.Controls.Add($groupLabel)
+            $y += 24
+            $lastGroup = $group
+        }
+        $targetDerived = [bool](Get-PropertyValue $def "TargetDerived" $false)
+        Add-ParameterRow $panel $def $y -ReadOnly:$ReadOnly -TargetDerived:$targetDerived
         $y += 32
     }
     $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
@@ -835,25 +847,32 @@ function Add-ParameterRow {
         [System.Windows.Forms.Panel]$Panel,
         [object]$Definition,
         [int]$Y,
-        [bool]$ReadOnly = $false
+        [bool]$ReadOnly = $false,
+        [bool]$TargetDerived = $false
     )
     $key = [string]$Definition.Key
     $param = Get-ProfileParam $script:CurrentProfile $key
+    $rowReadOnly = $ReadOnly -or $TargetDerived
 
     $enabled = New-Object System.Windows.Forms.CheckBox
     $enabled.Text = "Enabled"
-    $enabled.Checked = [bool]$param.Enabled
-    $enabled.Enabled = -not $ReadOnly
+    if ($TargetDerived) {
+        $enabled.Checked = $true
+        $enabled.Enabled = $false
+    } else {
+        $enabled.Checked = [bool]$param.Enabled
+        $enabled.Enabled = -not $ReadOnly
+    }
     $enabled.Location = New-Object System.Drawing.Point -ArgumentList 12, $Y
     $enabled.Size = New-Object System.Drawing.Size -ArgumentList 78, 24
     $Panel.Controls.Add($enabled)
 
     $label = New-Label ([string]$Definition.Label) 96 $Y 210
-    $label.Enabled = -not $ReadOnly
+    $label.Enabled = -not $rowReadOnly
     $Panel.Controls.Add($label)
 
     $helpButton = New-Button "?" 310 ($Y - 1) 28 24
-    $helpButton.Enabled = -not $ReadOnly
+    $helpButton.Enabled = -not $rowReadOnly
     $helpButton.Tag = $Definition
     $helpButton.Add_Click({
         param($sender, $eventArgs)
@@ -862,17 +881,26 @@ function Add-ParameterRow {
     $Panel.Controls.Add($helpButton)
 
     $type = [string](Get-PropertyValue $Definition "Type" "text")
+    $displayValue = if ($TargetDerived) {
+        Get-ProfileTargetDisplayValue $key
+    } else {
+        [string]$param.Value
+    }
     $valueControl = $null
-    if ($type -eq "dropdown") {
+    if ($type -eq "dropdown" -and -not $TargetDerived) {
         $items = @()
         foreach ($option in @($Definition.Options)) {
             $items += [string]$option
         }
-        $valueControl = New-ComboBox $items ([string]$param.Value) 350 $Y 220
+        $valueControl = New-ComboBox $items $displayValue 350 $Y 220
     } else {
-        $valueControl = New-TextBox ([string]$param.Value) 350 $Y 220
+        $valueControl = New-TextBox $displayValue 350 $Y 220
     }
-    $valueControl.Enabled = -not $ReadOnly
+    $valueControl.Enabled = -not $rowReadOnly
+    if ($TargetDerived) {
+        $valueControl.ReadOnly = $true
+        $valueControl.BackColor = [System.Drawing.Color]::WhiteSmoke
+    }
     $Panel.Controls.Add($valueControl)
 
     $vdName = New-Label ([string]$Definition.VdbenchName) 590 $Y 120
@@ -883,10 +911,12 @@ function Add-ParameterRow {
     $line.ForeColor = [System.Drawing.Color]::DimGray
     $Panel.Controls.Add($line)
 
-    $script:ParameterControls[$key] = [pscustomobject]@{
-        Enabled = $enabled
-        Value = $valueControl
-        Definition = $Definition
+    if (-not $TargetDerived) {
+        $script:ParameterControls[$key] = [pscustomobject]@{
+            Enabled = $enabled
+            Value = $valueControl
+            Definition = $Definition
+        }
     }
 }
 function Capture-ProfileEditor {
@@ -909,6 +939,13 @@ function Capture-ProfileEditor {
     }
     if ($script:AdvancedDisabledBox) {
         $script:CurrentProfile.AdvancedDisabled = $script:AdvancedDisabledBox.Text
+    }
+    $resolved = Resolve-RunTestKind
+    $testKind = [string]$resolved.TestKind
+    if (-not [string]::IsNullOrWhiteSpace($testKind)) {
+        Sync-EditorProfileParametersToCommon $script:CurrentProfile $testKind
+    } else {
+        Sync-CommonProfileParameters $script:CurrentProfile
     }
 }
 

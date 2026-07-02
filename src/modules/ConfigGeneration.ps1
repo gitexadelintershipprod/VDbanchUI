@@ -96,8 +96,9 @@ function Test-ParameterValueValid {
     $numericKeys = @(
         "run.elapsed", "run.warmup", "run.interval",
         "storage.threads", "workload.threads", "workload.rdpct", "workload.seekpct", "workload.skew",
+        "workload.rhpct", "workload.whpct", "workload.priority", "workload.iorate",
         "common.threads",
-        "fsd.depth", "fsd.width", "fsd.files", "fwd.threads"
+        "fsd.depth", "fsd.width", "fsd.files", "fwd.threads", "fwd.rdpct", "fwd.skew", "fwd.stopafter"
     )
     if ($numericKeys -contains $key) {
         $parsed = 0.0

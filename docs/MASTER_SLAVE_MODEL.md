@@ -14,11 +14,11 @@ The UI separates profile parameters, host/target inventory, and run orchestratio
 Profiles store workload parameters only. They no longer store `TestKind` or `LocalTargets`.
 
 - The **Profile** tab is create-only: it starts with a blank draft and does not load saved profiles.
-- Shared workload fields (`common.xfersize`, `common.threads`, `common.rate`) replace duplicate raw/filesystem entries in the editor.
+- Shared workload fields (`common.xfersize`, `common.threads`, `common.rate`) are internal sync keys; edit the visible **WD** / **FWD** / **General** / **FS Run** fields instead.
 - Saving a profile writes it to `profiles/` and resets the draft for the next new profile.
-- Profile parameters are grouped into **General**, **Raw / SD**, and **Filesystem**.
-- The editor is locked until a target is selected on **Local Host** or **Master / Slave**; derived test kind controls whether Raw / SD or Filesystem parameters are shown.
-- `storage.threads` is hidden from the editor; use **Workload threads** in General (mapped to `wd=` / `fwd=`).
+- Profile parameters are grouped into **General**, **SD**, **WD** (raw/block), **FSD**, **FWD**, and **FS Run** (filesystem), in Vdbench definition order within each tab.
+- The editor is locked until a target is selected on **Local Host** or **Master / Slave**; derived test kind controls whether raw (SD/WD) or filesystem (FSD/FWD/FS Run) parameters are shown.
+- `storage.threads` is on the **SD** tab (`sd=,threads=`). Workload threads are on the **WD** tab; filesystem threads on **FWD**.
 - Changing target type while the Profile tab is open shows a warning to review parameters.
 - Detailed UI diagnostics are written to `logs/debug.log` when `LogLevel` is `DEBUG`.
 
