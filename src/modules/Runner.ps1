@@ -109,8 +109,15 @@ function Set-RunMetadata {
 }
 
 function Repair-OrphanedRunStates {
-    $currentRunId = [string]$script:CurrentRunId
-    $hasActive = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
+    $currentRunId = ""
+    if (Get-Variable -Name CurrentRunId -Scope Script -ErrorAction SilentlyContinue) {
+        $currentRunId = [string]$script:CurrentRunId
+    }
+    $currentProcess = $null
+    if (Get-Variable -Name CurrentProcess -Scope Script -ErrorAction SilentlyContinue) {
+        $currentProcess = $script:CurrentProcess
+    }
+    $hasActive = ($null -ne $currentProcess -and -not $currentProcess.HasExited)
     foreach ($file in @(Get-ChildItem -Path $script:RunStateRoot -Filter "*.json" -File -ErrorAction SilentlyContinue)) {
         $state = Read-JsonFile $file.FullName $null
         if ($null -eq $state) {
