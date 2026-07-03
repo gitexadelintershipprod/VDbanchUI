@@ -185,10 +185,20 @@ function Invoke-RunFinishedUiRefresh {
         if ($null -ne $script:Form -and -not $script:Form.IsDisposed) {
             $capturedRunId = $RunId
             $capturedStatus = $Status
-            $action = {
+            # Control.BeginInvoke takes an abstract System.Delegate; a bare
+            # scriptblock does NOT convert to it (confirmed empirically) -
+            # only a cast to a concrete delegate type like [System.Action]
+            # works. Without the cast this call throws, the catch in
+            # add_Exited swallows it, and the grid refresh silently never
+            # happens (the timer fallback then picks it up seconds later).
+            $action = [System.Action]{
                 Notify-RunFinished -RunId $capturedRunId -Status $capturedStatus
             }.GetNewClosure()
-            $null = $script:Form.BeginInvoke($action)
+            try {
+                $null = $script:Form.BeginInvoke($action)
+            } catch {
+                Write-AppLog ("Run finished UI refresh dispatch failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
             return
         }
         Notify-RunFinished -RunId $RunId -Status $Status
