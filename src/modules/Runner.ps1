@@ -108,6 +108,93 @@ function Set-RunMetadata {
     Write-JsonFile $path $state
 }
 
+function Repair-OrphanedRunStates {
+    $currentRunId = ""
+    if (Get-Variable -Name CurrentRunId -Scope Script -ErrorAction SilentlyContinue) {
+        $currentRunId = [string]$script:CurrentRunId
+    }
+    $currentProcess = $null
+    if (Get-Variable -Name CurrentProcess -Scope Script -ErrorAction SilentlyContinue) {
+        $currentProcess = $script:CurrentProcess
+    }
+    $hasActive = ($null -ne $currentProcess -and -not $currentProcess.HasExited)
+    foreach ($file in @(Get-ChildItem -Path $script:RunStateRoot -Filter "*.json" -File -ErrorAction SilentlyContinue)) {
+        $state = Read-JsonFile $file.FullName $null
+        if ($null -eq $state) {
+            continue
+        }
+        $status = [string](Get-PropertyValue $state "Status" "")
+        if ($status -ne "Running") {
+            continue
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string](Get-PropertyValue $state "CompletedAt" ""))) {
+            continue
+        }
+        $runId = [string](Get-PropertyValue $state "Id" "")
+        if ($hasActive -and $runId -eq $currentRunId) {
+            continue
+        }
+        $runDir = [string](Get-PropertyValue $state "RunDir" "")
+        $stdoutPath = [string](Get-PropertyValue $state "StdoutPath" "")
+        if ([string]::IsNullOrWhiteSpace($stdoutPath) -and -not [string]::IsNullOrWhiteSpace($runDir)) {
+            $stdoutPath = Join-Path $runDir "stdout.log"
+        }
+        $summaryPath = ""
+        if (-not [string]::IsNullOrWhiteSpace($runDir)) {
+            $summaryPath = Join-Path $runDir "summary.html"
+        }
+        $stdoutText = ""
+        if (-not [string]::IsNullOrWhiteSpace($stdoutPath) -and (Test-Path -LiteralPath $stdoutPath)) {
+            try {
+                $stdoutText = [System.IO.File]::ReadAllText($stdoutPath)
+            } catch {
+                $stdoutText = ""
+            }
+        }
+        $newStatus = "Abandoned"
+        $exitCode = ""
+        if ((Test-Path -LiteralPath $summaryPath) -or -not [string]::IsNullOrWhiteSpace($stdoutText)) {
+            if ($stdoutText -match 'RuntimeException|java\.lang\.|fatal error|FATAL') {
+                $newStatus = "Failed"
+                $exitCode = "1"
+            } else {
+                $newStatus = "Completed"
+                $exitCode = "0"
+            }
+        }
+        $updates = @{
+            CompletedAt = (Get-Date).ToString("o")
+            Status = $newStatus
+            ExitCode = $exitCode
+        }
+        $summary = Get-RunSummaryFromFile $stdoutPath
+        foreach ($key in $summary.Keys) {
+            $updates[$key] = $summary[$key]
+        }
+        Set-RunMetadata $runId $updates
+        Write-DebugLog ("Repaired orphaned run {0} -> {1}" -f $runId, $newStatus)
+    }
+}
+
+function Invoke-RunFinishedUiRefresh {
+    param(
+        [string]$RunId,
+        [string]$Status
+    )
+    if (Get-Command Notify-RunFinished -ErrorAction SilentlyContinue) {
+        if ($null -ne $script:Form -and -not $script:Form.IsDisposed) {
+            $capturedRunId = $RunId
+            $capturedStatus = $Status
+            $action = {
+                Notify-RunFinished -RunId $capturedRunId -Status $capturedStatus
+            }.GetNewClosure()
+            $null = $script:Form.BeginInvoke($action)
+            return
+        }
+        Notify-RunFinished -RunId $RunId -Status $Status
+    }
+}
+
 function Get-RunOutputRoot {
     $reportsRoot = [string](Get-PropertyValue $script:Settings "ReportsRoot" "")
     if (-not [string]::IsNullOrWhiteSpace($reportsRoot)) {
@@ -381,6 +468,7 @@ function Start-VdbenchRun {
             }
             Set-RunMetadata $capturedRunId $updates
             Write-AppLog ("Run {0} finished with status {1} (exit {2})" -f $capturedRunId, $status, $exitCode)
+            Invoke-RunFinishedUiRefresh -RunId $capturedRunId -Status $status
         } catch {
             Write-AppLog ("Run exit handler failed: {0}" -f $_.Exception.Message) "ERROR"
         }
@@ -415,7 +503,7 @@ function Stop-VdbenchRun {
                     CompletedAt = (Get-Date).ToString("o")
                     Status = "Killed"
                 }
-                $script:RunStatusLabel.Text = "Killed: " + $runId
+                Invoke-RunFinishedUiRefresh -RunId $runId -Status "Killed"
                 Write-AppLog ("Run {0} killed by user" -f $runId)
             } catch {
                 Show-Warning $_.Exception.Message

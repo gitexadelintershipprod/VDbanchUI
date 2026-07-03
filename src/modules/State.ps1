@@ -659,23 +659,8 @@ function Initialize-AppState {
             $script:Slaves += $normalized
         }
     }
-    if ($script:Slaves.Count -eq 0) {
-        $script:Slaves = @(
-            Apply-SlaveDefaults ([pscustomobject]@{
-                Enabled = $true
-                Name = "test-001"
-                Host = "test-001"
-                OsType = "Windows"
-                User = ""
-                VdbenchPath = ""
-                TestTarget = ""
-                SshAlias = ""
-                PrivateKey = (Get-PropertyValue $script:Settings "PrivateKey" "")
-                Status = "Not checked"
-                Notes = ""
-            })
-        )
-        Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
+    if (Migrate-FactorySlaveSeed) {
+        # Factory placeholder removed; grid stays empty until user adds slaves.
     }
 
     $script:LocalHostTargets = @(Read-JsonFile $script:LocalHostTargetsPath @())
@@ -686,34 +671,62 @@ function Initialize-AppState {
     }
 
     Ensure-DefaultProfiles
+    Repair-OrphanedRunStates
+}
+
+function Migrate-FactorySlaveSeed {
+    if (@($script:Slaves).Count -ne 1) {
+        return $false
+    }
+    $slave = $script:Slaves[0]
+    $name = [string](Get-PropertyValue $slave "Name" "")
+    $hostName = [string](Get-PropertyValue $slave "Host" "")
+    if ($name -ne "test-001" -or $hostName -ne "test-001") {
+        return $false
+    }
+    $readiness = [string](Get-PropertyValue $slave "ReadinessStatus" "")
+    if ([string]::IsNullOrWhiteSpace($readiness)) {
+        $readiness = [string](Get-PropertyValue $slave "Status" "")
+    }
+    $targets = @(Get-PropertyValue $slave "Targets" @())
+    if (-not [string]::IsNullOrWhiteSpace($readiness) -and $readiness -ne "Not checked") {
+        return $false
+    }
+    if ($targets.Count -gt 0) {
+        return $false
+    }
+    $script:Slaves = @()
+    Write-JsonFile $script:SlavesPath $script:Slaves -AsArray
+    Write-DebugLog "Removed factory seed slave row test-001"
+    return $true
 }
 
 function Ensure-DefaultProfiles {
-    $rawPath = Join-Path $script:ProfileRoot "Default-4K-Random-Read.json"
-    if (-not [System.IO.File]::Exists($rawPath)) {
-        $profileObject = New-DefaultProfile "Default-4K-Random-Read" "Raw/block"
-        Set-ProfileParamValue $profileObject "workload.rdpct" "100"
-        Set-ProfileParamValue $profileObject "workload.seekpct" "100"
-        Set-ProfileParamValue $profileObject "common.xfersize" "4k"
-        Write-JsonFile $rawPath $profileObject
+    foreach ($fileName in @("Default-4K-Random-Read.json", "Default-70-30-Random-Mix.json")) {
+        $path = Join-Path $script:ProfileRoot $fileName
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+            Write-DebugLog ("Removed retired default profile {0}" -f $fileName)
+        }
     }
 
-    $mixPath = Join-Path $script:ProfileRoot "Default-70-30-Random-Mix.json"
-    if (-not [System.IO.File]::Exists($mixPath)) {
-        $profileObject = New-DefaultProfile "Default-70-30-Random-Mix" "Raw/block"
-        Set-ProfileParamValue $profileObject "workload.rdpct" "70"
-        Set-ProfileParamValue $profileObject "workload.seekpct" "100"
-        Set-ProfileParamValue $profileObject "common.xfersize" "4k"
-        Write-JsonFile $mixPath $profileObject
-    }
-
-    $fsPath = Join-Path $script:ProfileRoot "Default-Filesystem-Random-Read.json"
-    if (-not [System.IO.File]::Exists($fsPath)) {
+    $readPath = Join-Path $script:ProfileRoot "Default-Filesystem-Random-Read.json"
+    if (-not [System.IO.File]::Exists($readPath)) {
         $profileObject = New-DefaultProfile "Default-Filesystem-Random-Read" "Filesystem"
         Set-ProfileParamValue $profileObject "fwd.operation" "read"
         Set-ProfileParamValue $profileObject "fwd.fileio" "random"
         Set-ProfileParamValue $profileObject "run.format" "no"
-        Write-JsonFile $fsPath $profileObject
+        Write-JsonFile $readPath $profileObject
+    }
+
+    $formatPath = Join-Path $script:ProfileRoot "Default-Filesystem-Format.json"
+    if (-not [System.IO.File]::Exists($formatPath)) {
+        $profileObject = New-DefaultProfile "Default-Filesystem-Format" "Filesystem"
+        Set-ProfileParamValue $profileObject "run.format" "yes"
+        Set-ProfileParamValue $profileObject "fsd.size" "12g"
+        Set-ProfileParamValue $profileObject "fwd.operation" "read"
+        Set-ProfileParamValue $profileObject "fwd.fileio" "random"
+        Write-JsonFile $formatPath $profileObject
     }
 }
 
