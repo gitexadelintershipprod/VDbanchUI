@@ -1112,7 +1112,18 @@ function Refresh-RunProfileList {
     if (-not [string]::IsNullOrWhiteSpace($current)) {
         $script:RunProfileSelector.Text = $current
     } elseif ($script:RunProfileSelector.Items.Count -gt 0) {
-        $script:RunProfileSelector.Text = [string]$script:RunProfileSelector.Items[0]
+        $preferred = @("Default-Filesystem-Random-Read", "Default-Filesystem-Format")
+        $picked = $null
+        foreach ($name in $preferred) {
+            if ($script:RunProfileSelector.Items.Contains($name)) {
+                $picked = $name
+                break
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($picked)) {
+            $picked = [string]$script:RunProfileSelector.Items[0]
+        }
+        $script:RunProfileSelector.Text = $picked
     }
     Sync-RunProfileFromSelector
 }
@@ -1224,22 +1235,6 @@ function Build-PreviewTab {
         }
     })
     $toolbar.Controls.Add($copyButton)
-
-    $saveButton = New-Button "Save .parm" 214 8 100 28
-    $saveButton.Add_Click({
-        try {
-            $clean = Get-CleanConfigText
-            $dialog = New-Object System.Windows.Forms.SaveFileDialog
-            $dialog.Filter = "Vdbench parameter file (*.parm)|*.parm|Text file (*.txt)|*.txt|All files (*.*)|*.*"
-            $dialog.FileName = ((Sanitize-FileName $script:CurrentProfile.Name) + ".parm")
-            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                [System.IO.File]::WriteAllText($dialog.FileName, $clean, [System.Text.Encoding]::ASCII)
-            }
-        } catch {
-            Show-Warning ("Save failed: " + $_.Exception.Message)
-        }
-    })
-    $toolbar.Controls.Add($saveButton)
 
     $script:ConfigPreviewBox = New-Object System.Windows.Forms.TextBox
     $script:ConfigPreviewBox.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1397,6 +1392,28 @@ function Refresh-Reports {
             }
         }
     }
+}
+
+function Notify-RunFinished {
+    param(
+        [string]$RunId,
+        [string]$Status
+    )
+    if ($script:RunFinishedNotified) {
+        Refresh-Reports
+        return
+    }
+    $script:RunFinishedNotified = $true
+    if ($script:RunStatusLabel) {
+        $label = switch ($Status) {
+            "Killed" { "Killed" }
+            "Failed" { "Failed" }
+            "Completed" { "Finished" }
+            default { "Finished" }
+        }
+        $script:RunStatusLabel.Text = ("{0}: {1}" -f $label, $RunId)
+    }
+    Refresh-Reports
 }
 
 function Open-SelectedReportFolder {
@@ -1691,9 +1708,13 @@ function Build-MainForm {
         }
         if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
             if (-not $script:RunFinishedNotified) {
-                $script:RunFinishedNotified = $true
-                $script:RunStatusLabel.Text = "Finished: " + $script:CurrentRunId
-                Refresh-Reports
+                $runId = [string]$script:CurrentRunId
+                $statePath = Join-Path $script:RunStateRoot ($runId + ".json")
+                $state = Read-JsonFile $statePath $null
+                $status = [string](Get-PropertyValue $state "Status" "")
+                if ($status -ne "Running") {
+                    Notify-RunFinished -RunId $runId -Status $status
+                }
             }
         }
     })
