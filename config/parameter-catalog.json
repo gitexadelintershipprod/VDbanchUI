@@ -804,11 +804,12 @@
     "Default": "random",
     "Options": [
       "random",
+      "(random,shared)",
       "sequential"
     ],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "Random or sequential I/O inside files.",
+    "Help": "Random or sequential I/O inside files. (random,shared) allows multiple threads to share one file - required when threads > files.",
     "Example": "random",
     "SortOrder": 40,
     "Group": "Filesystem workload (FWD)"
