@@ -728,6 +728,35 @@ function Ensure-DefaultProfiles {
         Set-ProfileParamValue $profileObject "fwd.fileio" "random"
         Write-JsonFile $formatPath $profileObject
     }
+
+    # Distributed Workload Profile (WP): 100% random, 32 KB, 70R/30W,
+    # 5 min warmup + 30 min main run, one pre-created test file per target.
+    # format=restart creates missing test files on the first run and leaves
+    # existing ones alone on later runs. File size starts at 5g for trials;
+    # raise fsd.size (e.g. to 1.25t) for the full acceptance test.
+    $wpPath = Join-Path $script:ProfileRoot "Default-Distributed-WP.json"
+    if (-not [System.IO.File]::Exists($wpPath)) {
+        $profileObject = New-DefaultProfile "Default-Distributed-WP" "Filesystem"
+        Set-ProfileParamValue $profileObject "fsd.files" "1"
+        Set-ProfileParamValue $profileObject "fsd.size" "5g"
+        Set-ProfileParamValue $profileObject "fwd.operation" "read"
+        Set-ProfileParamValue $profileObject "fwd.rdpct" "70"
+        Set-ProfileParamEnabled $profileObject "fwd.rdpct" $true
+        Set-ProfileParamValue $profileObject "fwd.fileio" "(random,shared)"
+        Set-ProfileParamValue $profileObject "fwd.fileselect" "random"
+        Set-ProfileParamValue $profileObject "fwd.threads" "16"
+        Set-ProfileParamEnabled $profileObject "fwd.threads" $true
+        Set-ProfileParamValue $profileObject "common.xfersize" "32k"
+        Set-ProfileParamValue $profileObject "fwd.xfersize" "32k"
+        # Vdbench counts warmup inside elapsed (first warmup seconds are
+        # excluded from run totals), so 5 min warmup + 30 min measured = 2100s.
+        Set-ProfileParamValue $profileObject "run.elapsed" "2100"
+        Set-ProfileParamValue $profileObject "run.warmup" "300"
+        Set-ProfileParamValue $profileObject "run.interval" "1"
+        Set-ProfileParamValue $profileObject "run.fwdrate" "max"
+        Set-ProfileParamValue $profileObject "run.format" "restart"
+        Write-JsonFile $wpPath $profileObject
+    }
 }
 
 function New-DefaultProfile {
