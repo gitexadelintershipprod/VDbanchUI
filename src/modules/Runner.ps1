@@ -400,7 +400,13 @@ function Start-VdbenchRunCore {
         return
     }
     try {
-        Initialize-TestFilesForRun
+        $previousCursor = [System.Windows.Forms.Cursor]::Current
+        try {
+            [System.Windows.Forms.Cursor]::Current = [System.Windows.Forms.Cursors]::WaitCursor
+            Initialize-TestFilesForRun
+        } finally {
+            [System.Windows.Forms.Cursor]::Current = $previousCursor
+        }
     } catch {
         Show-Warning ("Test file preparation failed: " + $_.Exception.Message)
         return
@@ -424,6 +430,10 @@ function Start-VdbenchRunCore {
     Queue-RunLog ("Command: {0}" -f $commandText)
     Queue-RunLog ("Output: {0}" -f $runDir)
     $script:RunStatusLabel.Text = "Running: " + $runId
+    if (Get-Command Select-MainTab -ErrorAction SilentlyContinue) {
+        Select-MainTab "Run Monitor"
+    }
+    Flush-RunLog
 
     $psi = Get-VdbenchProcessStartInfo $masterBat $parmPath $runDir ([string](Get-PropertyValue $script:Settings "VdbenchRoot" $script:AppRoot))
 

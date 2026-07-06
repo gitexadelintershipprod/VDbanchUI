@@ -2250,6 +2250,8 @@ def main() -> int:
         "no matter what was really set"
     )
     assert "function Notify-ProfileTargetContextChanged" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Sync-ProfileEditorTargetContext" in ui_tabs_module
+    assert "function Request-ProfileTargetContextSync" in ui_tabs_module
     assert "ProfileEditorBanner" in ui_tabs_module
     assert "LogLevel" in settings
     assert "ProfileKindCombo" not in ui_tabs_module

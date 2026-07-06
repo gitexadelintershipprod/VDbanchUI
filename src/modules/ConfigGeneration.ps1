@@ -773,6 +773,11 @@ function Refresh-RunTabSummary {
     if ($null -eq $script:RunSummaryBox) {
         return
     }
+    if (Get-Command Test-RunMonitorTabSelected -ErrorAction SilentlyContinue) {
+        if (-not (Test-RunMonitorTabSelected)) {
+            return
+        }
+    }
     Capture-LocalHostTargets
     Sync-RunProfileFromSelector
     $mode = Get-Mode
