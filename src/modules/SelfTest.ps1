@@ -133,6 +133,9 @@ function Invoke-AppSelfTest {
         $fs = Build-VdbenchConfig
         Assert-SelfTestContains $fs.Text "create_anchors=yes" "filesystem create_anchors"
         Assert-SelfTestContains $fs.Text "fsd=fsd1,anchor=C:\vdbench\fs_test" "filesystem definition"
+        Assert-SelfTestContains $fs.Text "files=1" "filesystem fixed files count"
+        Assert-SelfTestContains $fs.Text "shared=no" "filesystem fixed shared flag"
+        Assert-SelfTestContains $fs.Text "fileio=(random,shared)" "filesystem fixed fileio"
         Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1" "filesystem workload"
         Assert-SelfTestContains $fs.Text "operation=read" "filesystem workload operation"
         Assert-SelfTestContainsAll $fs.Text @(
@@ -164,6 +167,9 @@ function Invoke-AppSelfTest {
         $fsDistributed = Build-VdbenchConfig
         Assert-SelfTestContains $fsDistributed.Text "create_anchors=yes" "distributed filesystem create_anchors"
         Assert-SelfTestContains $fsDistributed.Text "fsd=fsd_test_002_1,anchor=/mnt/test" "distributed filesystem definition"
+        Assert-SelfTestContains $fsDistributed.Text "files=1" "distributed filesystem fixed files count"
+        Assert-SelfTestContains $fsDistributed.Text "shared=no" "distributed filesystem fixed shared flag"
+        Assert-SelfTestContains $fsDistributed.Text "fileio=(random,shared)" "distributed filesystem fixed fileio"
         Assert-SelfTestContains $fsDistributed.Text "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" "distributed filesystem workload host binding"
         Assert-SelfTestContains $fsDistributed.Text "rd=rd1,fwd=fwd*" "distributed filesystem run fanout"
 

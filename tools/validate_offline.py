@@ -524,7 +524,92 @@ Invoke-AppSelfTest
     _run_auto_target_selection_regression_check(pwsh)
     _run_ssh_alias_default_regression_check(pwsh)
     _run_linux_filesystem_filter_regression_check(pwsh)
+    _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
     return True
+
+
+def _run_filesystem_profile_fixed_defaults_regression_check(pwsh: str) -> None:
+    """Legacy profiles with files=100 or fileio=random normalize on load and in config."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-fs-fixed-defaults-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-fs-fixed-defaults-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:RunStateRoot = Join-Path $script:DataRoot "runs"
+$script:LogRoot = "{tmp_dir}/logs"
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+$script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:Settings = $null
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:Catalog = @()
+$script:CurrentProfile = $null
+$script:RunProfile = $null
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+. (Join-Path $script:ModuleRoot "State.ps1")
+$script:Catalog = @(Read-JsonFile $script:CatalogPath @())
+
+$legacy = [pscustomobject]@{{
+    Name = "Legacy-Profile"
+    Parameters = @(
+        [pscustomobject]@{{ Key = "fsd.files"; Enabled = $true; Value = "100" }}
+        [pscustomobject]@{{ Key = "fsd.shared"; Enabled = $false; Value = "yes" }}
+        [pscustomobject]@{{ Key = "fwd.fileio"; Enabled = $true; Value = "random" }}
+    )
+    AdvancedActive = ""
+    AdvancedDisabled = ""
+}}
+Ensure-ProfileCatalogKeys $legacy
+
+$results = [pscustomobject]@{{
+    FilesValue = (Get-ProfileParamValue $legacy "fsd.files" "")
+    SharedValue = (Get-ProfileParamValue $legacy "fsd.shared" "")
+    FileioValue = (Get-ProfileParamValue $legacy "fwd.fileio" "")
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                app_root=str(ROOT),
+                tmp_dir=tmp_dir.replace("\\", "/"),
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("filesystem profile fixed-defaults harness failed to run")
+
+        results_path = Path(tmp_dir) / "results.json"
+        parsed = json.loads(results_path.read_text(encoding="utf-8"))
+        assert parsed.get("FilesValue") == "1", (
+            f"legacy profile must normalize fsd.files to 1 on load, got {parsed.get('FilesValue')!r}"
+        )
+        assert parsed.get("SharedValue") == "no", (
+            f"legacy profile must normalize fsd.shared to no, got {parsed.get('SharedValue')!r}"
+        )
+        assert parsed.get("FileioValue") == "(random,shared)", (
+            f"legacy profile must normalize fwd.fileio, got {parsed.get('FileioValue')!r}"
+        )
+        print(
+            "filesystem profile fixed-defaults regression check: "
+            "legacy files/shared/fileio normalize on profile load"
+        )
 
 
 def _run_slave_targets_regression_check(pwsh: str) -> None:
@@ -2077,6 +2162,10 @@ def main() -> int:
     assert "Get-ProfileTargetDisplayValue" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Sync-EditorProfileParametersToCommon" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
+    assert "function Apply-FilesystemProfileFixedDefaults" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert '"Key": "fsd.files"' in catalog_text and '"EditorHidden": true' in catalog_text
+    assert '"Default": "(random,shared)"' in catalog_text
+    assert "Apply-FilesystemProfileFixedDefaults" in config_module
     assert '"Section": "SD"' in catalog_text
     assert '"Section": "WD"' in catalog_text
     assert '"Section": "FSD"' in catalog_text
