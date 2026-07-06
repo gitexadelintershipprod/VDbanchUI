@@ -311,6 +311,43 @@ function Invoke-SlaveReadinessBackgroundWork {
         ([string]$Context.OsType)
 }
 
+function Complete-SlavePingBackgroundWork {
+    param(
+        $Result,
+        $ErrorMessage,
+        $Context
+    )
+    $status = if ($null -ne $ErrorMessage) { "Ping error: " + $ErrorMessage } else { [string]$Result }
+    $checkedAt = (Get-Date).ToString("o")
+    Update-SlaveRowPing $Context.RowIndex $status $checkedAt
+}
+
+function Complete-SlaveReadinessBackgroundWork {
+    param(
+        $Result,
+        $ErrorMessage,
+        $Context
+    )
+    $checkedAt = (Get-Date).ToString("o")
+    if ($null -ne $ErrorMessage) {
+        Update-SlaveRowReadiness $Context.RowIndex "Error" $checkedAt $ErrorMessage
+        if ($Context.ShowOutput) {
+            Show-Warning $ErrorMessage
+        }
+        return
+    }
+    Update-SlaveRowReadiness $Context.RowIndex ([string]$Result.Status) $checkedAt ([string]$Result.Output)
+    if ($Context.ShowOutput) {
+        $status = [string]$Result.Status
+        if ($status -eq "Checker missing") {
+            Show-Warning "Readiness checker path is missing or does not exist."
+        } elseif ($status -eq "Error") {
+            Show-Warning ("Readiness checker failed to start: " + [string]$Result.Output)
+        }
+    }
+    Refresh-ConfigPreview
+}
+
 function Start-SlavePingCheck {
     # Untyped $Row (see Get-SlaveRowState above) so this is unit-testable with a
     # plain mock object without WinForms loaded.
@@ -332,12 +369,7 @@ function Start-SlavePingCheck {
     }
     Write-DebugLog ("Ping check started for host={0} row={1}" -f $pingContext.HostName, $pingContext.RowIndex)
     Update-SlaveRowPing $pingContext.RowIndex "Pinging..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $pingContext -CommandName "Invoke-SlavePingBackgroundWork" -OnComplete {
-        param($Result, $ErrorMessage, $Context)
-        $status = if ($null -ne $ErrorMessage) { "Ping error: " + $ErrorMessage } else { [string]$Result }
-        $checkedAt = (Get-Date).ToString("o")
-        Update-SlaveRowPing $Context.RowIndex $status $checkedAt
-    }
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $pingContext -CommandName "Invoke-SlavePingBackgroundWork" -OnCompleteCommandName "Complete-SlavePingBackgroundWork"
 }
 
 function Start-SlaveReadinessCheck {
@@ -374,37 +406,7 @@ function Start-SlaveReadinessCheck {
     }
     Write-DebugLog ("Readiness check started for host={0} row={1} checker={2}" -f $readyContext.HostName, $readyContext.RowIndex, $readyContext.Checker)
     Update-SlaveRowReadiness $readyContext.RowIndex "Checking..."
-    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $readyContext -CommandName "Invoke-SlaveReadinessBackgroundWork" -OnComplete {
-        param($Result, $ErrorMessage, $Context)
-        $checkedAt = (Get-Date).ToString("o")
-        if ($null -ne $ErrorMessage) {
-            Update-SlaveRowReadiness $Context.RowIndex "Error" $checkedAt $ErrorMessage
-            if ($Context.ShowOutput) {
-                Show-Warning $ErrorMessage
-            }
-            return
-        }
-        Update-SlaveRowReadiness $Context.RowIndex ([string]$Result.Status) $checkedAt ([string]$Result.Output)
-        if ($Context.ShowOutput) {
-            $status = [string]$Result.Status
-            if ($status -eq "Checker missing") {
-                Show-Warning "Readiness checker path is missing or does not exist."
-            } elseif ($status -eq "Error") {
-                Show-Warning ("Readiness checker failed to start: " + [string]$Result.Output)
-            }
-            # Deliberately NO popup for "Ready"/"Failed" here. Those statuses
-            # only happen via the separate checker window (ShowCheckerWindow
-            # is always equal to ShowOutput - see below), which is now
-            # guaranteed to stay open, on both success AND failure, until the
-            # user presses Enter in it (see Get-ReadinessCheckerWrapperCommand)
-            # - it is already the single, sufficient place to read the
-            # result. A second, app-level "it ran" confirmation dialog on top
-            # of an already-open, already-waiting-for-input window adds
-            # nothing and is exactly what piled up into a wall of stacked
-            # dialogs when several checks completed close together.
-        }
-        Refresh-ConfigPreview
-    }
+    Start-BackgroundUiWork -Owner $script:SlaveGrid -Context $readyContext -CommandName "Invoke-SlaveReadinessBackgroundWork" -OnCompleteCommandName "Complete-SlaveReadinessBackgroundWork"
 }
 
 function Reset-SlaveRowReadiness {

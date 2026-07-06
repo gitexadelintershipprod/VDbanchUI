@@ -379,14 +379,9 @@ function Clear-TargetListViewBulkSyncDeferred {
     if ($null -eq $ListView) {
         return
     }
-    if ($ListView.IsHandleCreated) {
-        $target = $ListView
-        $action = [System.Action]{
-            Set-TargetListViewBulkSync -ListView $target -Enabled $false
-        }
-        $ListView.BeginInvoke($action) | Out-Null
-    } else {
-        Set-TargetListViewBulkSync -ListView $ListView -Enabled $false
+    $target = $ListView
+    Invoke-OnUiThread -Action {
+        Set-TargetListViewBulkSync -ListView $target -Enabled $false
     }
 }
 
@@ -1878,8 +1873,7 @@ function Build-MainForm {
             Refresh-ProfileEditor -ChangeSource "profile-tab-select"
         }
         if (-not (Is-DistributedMode) -and $selected -eq $script:LocalHostTab) {
-            $deferRefresh = [System.Action]{ Refresh-LocalHostTab }
-            $sender.BeginInvoke($deferRefresh) | Out-Null
+            Invoke-OnUiThread -HandlerName "Refresh-LocalHostTab"
         }
     })
 
