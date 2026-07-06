@@ -200,11 +200,12 @@ function Invoke-AppSelfTest {
         Assert-SelfTestEquals $parsedTargets[0].Target "\\.\PhysicalDrive2" "target inventory raw target"
         Assert-SelfTestEquals $parsedTargets[1].Target "C:\" "target inventory filesystem target"
 
-        $parsedListing = @(Convert-HostDirectoryListingOutput "folder|/stresstest/fs-test|Folder`nfile|/stresstest/fs-test/vdb1_1_1.html|12345")
-        Assert-SelfTestEquals $parsedListing.Count 2 "directory listing parser count"
+        $parsedListing = @(Convert-HostDirectoryListingOutput "folder|/stresstest/fs-test|Folder`nd|/mnt/test|Folder`nfile|/stresstest/fs-test/vdb1_1_1.html|12345`nf|/mnt/test/vdb1.dat|4096")
+        Assert-SelfTestEquals $parsedListing.Count 4 "directory listing parser count"
         Assert-SelfTestEquals $parsedListing[0].Kind "Filesystem" "directory listing folder kind"
-        Assert-SelfTestEquals $parsedListing[1].Kind "Test file" "directory listing file kind"
-        Assert-SelfTestEquals $parsedListing[1].Target "/stresstest/fs-test/vdb1_1_1.html" "directory listing file target"
+        Assert-SelfTestEquals $parsedListing[2].Kind "Test file" "directory listing file kind"
+        Assert-SelfTestEquals $parsedListing[2].Target "/stresstest/fs-test/vdb1_1_1.html" "directory listing file target"
+        Assert-SelfTestEquals $parsedListing[3].Target "/mnt/test/vdb1.dat" "directory listing gnu find file target"
 
         Assert-SelfTestEquals (Get-VdbenchOpenflagsForOsType "Linux") "o_direct" "linux openflags mapping"
         Assert-SelfTestEquals (Get-VdbenchOpenflagsForOsType "Windows") "directio" "windows openflags mapping"
