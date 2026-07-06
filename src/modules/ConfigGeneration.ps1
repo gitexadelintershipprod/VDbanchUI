@@ -29,10 +29,23 @@ function Add-EnabledParameter {
     }
     $key = [string]$Definition.Key
     $value = Get-ProfileParamValue $script:CurrentProfile $key ""
+    if ($key -eq "fsd.files") {
+        $value = "1"
+    } elseif ($key -eq "fsd.shared") {
+        $value = "no"
+    } elseif ($key -eq "fwd.fileio") {
+        if ([string]::IsNullOrWhiteSpace($value) -or $value -eq "random") {
+            $value = "(random,shared)"
+        }
+    }
     if ([string]::IsNullOrWhiteSpace($value)) {
         return
     }
     $name = [string]$Definition.VdbenchName
+    if (@("fsd.files", "fsd.shared", "fwd.fileio") -contains $key) {
+        [void]$Parts.Add(("{0}={1}" -f $name, $value))
+        return
+    }
     if (Get-ProfileParamEnabled $script:CurrentProfile $key) {
         if ($value -eq "none" -and $name -eq "openflags") {
             return
@@ -362,6 +375,8 @@ function Build-VdbenchConfig {
         Sync-CommonProfileParameters $profile
     }
     $script:CurrentProfile = $profile
+
+    Apply-FilesystemProfileFixedDefaults $script:CurrentProfile
 
     try {
         $resolved = Resolve-RunTestKind

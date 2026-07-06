@@ -12,4 +12,6 @@ The application creates default JSON profiles on first launch:
 
 Retired built-in profiles (`Default-4K-Random-Read`, `Default-70-30-Random-Mix`) are removed on startup if still present.
 
+Filesystem profiles always use fixed defaults (hidden in the Profile editor): one test file per target (`files=1`), non-shared FSD (`shared=no`), and multi-thread-safe random I/O (`fileio=(random,shared)`). Opening or saving a profile normalizes these values automatically.
+
 User-created profiles are also stored in this directory.

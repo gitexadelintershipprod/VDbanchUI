@@ -65,6 +65,20 @@ function Ensure-ProfileCatalogKeys {
         $Profile | Add-Member -NotePropertyName "AdvancedDisabled" -NotePropertyValue ""
     }
     Sync-CommonProfileParameters $Profile
+    Apply-FilesystemProfileFixedDefaults $Profile
+}
+
+function Apply-FilesystemProfileFixedDefaults {
+    param([object]$Profile)
+    if ($null -eq $Profile) {
+        return
+    }
+    Set-ProfileParamValue $Profile "fsd.files" "1"
+    Set-ProfileParamEnabled $Profile "fsd.files" $true
+    Set-ProfileParamValue $Profile "fsd.shared" "no"
+    Set-ProfileParamEnabled $Profile "fsd.shared" $true
+    Set-ProfileParamValue $Profile "fwd.fileio" "(random,shared)"
+    Set-ProfileParamEnabled $Profile "fwd.fileio" $true
 }
 
 $script:CommonParameterMirrors = @{
@@ -714,8 +728,8 @@ function Ensure-DefaultProfiles {
     if (-not [System.IO.File]::Exists($readPath)) {
         $profileObject = New-DefaultProfile "Default-Filesystem-Random-Read" "Filesystem"
         Set-ProfileParamValue $profileObject "fwd.operation" "read"
-        Set-ProfileParamValue $profileObject "fwd.fileio" "random"
         Set-ProfileParamValue $profileObject "run.format" "no"
+        Apply-FilesystemProfileFixedDefaults $profileObject
         Write-JsonFile $readPath $profileObject
     }
 
@@ -725,7 +739,7 @@ function Ensure-DefaultProfiles {
         Set-ProfileParamValue $profileObject "run.format" "yes"
         Set-ProfileParamValue $profileObject "fsd.size" "12g"
         Set-ProfileParamValue $profileObject "fwd.operation" "read"
-        Set-ProfileParamValue $profileObject "fwd.fileio" "random"
+        Apply-FilesystemProfileFixedDefaults $profileObject
         Write-JsonFile $formatPath $profileObject
     }
 
@@ -737,13 +751,12 @@ function Ensure-DefaultProfiles {
     $wpPath = Join-Path $script:ProfileRoot "Default-Distributed-WP.json"
     if (-not [System.IO.File]::Exists($wpPath)) {
         $profileObject = New-DefaultProfile "Default-Distributed-WP" "Filesystem"
-        Set-ProfileParamValue $profileObject "fsd.files" "1"
         Set-ProfileParamValue $profileObject "fsd.size" "5g"
         Set-ProfileParamValue $profileObject "fwd.operation" "read"
         Set-ProfileParamValue $profileObject "fwd.rdpct" "70"
         Set-ProfileParamEnabled $profileObject "fwd.rdpct" $true
-        Set-ProfileParamValue $profileObject "fwd.fileio" "(random,shared)"
         Set-ProfileParamValue $profileObject "fwd.fileselect" "random"
+        Apply-FilesystemProfileFixedDefaults $profileObject
         Set-ProfileParamValue $profileObject "fwd.threads" "16"
         Set-ProfileParamEnabled $profileObject "fwd.threads" $true
         Set-ProfileParamValue $profileObject "common.xfersize" "32k"

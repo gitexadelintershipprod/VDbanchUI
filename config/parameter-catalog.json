@@ -611,14 +611,15 @@
     "VdbenchName": "files",
     "Line": "fsd",
     "Type": "text",
-    "Default": "100",
+    "Default": "1",
     "Options": [],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "Number of files in the lowest directory level.",
-    "Example": "1000",
+    "Help": "Fixed at one test file per target. Override via Advanced manual lines if needed.",
+    "Example": "1",
     "SortOrder": 50,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "EditorHidden": true
   },
   {
     "Key": "fsd.size",
@@ -722,10 +723,11 @@
     ],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "Whether multiple hosts can share one FSD (shared=yes for shared anchors).",
+    "Help": "Fixed at no (one FSD per host target). Override via Advanced manual lines if needed.",
     "Example": "no",
     "SortOrder": 110,
-    "Group": "FSD advanced"
+    "Group": "FSD advanced",
+    "EditorHidden": true
   },
   {
     "Key": "fwd.name",
@@ -801,7 +803,7 @@
     "VdbenchName": "fileio",
     "Line": "fwd",
     "Type": "dropdown",
-    "Default": "random",
+    "Default": "(random,shared)",
     "Options": [
       "random",
       "(random,shared)",
@@ -809,10 +811,11 @@
     ],
     "AppliesTo": "fs",
     "Required": false,
-    "Help": "Random or sequential I/O inside files. (random,shared) allows multiple threads to share one file - required when threads > files.",
-    "Example": "random",
+    "Help": "Fixed at (random,shared) so multiple threads can share one test file. Override via Advanced manual lines if needed.",
+    "Example": "(random,shared)",
     "SortOrder": 40,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "EditorHidden": true
   },
   {
     "Key": "fwd.fileselect",
