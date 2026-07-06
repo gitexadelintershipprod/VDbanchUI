@@ -1068,6 +1068,12 @@ function Capture-ProfileEditor {
     }
     foreach ($key in $script:ParameterControls.Keys) {
         $entry = $script:ParameterControls[$key]
+        if ($null -eq $entry -or $null -eq $entry.Enabled) {
+            continue
+        }
+        if ($entry.Enabled.IsDisposed) {
+            continue
+        }
         Set-ProfileParamEnabled $script:CurrentProfile $key ([bool]$entry.Enabled.Checked)
         Set-ProfileParamValue $script:CurrentProfile $key ([string]$entry.Value.Text)
     }
@@ -1089,12 +1095,21 @@ function Capture-ProfileEditor {
 function Refresh-ProfileEditor {
     param([string]$ChangeSource = "manual")
 
+    if ($script:RefreshingProfileEditor) {
+        $script:ProfileEditorRefreshPending = $true
+        if (-not [string]::IsNullOrWhiteSpace($ChangeSource)) {
+            $script:ProfileEditorRefreshPendingSource = $ChangeSource
+        }
+        return
+    }
+
     Write-DebugLog ("Refresh-ProfileEditor start: source={0}" -f $ChangeSource)
+    $script:RefreshingProfileEditor = $true
     try {
         if ($null -eq $script:CurrentProfile) {
             $script:CurrentProfile = New-DefaultProfile "New-Profile"
         }
-        if (-not $script:RefreshingProfileEditor -and -not $script:ProfileEditorLocked) {
+        if (-not $script:ProfileEditorLocked) {
             Capture-ProfileEditor
         }
 
@@ -1107,7 +1122,6 @@ function Refresh-ProfileEditor {
             $script:ProfileEditorLastTestKind = [string]$context.TestKind
         }
 
-        $script:RefreshingProfileEditor = $true
         $script:ParameterControls = @{}
         if ($script:ProfileNameBox) {
             $script:ProfileNameBox.Text = [string]$script:CurrentProfile.Name
@@ -1167,14 +1181,23 @@ function Refresh-ProfileEditor {
             $script:ProfileParamTabs.TabPages.Add($advTab) | Out-Null
         }
 
-        $script:RefreshingProfileEditor = $false
         Refresh-ConfigPreview
         Update-RunModeIndicator
         Write-DebugLog "Refresh-ProfileEditor completed"
     } catch {
-        $script:RefreshingProfileEditor = $false
         Write-AppLog ("Refresh-ProfileEditor failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
         Show-Warning ("Profile editor refresh failed: " + $_.Exception.Message)
+    } finally {
+        $script:RefreshingProfileEditor = $false
+        if ($script:ProfileEditorRefreshPending) {
+            $script:ProfileEditorRefreshPending = $false
+            $pendingSource = [string]$script:ProfileEditorRefreshPendingSource
+            $script:ProfileEditorRefreshPendingSource = ""
+            if ([string]::IsNullOrWhiteSpace($pendingSource)) {
+                $pendingSource = "pending"
+            }
+            Refresh-ProfileEditor -ChangeSource $pendingSource
+        }
     }
 }
 
@@ -1183,25 +1206,30 @@ function Refresh-RunProfileList {
         return
     }
     $current = [string]$script:RunProfileSelector.Text
-    $script:RunProfileSelector.Items.Clear()
-    foreach ($name in Get-ProfileNames) {
-        [void]$script:RunProfileSelector.Items.Add($name)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($current)) {
-        $script:RunProfileSelector.Text = $current
-    } elseif ($script:RunProfileSelector.Items.Count -gt 0) {
-        $preferred = @("Default-Filesystem-Random-Read", "Default-Distributed-WP", "Default-Filesystem-Format")
-        $picked = $null
-        foreach ($name in $preferred) {
-            if ($script:RunProfileSelector.Items.Contains($name)) {
-                $picked = $name
-                break
+    $script:SuppressRunProfileSelectorEvents = $true
+    try {
+        $script:RunProfileSelector.Items.Clear()
+        foreach ($name in Get-ProfileNames) {
+            [void]$script:RunProfileSelector.Items.Add($name)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($current)) {
+            $script:RunProfileSelector.Text = $current
+        } elseif ($script:RunProfileSelector.Items.Count -gt 0) {
+            $preferred = @("Default-Filesystem-Random-Read", "Default-Distributed-WP", "Default-Filesystem-Format")
+            $picked = $null
+            foreach ($name in $preferred) {
+                if ($script:RunProfileSelector.Items.Contains($name)) {
+                    $picked = $name
+                    break
+                }
             }
+            if ([string]::IsNullOrWhiteSpace($picked)) {
+                $picked = [string]$script:RunProfileSelector.Items[0]
+            }
+            $script:RunProfileSelector.Text = $picked
         }
-        if ([string]::IsNullOrWhiteSpace($picked)) {
-            $picked = [string]$script:RunProfileSelector.Items[0]
-        }
-        $script:RunProfileSelector.Text = $picked
+    } finally {
+        $script:SuppressRunProfileSelectorEvents = $false
     }
     Sync-RunProfileFromSelector
 }
@@ -1379,9 +1407,14 @@ function Build-RunTab {
     $orchestrator.Controls.Add((New-Label "Run profile" 10 10 80))
     $script:RunProfileSelector = New-ComboBox @() "" 95 8 280
     $script:RunProfileSelector.Add_SelectedIndexChanged({
-        Sync-RunProfileFromSelector
-        Update-RunModeIndicator
-        Refresh-ConfigPreview
+        if ($script:SuppressRunProfileSelectorEvents) {
+            return
+        }
+        Invoke-UiSafe {
+            Sync-RunProfileFromSelector
+            Update-RunModeIndicator
+            Refresh-ConfigPreview
+        } "Run profile selection"
     })
     $orchestrator.Controls.Add($script:RunProfileSelector)
 

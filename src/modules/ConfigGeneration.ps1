@@ -698,10 +698,14 @@ function Refresh-ConfigPreview {
     if (-not $script:ConfigPreviewBox) {
         return
     }
+    if ($script:RefreshingConfigPreview) {
+        return
+    }
     if ($null -eq (Get-RunProfile)) {
         $script:ConfigPreviewBox.Text = "Select a run profile to preview config."
         return
     }
+    $script:RefreshingConfigPreview = $true
     try {
         $built = Build-VdbenchConfig
         $script:LastBuiltConfig = $built
@@ -717,6 +721,8 @@ function Refresh-ConfigPreview {
     } catch {
         $script:ConfigPreviewBox.Text = "Preview error: " + $_.Exception.Message
         Write-AppLog ("Config preview error: {0}" -f $_.Exception.Message) "ERROR"
+    } finally {
+        $script:RefreshingConfigPreview = $false
     }
 }
 

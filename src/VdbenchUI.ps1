@@ -67,6 +67,10 @@ $script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
 $script:AppToolTip = $null
 $script:RunFinishedNotified = $false
+$script:ProfileEditorRefreshPending = $false
+$script:ProfileEditorRefreshPendingSource = ""
+$script:RefreshingConfigPreview = $false
+$script:SuppressRunProfileSelectorEvents = $false
 $script:MainTabToolTipText = ""
 $script:UiRefreshTimer = $null
 $script:DpiAwarenessInitialized = $false
@@ -100,13 +104,20 @@ try {
         Write-DebugLog "Main form built"
         Refresh-ConfigPreview
         Write-DebugLog "Entering UI message loop"
-        [System.Windows.Forms.Application]::Run($script:Form)
-        Write-DebugLog "UI message loop exited"
+        try {
+            [System.Windows.Forms.Application]::Run($script:Form)
+            Write-DebugLog "UI message loop exited normally"
+        } finally {
+            Write-DebugLog "Application.Run returned"
+        }
     }
 } catch {
     Write-AppLog ("Fatal error: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
     if (-not $NoGui -and -not $SelfTest) {
-        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Vdbench UI fatal error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+        try {
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Vdbench UI fatal error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+        } catch {
+        }
     }
-    throw
+    exit 1
 }
