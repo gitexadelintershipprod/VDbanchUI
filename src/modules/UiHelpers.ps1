@@ -1,3 +1,16 @@
+function Invoke-UiSafe {
+    param(
+        [scriptblock]$Action,
+        [string]$Context = "UI action"
+    )
+    try {
+        & $Action
+    } catch {
+        Write-AppLog ("{0} failed: {1}" -f $Context, $_.Exception.Message) "ERROR" $_.Exception
+        Show-Warning ("{0}: {1}" -f $Context, $_.Exception.Message)
+    }
+}
+
 function New-Label {
     param(
         [string]$Text,

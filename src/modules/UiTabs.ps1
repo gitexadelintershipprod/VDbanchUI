@@ -370,6 +370,22 @@ function Sync-TargetListViewItemStyle {
     }
 }
 
+function Clear-TargetListViewBulkSyncDeferred {
+    param([System.Windows.Forms.ListView]$ListView)
+    if ($null -eq $ListView) {
+        return
+    }
+    if ($ListView.IsHandleCreated) {
+        $target = $ListView
+        $action = [System.Action]{
+            Set-TargetListViewBulkSync -ListView $target -Enabled $false
+        }
+        $ListView.BeginInvoke($action) | Out-Null
+    } else {
+        Set-TargetListViewBulkSync -ListView $ListView -Enabled $false
+    }
+}
+
 function Set-TargetListViewBulkSync {
     param(
         [System.Windows.Forms.ListView]$ListView,
@@ -486,8 +502,7 @@ function Set-TargetListViewTargets {
         }
     } finally {
         $ListView.EndUpdate()
-        [System.Windows.Forms.Application]::DoEvents()
-        Set-TargetListViewBulkSync -ListView $ListView -Enabled $false
+        Clear-TargetListViewBulkSyncDeferred $ListView
     }
 }
 
@@ -538,16 +553,20 @@ function Register-TargetListViewHandlers {
     }
     $ListView.Add_ItemChecked({
         param($sender, $eventArgs)
-        if ([bool](Get-PropertyValue $sender.Tag "Syncing" $false)) {
-            return
+        try {
+            if ([bool](Get-PropertyValue $sender.Tag "Syncing" $false)) {
+                return
+            }
+            $item = $eventArgs.Item
+            if ($null -eq $item) {
+                return
+            }
+            Update-TargetListViewItemSelection -Item $item -Selected (Get-ListViewItemChecked $item) -FromItemChecked
+            $label = Get-PropertyValue $sender.Tag "CounterLabel" $null
+            Update-TargetListViewSelectionCounter $label $sender
+        } catch {
+            Write-AppLog ("Target list ItemChecked handler failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
         }
-        $item = $eventArgs.Item
-        if ($null -eq $item) {
-            return
-        }
-        Update-TargetListViewItemSelection -Item $item -Selected (Get-ListViewItemChecked $item) -FromItemChecked
-        $label = Get-PropertyValue $sender.Tag "CounterLabel" $null
-        Update-TargetListViewSelectionCounter $label $sender
     })
 }
 
@@ -1155,7 +1174,7 @@ function Refresh-ProfileEditor {
     } catch {
         $script:RefreshingProfileEditor = $false
         Write-AppLog ("Refresh-ProfileEditor failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
-        throw
+        Show-Warning ("Profile editor refresh failed: " + $_.Exception.Message)
     }
 }
 
@@ -1335,7 +1354,7 @@ function Build-RunTab {
     $container.Controls.Add($toolbar, 0, 0)
 
     $startButton = New-Button "Start" 10 10 80 28
-    $startButton.Add_Click({ Start-VdbenchRun })
+    $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
     $toolbar.Controls.Add($startButton)
 
     $configOnlyButton = New-Button "Config only" 100 10 95 28
@@ -1754,27 +1773,31 @@ function Build-MainForm {
     $timer.Interval = 500
     $script:UiRefreshTimer = $timer
     $timer.Add_Tick({
-        $activeRun = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
-        if ($activeRun) {
-            if ($script:UiRefreshTimer.Interval -ne 250) {
-                $script:UiRefreshTimer.Interval = 250
+        try {
+            $activeRun = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
+            if ($activeRun) {
+                if ($script:UiRefreshTimer.Interval -ne 250) {
+                    $script:UiRefreshTimer.Interval = 250
+                }
+                Flush-RunLog
+                return
             }
-            Flush-RunLog
-            return
-        }
-        if ($script:UiRefreshTimer.Interval -ne 500) {
-            $script:UiRefreshTimer.Interval = 500
-        }
-        if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
-            if (-not $script:RunFinishedNotified) {
-                $runId = [string]$script:CurrentRunId
-                $statePath = Join-Path $script:RunStateRoot ($runId + ".json")
-                $state = Read-JsonFile $statePath $null
-                $status = [string](Get-PropertyValue $state "Status" "")
-                if ($status -ne "Running") {
-                    Notify-RunFinished -RunId $runId -Status $status
+            if ($script:UiRefreshTimer.Interval -ne 500) {
+                $script:UiRefreshTimer.Interval = 500
+            }
+            if ($script:CurrentProcess -and $script:CurrentProcess.HasExited) {
+                if (-not $script:RunFinishedNotified) {
+                    $runId = [string]$script:CurrentRunId
+                    $statePath = Join-Path $script:RunStateRoot ($runId + ".json")
+                    $state = Read-JsonFile $statePath $null
+                    $status = [string](Get-PropertyValue $state "Status" "")
+                    if ($status -ne "Running") {
+                        Notify-RunFinished -RunId $runId -Status $status
+                    }
                 }
             }
+        } catch {
+            Write-AppLog ("UI refresh timer failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
         }
     })
     $timer.Start()
@@ -1784,8 +1807,13 @@ function Build-MainForm {
         if ($script:CurrentProcess -and -not $script:CurrentProcess.HasExited) {
             if (-not (Ask-YesNo "A Vdbench run is active. Close UI and leave/kill process manually?" "Active run")) {
                 $eventArgs.Cancel = $true
+                return
             }
         }
+        Write-DebugLog "Main form closing"
+    })
+    $form.Add_FormClosed({
+        Write-DebugLog "Main form closed"
     })
 
     Update-RunModeIndicator
