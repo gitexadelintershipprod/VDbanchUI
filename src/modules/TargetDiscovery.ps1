@@ -578,8 +578,8 @@ function Show-HostPathBrowser {
     $osType = "Windows"
     if ($null -ne $Row) {
         $osType = [string]$Row.Cells["OsType"].Value
-    } elseif ($IsLinux) {
-        $osType = "Linux"
+    } else {
+        $osType = Get-LocalHostOsType
     }
     $currentPath = [string]$InitialPath
     if ([string]::IsNullOrWhiteSpace($currentPath)) {

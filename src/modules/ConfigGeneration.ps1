@@ -27,13 +27,6 @@ function Add-FsdOpenflagsForOsType {
     [void]$Parts.Add(("openflags={0}" -f (Get-VdbenchOpenflagsForOsType $OsType)))
 }
 
-function Get-LocalHostOsType {
-    if ($IsLinux) {
-        return "Linux"
-    }
-    return "Windows"
-}
-
 function Add-EnabledParameter {
     param(
         [System.Collections.Generic.List[string]]$Parts,

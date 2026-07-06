@@ -2279,7 +2279,14 @@ def main() -> int:
     assert "function Test-SelectableLinuxFilesystemMount" in target_discovery_module
     assert "function Show-HostPathBrowser" in target_discovery_module
     assert "function Get-HostDirectoryListing" in target_discovery_module
-    assert "function Get-VdbenchOpenflagsForOsType" in (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    core_module = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert "function Get-VdbenchOpenflagsForOsType" in core_module
+    assert "function Get-LocalHostOsType" in core_module
+    assert "$IsLinux" not in (MODULE_ROOT / "ConfigGeneration.ps1").read_text(encoding="utf-8"), (
+        "Get-LocalHostOsType must not use bare $IsLinux - Windows PowerShell 5.x "
+        "self-test runs under Set-StrictMode and that variable is undefined there"
+    )
+    assert "$IsLinux" not in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
     assert '"Key": "fsd.bypassOsCache"' in catalog_text
     assert "/proc|/proc/*" in target_discovery_module, (
         "Linux remote discovery must filter pseudo mount points like /proc from findmnt"
