@@ -133,6 +133,14 @@ function Convert-ToPowerShellSingleQuoted {
     return "'" + ($Value -replace "'", "''") + "'"
 }
 
+function Get-VdbenchOpenflagsForOsType {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "o_direct"
+    }
+    return "directio"
+}
+
 function Get-RemoteExecCommandParts {
     <#
     Builds the "remote command" portion of an ssh.exe argument list for

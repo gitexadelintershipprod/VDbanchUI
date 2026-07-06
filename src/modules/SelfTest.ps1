@@ -136,6 +136,7 @@ function Invoke-AppSelfTest {
         Assert-SelfTestContains $fs.Text "files=1" "filesystem fixed files count"
         Assert-SelfTestContains $fs.Text "shared=no" "filesystem fixed shared flag"
         Assert-SelfTestContains $fs.Text "fileio=(random,shared)" "filesystem fixed fileio"
+        Assert-SelfTestContains $fs.Text ("openflags={0}" -f (Get-VdbenchOpenflagsForOsType (Get-LocalHostOsType))) "filesystem local openflags"
         Assert-SelfTestContains $fs.Text "fwd=fwd1,fsd=fsd1" "filesystem workload"
         Assert-SelfTestContains $fs.Text "operation=read" "filesystem workload operation"
         Assert-SelfTestContainsAll $fs.Text @(
@@ -170,6 +171,7 @@ function Invoke-AppSelfTest {
         Assert-SelfTestContains $fsDistributed.Text "files=1" "distributed filesystem fixed files count"
         Assert-SelfTestContains $fsDistributed.Text "shared=no" "distributed filesystem fixed shared flag"
         Assert-SelfTestContains $fsDistributed.Text "fileio=(random,shared)" "distributed filesystem fixed fileio"
+        Assert-SelfTestContains $fsDistributed.Text "openflags=o_direct" "distributed filesystem linux openflags"
         Assert-SelfTestContains $fsDistributed.Text "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" "distributed filesystem workload host binding"
         Assert-SelfTestContains $fsDistributed.Text "rd=rd1,fwd=fwd*" "distributed filesystem run fanout"
 
@@ -197,6 +199,15 @@ function Invoke-AppSelfTest {
         Assert-SelfTestEquals $parsedTargets.Count 2 "target inventory parser count"
         Assert-SelfTestEquals $parsedTargets[0].Target "\\.\PhysicalDrive2" "target inventory raw target"
         Assert-SelfTestEquals $parsedTargets[1].Target "C:\" "target inventory filesystem target"
+
+        $parsedListing = @(Convert-HostDirectoryListingOutput "folder|/stresstest/fs-test|Folder`nfile|/stresstest/fs-test/vdb1_1_1.html|12345")
+        Assert-SelfTestEquals $parsedListing.Count 2 "directory listing parser count"
+        Assert-SelfTestEquals $parsedListing[0].Kind "Filesystem" "directory listing folder kind"
+        Assert-SelfTestEquals $parsedListing[1].Kind "Test file" "directory listing file kind"
+        Assert-SelfTestEquals $parsedListing[1].Target "/stresstest/fs-test/vdb1_1_1.html" "directory listing file target"
+
+        Assert-SelfTestEquals (Get-VdbenchOpenflagsForOsType "Linux") "o_direct" "linux openflags mapping"
+        Assert-SelfTestEquals (Get-VdbenchOpenflagsForOsType "Windows") "directio" "windows openflags mapping"
 
         $fakeMetric = Get-MetricValuesFromLine "07:02:41.012          1     6389    99.80  40960240    70    0.015"
         Assert-SelfTestEquals $fakeMetric.Iops 6389 "vdbench timestamp metric iops"

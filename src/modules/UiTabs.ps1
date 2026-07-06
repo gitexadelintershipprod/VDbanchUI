@@ -746,7 +746,46 @@ function Build-LocalHostTab {
     })
     $toolbar.Controls.Add($validateButton)
 
-    $note = New-Label "Active when Run mode = Single local run. Check Use for each target; Create/overwrite applies only to Test file rows." 0 0 900 40
+    $exploreButton = New-Button "Explore" 384 8 90 28
+    $exploreButton.Add_Click({
+        try {
+            $existing = @(Get-LocalHostTargetStore)
+            $initial = ""
+            foreach ($item in $existing) {
+                if ([string](Get-PropertyValue $item "Kind" "") -eq "Filesystem") {
+                    $candidate = [string](Get-PropertyValue $item "Target" "")
+                    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                        $initial = $candidate
+                        break
+                    }
+                }
+            }
+            $picked = Show-HostPathBrowser -InitialPath $initial
+            if ($null -eq $picked) {
+                return
+            }
+            $entry = New-TargetSelection -Kind ([string]$picked.Kind) -Target ([string]$picked.Target) -Description ([string]$picked.Description) -Selected $true
+            $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
+            $script:RefreshingLocalTargets = $true
+            try {
+                Set-TargetGridRows $script:LocalHostTargetGrid $merged
+                foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                    Update-TargetCreateFileEditability $row
+                }
+            } finally {
+                $script:RefreshingLocalTargets = $false
+            }
+            Capture-LocalHostTargets
+            Refresh-ConfigPreview
+            Refresh-RunTabSummary
+            Notify-ProfileTargetContextChanged "local-host-explore"
+        } catch {
+            Show-Warning ("Explore failed: " + $_.Exception.Message)
+        }
+    })
+    $toolbar.Controls.Add($exploreButton)
+
+    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; Explore opens folders and files. Check Use for each target." 0 0 900 40
     $toolbar.Controls.Add($note)
     $container.Controls.Add($toolbar, 0, 0)
 

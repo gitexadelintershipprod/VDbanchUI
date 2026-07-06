@@ -791,15 +791,17 @@ function Show-SlaveTargetPicker {
     $refreshButton = New-Button "Refresh" 10 8 90 28
     $newFolderButton = New-Button "New folder" 108 8 95 28
     $addPathButton = New-Button "Add path" 210 8 85 28
+    $exploreButton = New-Button "Explore" 303 8 85 28
     $toolbar.Controls.Add($refreshButton)
     $toolbar.Controls.Add($newFolderButton)
     $toolbar.Controls.Add($addPathButton)
-    $hint = New-Label "Tick the checkbox on the left of each target you want (row turns green). Then Save selection." 10 40 960 24
+    $toolbar.Controls.Add($exploreButton)
+    $hint = New-Label "Refresh lists drive roots; Explore opens folders and files. Tick Use on each target, then Save selection." 10 40 960 24
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $toolbar.Controls.Add($hint)
 
-    $selectAllButton = New-Button "Select all" 310 8 80 28
-    $clearAllButton = New-Button "Clear all" 396 8 80 28
+    $selectAllButton = New-Button "Select all" 396 8 80 28
+    $clearAllButton = New-Button "Clear all" 482 8 80 28
     $toolbar.Controls.Add($selectAllButton)
     $toolbar.Controls.Add($clearAllButton)
 
@@ -875,6 +877,36 @@ function Show-SlaveTargetPicker {
         $entry = New-TargetSelection -Kind $kind -Target $path -Description "Manual entry" -Selected $true
         & $reloadList @(Merge-TargetSelections @($entry) $current)
     })
+
+    $exploreButton.Add_Click({
+        try {
+            $initial = ""
+            foreach ($item in @(Get-TargetListViewTargets $listView)) {
+                if ([string](Get-PropertyValue $item "Kind" "") -eq "Filesystem") {
+                    $candidate = [string](Get-PropertyValue $item "Target" "")
+                    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                        $initial = $candidate
+                        break
+                    }
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($initial)) {
+                $selected = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
+                if ($selected.Count -gt 0) {
+                    $initial = [string](Get-PropertyValue $selected[0] "Target" "")
+                }
+            }
+            $picked = Show-HostPathBrowser -Row $Row -InitialPath $initial
+            if ($null -eq $picked) {
+                return
+            }
+            $current = @(Get-TargetListViewTargets $listView)
+            $entry = New-TargetSelection -Kind ([string]$picked.Kind) -Target ([string]$picked.Target) -Description ([string]$picked.Description) -Selected $true
+            & $reloadList @(Merge-TargetSelections @($entry) $current)
+        } catch {
+            Show-Warning ("Explore failed: " + $_.Exception.Message)
+        }
+    }.GetNewClosure())
 
     $buttonPanel = New-Object System.Windows.Forms.Panel
     $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
@@ -994,7 +1026,7 @@ function Build-MasterSlaveTab {
     $importButton.Add_Click({ Import-SlaveInventory })
     $toolbar.Controls.Add($importButton)
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, tick the checkbox beside each disk/folder, Save selection." 0 0 1100 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
     $script:SlaveGrid = Build-SlaveGrid
