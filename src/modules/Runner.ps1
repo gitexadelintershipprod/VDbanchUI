@@ -509,9 +509,7 @@ function Start-VdbenchRunCore {
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     $process.EnableRaisingEvents = $true
-    $process.add_OutputDataReceived([System.Diagnostics.DataReceivedEventHandler][VdbenchUi.ProcessEventBridge]::OnStdout)
-    $process.add_ErrorDataReceived([System.Diagnostics.DataReceivedEventHandler][VdbenchUi.ProcessEventBridge]::OnStderr)
-    $process.add_Exited([System.EventHandler][VdbenchUi.ProcessEventBridge]::OnExited)
+    Register-ProcessEventBridgeHandlers -Process $process
 
     try {
         [void]$process.Start()

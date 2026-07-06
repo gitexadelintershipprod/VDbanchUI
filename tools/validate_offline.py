@@ -556,7 +556,65 @@ Invoke-AppSelfTest
     _run_linux_filesystem_filter_regression_check(pwsh)
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
+    _run_process_event_bridge_regression_check(pwsh)
     return True
+
+
+def _run_process_event_bridge_regression_check(pwsh: str) -> None:
+    """Process event handlers must be real .NET delegates (PS 5.1 cannot cast PSMethod)."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-process-bridge-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-process-bridge-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:RunStateRoot = Join-Path $script:DataRoot "runs"
+$script:LogRoot = "{tmp_dir}/logs"
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
+$script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:Settings = $null
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:Catalog = @()
+$script:LogQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
+$script:RunFileWriteQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+$script:ProcessExitQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+$script:ProcessEventBridgeReady = $false
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+Initialize-ProcessEventBridge
+$stdoutHandler = [VdbenchUi.ProcessEventBridge]::StdoutHandler
+if ($stdoutHandler -isnot [System.Diagnostics.DataReceivedEventHandler]) {{
+    throw "StdoutHandler is not a DataReceivedEventHandler"
+}}
+$process = New-Object System.Diagnostics.Process
+Register-ProcessEventBridgeHandlers -Process $process
+Write-Output "ok"
+""".format(
+                app_root=str(ROOT),
+                module_root=str(MODULE_ROOT),
+                tmp_dir=tmp_dir,
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("process event bridge regression harness failed to run")
+        print("process event bridge regression check: prebuilt C# delegates wire to Process events")
 
 
 def _run_directory_listing_regression_check(pwsh: str) -> None:
@@ -2540,6 +2598,8 @@ def main() -> int:
     assert "SetUnhandledExceptionMode" in core_module
     assert "function Initialize-ProcessEventBridge" in core_module
     assert "VdbenchUi.ProcessEventBridge" in core_module
+    assert "function Register-ProcessEventBridgeHandlers" in core_module
+    assert "StdoutHandler" in core_module
     assert "add_OutputDataReceived({" not in runner_module_full
     assert "function Invoke-PendingProcessExitNotifications" in runner_module_full
     assert "function Start-VdbenchRunCore" in runner_module_full
