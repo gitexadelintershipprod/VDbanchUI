@@ -423,6 +423,8 @@ function Register-AppExceptionLogging {
         return
     }
     $script:AppExceptionLoggingRegistered = $true
+    [System.Windows.Forms.Application]::SetUnhandledExceptionMode(
+        [System.Windows.Forms.UnhandledExceptionMode]::CatchException)
     [System.Windows.Forms.Application]::Add_ThreadException({
         param($sender, $eventArgs)
         try {

@@ -360,6 +360,18 @@ function Initialize-TestFilesForRun {
 }
 
 function Start-VdbenchRun {
+    try {
+        Start-VdbenchRunCore
+    } catch {
+        Write-AppLog ("Start-VdbenchRun failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        Show-Warning ("Run start failed: " + $_.Exception.Message)
+        if ($script:RunStatusLabel) {
+            $script:RunStatusLabel.Text = "Start failed"
+        }
+    }
+}
+
+function Start-VdbenchRunCore {
     if ($script:CurrentProcess -and -not $script:CurrentProcess.HasExited) {
         Show-Warning "A run is already active."
         return

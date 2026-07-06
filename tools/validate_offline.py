@@ -2530,6 +2530,12 @@ def main() -> int:
     assert "Show-HostPathBrowser" in ui_slave_module
     assert "function Get-ListViewItemChecked" in ui_tabs_module
     assert "-FromItemChecked" in ui_tabs_module
+    assert "function Invoke-UiSafe" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "SetUnhandledExceptionMode" in core_module
+    assert "function Start-VdbenchRunCore" in runner_module_full
+    assert "Invoke-UiSafe { Start-VdbenchRun }" in ui_tabs_module
+    assert "Clear-TargetListViewBulkSyncDeferred" in ui_tabs_module
+    assert "DoEvents" not in ui_tabs_module
     assert 'New-Button "Explore"' in ui_tabs_module
     assert "local-host-explore" in ui_tabs_module
     assert "vdbench creates test files at run time" in ui_tabs_module.lower()
