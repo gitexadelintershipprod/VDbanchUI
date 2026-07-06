@@ -40,6 +40,7 @@ $script:CurrentRunId = $null
 $script:KillRequested = $false
 $script:LogQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
 $script:RunFileWriteQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+$script:ProcessExitQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
 $script:UiThreadWorkQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
 $script:UiThreadWorkTimer = $null
 $script:Form = $null
@@ -86,7 +87,9 @@ $script:ProfileEditorLastTestKind = ""
 $script:ProfileNewButton = $null
 $script:ProfileSaveButton = $null
 $script:ProfilePreviewButton = $null
+$script:ProcessEventBridgeReady = $false
 $script:ProfileEditorBanner = $null
+$script:PendingListViewBulkSync = $null
 
 $script:ModuleRoot = Join-Path (Split-Path -Parent $PSCommandPath) "modules"
 . (Join-Path $script:ModuleRoot "Import-AppModules.ps1") -ModuleRoot $script:ModuleRoot
@@ -104,6 +107,7 @@ try {
         Write-AppLog "Starting Vdbench UI"
         Write-DebugLog ("AppRoot={0}; LogRoot={1}" -f $script:AppRoot, $script:LogRoot)
         Initialize-AppState
+        Initialize-ProcessEventBridge
         Initialize-BackgroundRunspace
         $script:Form = Build-MainForm
         Write-DebugLog "Main form built"

@@ -36,9 +36,7 @@ function Invoke-PendingUiThreadWork {
         }
         $processed++
         try {
-            if ($item -is [scriptblock]) {
-                & $item
-            } elseif ($null -ne $item.HandlerName) {
+            if ($null -ne $item.HandlerName) {
                 $handler = Get-Command $item.HandlerName -ErrorAction Stop
                 $handlerArgs = $item.Arguments
                 if ($null -ne $handlerArgs -and $handlerArgs.Count -gt 0) {
@@ -55,36 +53,28 @@ function Invoke-PendingUiThreadWork {
 
 function Invoke-OnUiThread {
     param(
-        [string]$HandlerName = "",
-        [hashtable]$HandlerArguments = @{},
-        [scriptblock]$Action = $null
+        [Parameter(Mandatory = $true)]
+        [string]$HandlerName,
+        [hashtable]$HandlerArguments = @{}
     )
     $needsMarshal = ($null -ne $script:Form -and -not $script:Form.IsDisposed -and $script:Form.InvokeRequired)
     if (-not $needsMarshal) {
         try {
-            if ($null -ne $Action) {
-                & $Action
-            } elseif (-not [string]::IsNullOrWhiteSpace($HandlerName)) {
-                $handler = Get-Command $HandlerName -ErrorAction Stop
-                if ($HandlerArguments.Count -gt 0) {
-                    & $handler @HandlerArguments
-                } else {
-                    & $handler
-                }
+            $handler = Get-Command $HandlerName -ErrorAction Stop
+            if ($HandlerArguments.Count -gt 0) {
+                & $handler @HandlerArguments
+            } else {
+                & $handler
             }
         } catch {
             Write-AppLog ("UI thread work failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
         }
         return
     }
-    if ($null -ne $Action) {
-        $script:UiThreadWorkQueue.Enqueue($Action)
-    } else {
-        $script:UiThreadWorkQueue.Enqueue([pscustomobject]@{
-            HandlerName = $HandlerName
-            Arguments = $HandlerArguments
-        })
-    }
+    $script:UiThreadWorkQueue.Enqueue([pscustomobject]@{
+        HandlerName = $HandlerName
+        Arguments = $HandlerArguments
+    })
     Initialize-UiThreadWorkTimer
 }
 
