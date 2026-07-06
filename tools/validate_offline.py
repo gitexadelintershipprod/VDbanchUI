@@ -577,6 +577,8 @@ $script:ModuleRoot = "{module_root}"
 $sample = @"
 folder|/stresstest/fs-test|Folder
 file|/stresstest/fs-test/vdb1_1_1.html|12345
+d|/mnt/test|Folder
+f|/mnt/test/vdb1.dat|4096
 folder|D:\\fs_test|Folder
 file|D:\\fs_test\\vdb1_1_1.html|4096
 "@
@@ -586,6 +588,8 @@ $results = [pscustomobject]@{{
     FolderKind = $parsed[0].Kind
     FileKind = $parsed[1].Kind
     FileTarget = $parsed[1].Target
+    GnuFolderTarget = $parsed[2].Target
+    GnuFileTarget = $parsed[3].Target
     ParentPath = (Get-HostParentPath "/stresstest/fs-test" "Linux")
 }}
 $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
@@ -606,12 +610,14 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
             raise AssertionError("directory listing regression harness failed to run")
 
         parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
-        assert parsed.get("Count") == 4, f"expected 4 parsed entries, got {parsed.get('Count')!r}"
+        assert parsed.get("Count") == 6, f"expected 6 parsed entries, got {parsed.get('Count')!r}"
         assert parsed.get("FolderKind") == "Filesystem", parsed
         assert parsed.get("FileKind") == "Test file", parsed
         assert parsed.get("FileTarget") == "/stresstest/fs-test/vdb1_1_1.html", parsed
+        assert parsed.get("GnuFolderTarget") == "/mnt/test", parsed
+        assert parsed.get("GnuFileTarget") == "/mnt/test/vdb1.dat", parsed
         assert parsed.get("ParentPath") == "/stresstest", parsed
-        print("directory listing regression check: folder/file parse + parent path")
+        print("directory listing regression check: folder/file parse + gnu find d/f + parent path")
 
 
 def _run_filesystem_profile_fixed_defaults_regression_check(pwsh: str) -> None:
@@ -2522,6 +2528,8 @@ def main() -> int:
     )
     assert 'New-Button "Explore"' in ui_slave_module
     assert "Show-HostPathBrowser" in ui_slave_module
+    assert "function Get-ListViewItemChecked" in ui_tabs_module
+    assert "-FromItemChecked" in ui_tabs_module
     assert 'New-Button "Explore"' in ui_tabs_module
     assert "local-host-explore" in ui_tabs_module
     assert "vdbench creates test files at run time" in ui_tabs_module.lower()

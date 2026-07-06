@@ -346,12 +346,24 @@ function New-TargetListView {
     return $listView
 }
 
+function Get-ListViewItemChecked {
+    param([System.Windows.Forms.ListViewItem]$Item)
+    if ($null -eq $Item) {
+        return $false
+    }
+    try {
+        return [bool]$Item.Checked
+    } catch {
+        return $false
+    }
+}
+
 function Sync-TargetListViewItemStyle {
     param([System.Windows.Forms.ListViewItem]$Item)
     if ($null -eq $Item) {
         return
     }
-    if ($Item.Checked) {
+    if (Get-ListViewItemChecked $Item) {
         $Item.BackColor = [System.Drawing.Color]::Honeydew
     } else {
         $Item.BackColor = [System.Drawing.Color]::White
@@ -421,7 +433,8 @@ function Get-TargetListViewItemFields {
 function Update-TargetListViewItemSelection {
     param(
         [System.Windows.Forms.ListViewItem]$Item,
-        [bool]$Selected
+        [bool]$Selected,
+        [switch]$FromItemChecked
     )
     if ($null -eq $Item) {
         return
@@ -438,7 +451,12 @@ function Update-TargetListViewItemSelection {
         -Description ([string]$fields.Description) `
         -Selected $Selected `
         -CreateFile $createFile
-    $Item.Checked = $Selected
+    # Never reassign Checked from inside ItemChecked; WinForms can throw or recurse badly.
+    if (-not $FromItemChecked) {
+        if ((Get-ListViewItemChecked $Item) -ne $Selected) {
+            $Item.Checked = $Selected
+        }
+    }
     Sync-TargetListViewItemStyle $Item
 }
 
@@ -468,6 +486,7 @@ function Set-TargetListViewTargets {
         }
     } finally {
         $ListView.EndUpdate()
+        [System.Windows.Forms.Application]::DoEvents()
         Set-TargetListViewBulkSync -ListView $ListView -Enabled $false
     }
 }
@@ -482,14 +501,15 @@ function Get-TargetListViewTargets {
         $stored = Get-PropertyValue $item "Tag" $null
         $fields = Get-TargetListViewItemFields -Item $item -Stored $stored
         $createFile = [bool]$fields.CreateFile
-        if ($item.Checked -and [string]$fields.Kind -eq "Test file") {
+        $checked = Get-ListViewItemChecked $item
+        if ($checked -and [string]$fields.Kind -eq "Test file") {
             $createFile = $true
         }
         $targets += New-TargetSelection `
             -Kind ([string]$fields.Kind) `
             -Target ([string]$fields.Target) `
             -Description ([string]$fields.Description) `
-            -Selected $item.Checked `
+            -Selected $checked `
             -CreateFile $createFile
     }
     return @($targets)
@@ -525,7 +545,7 @@ function Register-TargetListViewHandlers {
         if ($null -eq $item) {
             return
         }
-        Update-TargetListViewItemSelection -Item $item -Selected $item.Checked
+        Update-TargetListViewItemSelection -Item $item -Selected (Get-ListViewItemChecked $item) -FromItemChecked
         $label = Get-PropertyValue $sender.Tag "CounterLabel" $null
         Update-TargetListViewSelectionCounter $label $sender
     })

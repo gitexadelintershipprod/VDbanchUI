@@ -453,14 +453,16 @@ function Convert-HostDirectoryListingOutput {
             continue
         }
         $kind = "Filesystem"
-        if ($entryKind -eq "file") {
+        if ($entryKind -eq "file" -or $entryKind -eq "f") {
             $kind = "Test file"
             if ([string]::IsNullOrWhiteSpace($description)) {
                 $description = "File"
+            } elseif ($description -match '^\d+$') {
+                $description = "File " + (Format-ByteSize ([int64]$description))
             } else {
                 $description = "File " + $description
             }
-        } elseif ($entryKind -eq "folder") {
+        } elseif ($entryKind -eq "folder" -or $entryKind -eq "d") {
             if ([string]::IsNullOrWhiteSpace($description)) {
                 $description = "Folder"
             }
