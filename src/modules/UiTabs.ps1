@@ -379,10 +379,17 @@ function Clear-TargetListViewBulkSyncDeferred {
     if ($null -eq $ListView) {
         return
     }
-    $target = $ListView
-    Invoke-OnUiThread -Action {
-        Set-TargetListViewBulkSync -ListView $target -Enabled $false
+    $script:PendingListViewBulkSync = $ListView
+    Invoke-OnUiThread -HandlerName "Invoke-PendingListViewBulkSyncClear"
+}
+
+function Invoke-PendingListViewBulkSyncClear {
+    if ($null -eq $script:PendingListViewBulkSync) {
+        return
     }
+    $listView = $script:PendingListViewBulkSync
+    $script:PendingListViewBulkSync = $null
+    Set-TargetListViewBulkSync -ListView $listView -Enabled $false
 }
 
 function Set-TargetListViewBulkSync {
@@ -1882,6 +1889,7 @@ function Build-MainForm {
     $script:UiRefreshTimer = $timer
     $timer.Add_Tick({
         try {
+            Invoke-PendingProcessExitNotifications
             $activeRun = ($null -ne $script:CurrentProcess -and -not $script:CurrentProcess.HasExited)
             if ($activeRun) {
                 if ($script:UiRefreshTimer.Interval -ne 250) {

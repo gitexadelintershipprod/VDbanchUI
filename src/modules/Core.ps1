@@ -418,6 +418,118 @@ function Write-DebugLog {
     Write-AppLog $Message "DEBUG" $Exception
 }
 
+function Initialize-ProcessEventBridge {
+    if ($script:ProcessEventBridgeReady) {
+        return
+    }
+    $typeLoaded = $false
+    try {
+        $null = [VdbenchUi.ProcessEventBridge]
+        $typeLoaded = $true
+    } catch {
+        $typeLoaded = $false
+    }
+    if (-not $typeLoaded) {
+        $bridgeSource = @'
+namespace VdbenchUi {
+using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+
+public class FileWriteItem {
+    public string Path;
+    public string Line;
+}
+
+public class ProcessExitItem {
+    public int ExitCode;
+    public string RunId;
+    public string StdoutPath;
+}
+
+public static class ProcessEventBridge {
+    private static ConcurrentQueue<string> _logQueue;
+    private static ConcurrentQueue<object> _fileWriteQueue;
+    private static ConcurrentQueue<object> _exitQueue;
+    private static string _stdoutPath;
+    private static string _stderrPath;
+    private static string _runId;
+
+    public static void Initialize(
+        ConcurrentQueue<string> logQueue,
+        ConcurrentQueue<object> fileWriteQueue,
+        ConcurrentQueue<object> exitQueue) {
+        _logQueue = logQueue;
+        _fileWriteQueue = fileWriteQueue;
+        _exitQueue = exitQueue;
+    }
+
+    public static void SetRunContext(string runId, string stdoutPath, string stderrPath) {
+        _runId = runId ?? "";
+        _stdoutPath = stdoutPath ?? "";
+        _stderrPath = stderrPath ?? "";
+    }
+
+    public static void OnStdout(object sender, DataReceivedEventArgs e) {
+        if (e == null || e.Data == null) {
+            return;
+        }
+        if (_logQueue != null) {
+            _logQueue.Enqueue(e.Data);
+        }
+        if (_fileWriteQueue != null && !string.IsNullOrEmpty(_stdoutPath)) {
+            _fileWriteQueue.Enqueue(new FileWriteItem { Path = _stdoutPath, Line = e.Data });
+        }
+    }
+
+    public static void OnStderr(object sender, DataReceivedEventArgs e) {
+        if (e == null || e.Data == null) {
+            return;
+        }
+        string line = "[stderr] " + e.Data;
+        if (_logQueue != null) {
+            _logQueue.Enqueue(line);
+        }
+        if (_fileWriteQueue != null && !string.IsNullOrEmpty(_stderrPath)) {
+            _fileWriteQueue.Enqueue(new FileWriteItem { Path = _stderrPath, Line = line });
+        }
+    }
+
+    public static void OnExited(object sender, EventArgs e) {
+        int code = 0;
+        Process proc = sender as Process;
+        if (proc != null) {
+            try {
+                code = proc.ExitCode;
+            } catch {
+                code = 0;
+            }
+        }
+        if (_exitQueue != null) {
+            _exitQueue.Enqueue(new ProcessExitItem {
+                ExitCode = code,
+                RunId = _runId ?? "",
+                StdoutPath = _stdoutPath ?? ""
+            });
+        }
+    }
+}
+}
+'@
+        Add-Type -TypeDefinition $bridgeSource -Language CSharp
+    }
+    if ($null -eq $script:ProcessExitQueue) {
+        $script:ProcessExitQueue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
+    }
+    [VdbenchUi.ProcessEventBridge]::Initialize(
+        $script:LogQueue,
+        $script:RunFileWriteQueue,
+        $script:ProcessExitQueue
+    )
+    $script:ProcessEventBridgeReady = $true
+    Write-DebugLog "Process event bridge initialized"
+}
+
 function Register-AppExceptionLogging {
     if ($script:AppExceptionLoggingRegistered) {
         return

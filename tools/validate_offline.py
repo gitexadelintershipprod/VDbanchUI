@@ -2538,6 +2538,10 @@ def main() -> int:
     assert "-FromItemChecked" in ui_tabs_module
     assert "function Invoke-UiSafe" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SetUnhandledExceptionMode" in core_module
+    assert "function Initialize-ProcessEventBridge" in core_module
+    assert "VdbenchUi.ProcessEventBridge" in core_module
+    assert "add_OutputDataReceived({" not in runner_module_full
+    assert "function Invoke-PendingProcessExitNotifications" in runner_module_full
     assert "function Start-VdbenchRunCore" in runner_module_full
     assert "function Complete-VdbenchProcessExited" in runner_module_full
     assert "RunFileWriteQueue" in runner_module_full

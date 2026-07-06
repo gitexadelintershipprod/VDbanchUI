@@ -4,12 +4,21 @@ function Queue-RunLog {
 }
 
 function Flush-RunLog {
+    Invoke-PendingProcessExitNotifications
     if ($script:RunFileWriteQueue.Count -gt 0) {
         $fileItem = $null
         $fileWrites = 0
         while ($fileWrites -lt 250 -and $script:RunFileWriteQueue.TryDequeue([ref]$fileItem)) {
             try {
-                [System.IO.File]::AppendAllText([string]$fileItem.Path, [string]$fileItem.Line + [Environment]::NewLine)
+                $path = ""
+                $line = ""
+                if ($null -ne $fileItem.Path) {
+                    $path = [string]$fileItem.Path
+                    $line = [string]$fileItem.Line
+                }
+                if (-not [string]::IsNullOrWhiteSpace($path)) {
+                    [System.IO.File]::AppendAllText($path, $line + [Environment]::NewLine)
+                }
             } catch {
                 Write-AppLog ("Run log file append failed: {0}" -f $_.Exception.Message) "ERROR"
             }
@@ -193,9 +202,29 @@ function Invoke-RunFinishedUiRefresh {
         [string]$RunId,
         [string]$Status
     )
-    Invoke-OnUiThread -HandlerName "Notify-RunFinished" -Arguments @{
+    Invoke-OnUiThread -HandlerName "Notify-RunFinished" -HandlerArguments @{
         RunId = $RunId
         Status = $Status
+    }
+}
+
+function Invoke-PendingProcessExitNotifications {
+    if ($null -eq $script:ProcessExitQueue) {
+        return
+    }
+    $item = $null
+    while ($script:ProcessExitQueue.TryDequeue([ref]$item)) {
+        if ($null -eq $item) {
+            continue
+        }
+        try {
+            Complete-VdbenchProcessExited `
+                -ExitCode ([int]$item.ExitCode) `
+                -RunId ([string]$item.RunId) `
+                -StdoutPath ([string]$item.StdoutPath)
+        } catch {
+            Write-AppLog ("Process exit notification failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        }
     }
 }
 
@@ -474,43 +503,15 @@ function Start-VdbenchRunCore {
     $script:ActiveStdoutPath = $stdoutPath
     $script:ActiveStderrPath = $stderrPath
 
+    Initialize-ProcessEventBridge
+    [VdbenchUi.ProcessEventBridge]::SetRunContext($capturedRunId, $capturedStdoutPath, $capturedStderrPath)
+
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     $process.EnableRaisingEvents = $true
-    $process.add_OutputDataReceived({
-        param($sender, $eventArgs)
-        if ($eventArgs.Data) {
-            $line = [string]$eventArgs.Data
-            $script:LogQueue.Enqueue($line)
-            $script:RunFileWriteQueue.Enqueue([pscustomobject]@{
-                Path = $capturedStdoutPath
-                Line = $line
-            })
-        }
-    })
-    $process.add_ErrorDataReceived({
-        param($sender, $eventArgs)
-        if ($eventArgs.Data) {
-            $line = "[stderr] " + [string]$eventArgs.Data
-            $script:LogQueue.Enqueue($line)
-            $script:RunFileWriteQueue.Enqueue([pscustomobject]@{
-                Path = $capturedStderrPath
-                Line = $line
-            })
-        }
-    })
-    $process.add_Exited({
-        param($sender, $eventArgs)
-        try {
-            Invoke-OnUiThread -HandlerName "Complete-VdbenchProcessExited" -Arguments @{
-                ExitCode = [int]$sender.ExitCode
-                RunId = $capturedRunId
-                StdoutPath = $capturedStdoutPath
-            }
-        } catch {
-            Write-AppLog ("Run exit handler failed: {0}" -f $_.Exception.Message) "ERROR"
-        }
-    })
+    $process.add_OutputDataReceived([System.Diagnostics.DataReceivedEventHandler][VdbenchUi.ProcessEventBridge]::OnStdout)
+    $process.add_ErrorDataReceived([System.Diagnostics.DataReceivedEventHandler][VdbenchUi.ProcessEventBridge]::OnStderr)
+    $process.add_Exited([System.EventHandler][VdbenchUi.ProcessEventBridge]::OnExited)
 
     try {
         [void]$process.Start()
