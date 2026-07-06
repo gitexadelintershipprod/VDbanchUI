@@ -133,6 +133,28 @@ function Convert-ToPowerShellSingleQuoted {
     return "'" + ($Value -replace "'", "''") + "'"
 }
 
+function Get-VdbenchOpenflagsForOsType {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "o_direct"
+    }
+    return "directio"
+}
+
+function Get-LocalHostOsType {
+    # $IsLinux exists only in PowerShell 6+; Windows PowerShell 5.x (used by
+    # Validate-Project.ps1 / -SelfTest) throws under Set-StrictMode if it is
+    # referenced when unset. RuntimeInformation works on both hosts.
+    try {
+        if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+                [System.Runtime.InteropServices.OSPlatform]::Linux)) {
+            return "Linux"
+        }
+    } catch {
+    }
+    return "Windows"
+}
+
 function Get-RemoteExecCommandParts {
     <#
     Builds the "remote command" portion of an ssh.exe argument list for

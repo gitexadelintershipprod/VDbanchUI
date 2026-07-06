@@ -426,3 +426,326 @@ function Select-TargetFromList {
     }
     return [string]$grid.SelectedRows[0].Cells["Target"].Value
 }
+
+function Get-DefaultBrowseRootForOs {
+    param([string]$OsType)
+    if ([string]$OsType -eq "Linux") {
+        return "/"
+    }
+    return "C:\"
+}
+
+function Convert-HostDirectoryListingOutput {
+    param([string]$Text)
+    $items = @()
+    foreach ($line in (($Text -split "`r?`n") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $parts = $line.Split(@("|"), 3, [System.StringSplitOptions]::None)
+        if ($parts.Count -lt 2) {
+            continue
+        }
+        $entryKind = $parts[0].Trim().ToLowerInvariant()
+        $target = $parts[1].Trim()
+        $description = ""
+        if ($parts.Count -gt 2) {
+            $description = $parts[2].Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($target)) {
+            continue
+        }
+        $kind = "Filesystem"
+        if ($entryKind -eq "file") {
+            $kind = "Test file"
+            if ([string]::IsNullOrWhiteSpace($description)) {
+                $description = "File"
+            } else {
+                $description = "File " + $description
+            }
+        } elseif ($entryKind -eq "folder") {
+            if ([string]::IsNullOrWhiteSpace($description)) {
+                $description = "Folder"
+            }
+        } else {
+            continue
+        }
+        $items += New-TargetRecord $kind $target $description
+    }
+    return @($items)
+}
+
+function Get-LocalHostDirectoryListing {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return @()
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw ("Path does not exist: {0}" -f $Path)
+    }
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $items = @()
+    foreach ($entry in @(Get-ChildItem -LiteralPath $resolved -Force -ErrorAction Stop)) {
+        if ($entry.PSIsContainer) {
+            $items += New-TargetRecord "Filesystem" $entry.FullName "Folder"
+        } else {
+            $items += New-TargetRecord "Test file" $entry.FullName ("File " + (Format-ByteSize $entry.Length))
+        }
+    }
+    return @($items | Sort-Object { [string]$_.Kind }, { [string]$_.Target })
+}
+
+function Get-RemoteHostDirectoryListingCore {
+    param(
+        [string]$SystemName,
+        [string]$OsType,
+        [string]$Path,
+        [string]$User
+    )
+    $sshParts = New-Object System.Collections.Generic.List[string]
+    Add-CommonSshOptions -SshParts $sshParts -User $User
+    [void]$sshParts.Add((Quote-ProcessArgument $SystemName))
+    if ($OsType -eq "Linux") {
+        $pathSq = Convert-ToShellSingleQuoted $Path
+        $remoteScript = ("find {0} -mindepth 1 -maxdepth 1 \( -type d -o -type f \) -printf '%y|%p|%s\n'" -f $pathSq)
+    } else {
+        $pathSq = Convert-ToPowerShellSingleQuoted $Path
+        $remoteScript = @"
+if (-not (Test-Path -LiteralPath $pathSq -PathType Container)) { throw "Path does not exist: $pathSq" }
+Get-ChildItem -LiteralPath $pathSq -Force | ForEach-Object {
+  if (`$_.PSIsContainer) { 'folder|' + `$_.FullName + '|Folder' }
+  else { 'file|' + `$_.FullName + '|' + `$_.Length }
+}
+"@
+    }
+    foreach ($token in @(Get-RemoteExecCommandParts -OsType $OsType -RemoteScript $remoteScript)) {
+        [void]$sshParts.Add($token)
+    }
+    $result = Invoke-CapturedProcess "ssh.exe" ($sshParts -join " ") 20000
+    if ($result.ExitCode -ne 0) {
+        throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
+    }
+    return @(Convert-HostDirectoryListingOutput $result.StdOut)
+}
+
+function Get-HostDirectoryListing {
+    param(
+        $Row,
+        [string]$Path
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return @()
+    }
+    if ($null -eq $Row) {
+        return @(Get-LocalHostDirectoryListing $Path)
+    }
+    $hostName = [string]$Row.Cells["Host"].Value
+    if (Test-HostLooksLocal $hostName) {
+        return @(Get-LocalHostDirectoryListing $Path)
+    }
+    $systemName = [string]$Row.Cells["SshAlias"].Value
+    if ([string]::IsNullOrWhiteSpace($systemName)) {
+        $systemName = $hostName
+    }
+    $osType = [string]$Row.Cells["OsType"].Value
+    return @(Get-RemoteHostDirectoryListingCore -SystemName $systemName -OsType $osType -Path $Path -User ([string]$Row.Cells["User"].Value))
+}
+
+function Get-HostParentPath {
+    param(
+        [string]$Path,
+        [string]$OsType
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    if ($OsType -eq "Linux") {
+        $parent = [string](Split-Path -Path $Path.TrimEnd("/") -Parent)
+        if ([string]::IsNullOrWhiteSpace($parent)) {
+            return "/"
+        }
+        return $parent
+    }
+    $parent = [string](Split-Path -Path $Path -Parent)
+    if ([string]::IsNullOrWhiteSpace($parent)) {
+        return (Split-Path -Path $Path -Qualifier)
+    }
+    return $parent
+}
+
+function Show-HostPathBrowser {
+    param(
+        $Row,
+        [string]$InitialPath = ""
+    )
+    $osType = "Windows"
+    if ($null -ne $Row) {
+        $osType = [string]$Row.Cells["OsType"].Value
+    } else {
+        $osType = Get-LocalHostOsType
+    }
+    $currentPath = [string]$InitialPath
+    if ([string]::IsNullOrWhiteSpace($currentPath)) {
+        $currentPath = Get-DefaultBrowseRootForOs $osType
+    }
+
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "Browse folders and files"
+    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 980, 560
+    $dialog.MinimizeBox = $false
+    $dialog.MaximizeBox = $true
+
+    $pathBox = New-TextBox $currentPath 70 12 780 24
+    $dialog.Controls.Add((New-Label "Path:" 12 14 50 22))
+    $dialog.Controls.Add($pathBox)
+
+    $upButton = New-Button "Up" 860 10 45 28
+    $goButton = New-Button "Go" 910 10 45 28
+    $dialog.Controls.Add($upButton)
+    $dialog.Controls.Add($goButton)
+
+    $grid = New-Object System.Windows.Forms.DataGridView
+    $grid.Location = New-Object System.Drawing.Point -ArgumentList 12, 48
+    $grid.Size = New-Object System.Drawing.Size -ArgumentList 944, 420
+    $grid.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+    $grid.ReadOnly = $true
+    $grid.AllowUserToAddRows = $false
+    $grid.AllowUserToDeleteRows = $false
+    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $grid.MultiSelect = $false
+    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
+    foreach ($name in @("Kind", "Target", "Description")) {
+        $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+        $col.Name = $name
+        $col.HeaderText = $name
+        if ($name -eq "Target") {
+            $col.FillWeight = 180
+        }
+        $grid.Columns.Add($col) | Out-Null
+    }
+    $dialog.Controls.Add($grid)
+
+    $buttonPanel = New-Object System.Windows.Forms.Panel
+    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $buttonPanel.Height = 46
+    $dialog.Controls.Add($buttonPanel)
+
+    $state = @{
+        Row = $Row
+        OsType = $osType
+        Result = $null
+        Grid = $grid
+        PathBox = $pathBox
+        Dialog = $dialog
+    }
+    $dialog.Tag = $state
+
+    $loadPath = {
+        param([string]$PathToLoad)
+        $ctx = $this.Tag
+        if ($null -eq $ctx) {
+            $ctx = $state
+        }
+        $ctx.Grid.Rows.Clear()
+        $items = @(Get-HostDirectoryListing -Row $ctx.Row -Path $PathToLoad)
+        foreach ($item in $items) {
+            $idx = $ctx.Grid.Rows.Add()
+            $ctx.Grid.Rows[$idx].Cells["Kind"].Value = [string]$item.Kind
+            $ctx.Grid.Rows[$idx].Cells["Target"].Value = [string]$item.Target
+            $ctx.Grid.Rows[$idx].Cells["Description"].Value = [string]$item.Description
+        }
+        $ctx.PathBox.Text = $PathToLoad
+    }.GetNewClosure()
+
+    $upButton.Add_Click({
+        $ctx = $dialog.Tag
+        $parent = Get-HostParentPath ([string]$ctx.PathBox.Text) ([string]$ctx.OsType)
+        if (-not [string]::IsNullOrWhiteSpace($parent)) {
+            try {
+                & $loadPath $parent
+            } catch {
+                Show-Warning ("Browse failed: " + $_.Exception.Message)
+            }
+        }
+    }.GetNewClosure())
+    $goButton.Add_Click({
+        $ctx = $dialog.Tag
+        try {
+            & $loadPath ([string]$ctx.PathBox.Text.Trim())
+        } catch {
+            Show-Warning ("Browse failed: " + $_.Exception.Message)
+        }
+    }.GetNewClosure())
+    $grid.Add_CellDoubleClick({
+        param($sender, $eventArgs)
+        $ctx = $dialog.Tag
+        if ($eventArgs.RowIndex -lt 0) {
+            return
+        }
+        $kind = [string]$sender.Rows[$eventArgs.RowIndex].Cells["Kind"].Value
+        $target = [string]$sender.Rows[$eventArgs.RowIndex].Cells["Target"].Value
+        if ($kind -eq "Filesystem") {
+            try {
+                & $loadPath $target
+            } catch {
+                Show-Warning ("Browse failed: " + $_.Exception.Message)
+            }
+            return
+        }
+        $ctx.Result = [pscustomobject]@{
+            Kind = $kind
+            Target = $target
+            Description = [string]$sender.Rows[$eventArgs.RowIndex].Cells["Description"].Value
+        }
+        $ctx.Dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $ctx.Dialog.Close()
+    }.GetNewClosure())
+
+    $selectButton = New-Button "Use selected" 700 9 110 28
+    $selectButton.Add_Click({
+        $ctx = $dialog.Tag
+        if ($ctx.Grid.SelectedRows.Count -eq 0) {
+            Show-Warning "Select a folder or file first."
+            return
+        }
+        $ctx.Result = [pscustomobject]@{
+            Kind = [string]$ctx.Grid.SelectedRows[0].Cells["Kind"].Value
+            Target = [string]$ctx.Grid.SelectedRows[0].Cells["Target"].Value
+            Description = [string]$ctx.Grid.SelectedRows[0].Cells["Description"].Value
+        }
+        $ctx.Dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $ctx.Dialog.Close()
+    }.GetNewClosure())
+    $buttonPanel.Controls.Add($selectButton)
+    $useFolderButton = New-Button "Use this folder" 560 9 120 28
+    $useFolderButton.Add_Click({
+        $ctx = $dialog.Tag
+        $path = [string]$ctx.PathBox.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return
+        }
+        $ctx.Result = [pscustomobject]@{
+            Kind = "Filesystem"
+            Target = $path
+            Description = "Current folder"
+        }
+        $ctx.Dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $ctx.Dialog.Close()
+    }.GetNewClosure())
+    $buttonPanel.Controls.Add($useFolderButton)
+    $cancelButton = New-Button "Cancel" 820 9 80 28
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $buttonPanel.Controls.Add($cancelButton)
+    $dialog.AcceptButton = $selectButton
+    $dialog.CancelButton = $cancelButton
+
+    try {
+        & $loadPath $currentPath
+    } catch {
+        Show-Warning ("Browse failed: " + $_.Exception.Message)
+        return $null
+    }
+
+    if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
+        return $null
+    }
+    return $state.Result
+}

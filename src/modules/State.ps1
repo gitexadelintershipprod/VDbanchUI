@@ -79,6 +79,34 @@ function Apply-FilesystemProfileFixedDefaults {
     Set-ProfileParamEnabled $Profile "fsd.shared" $true
     Set-ProfileParamValue $Profile "fwd.fileio" "(random,shared)"
     Set-ProfileParamEnabled $Profile "fwd.fileio" $true
+    if ([string]::IsNullOrWhiteSpace((Get-ProfileParamValue $Profile "fsd.bypassOsCache" ""))) {
+        Set-ProfileParamValue $Profile "fsd.bypassOsCache" "yes"
+        Set-ProfileParamEnabled $Profile "fsd.bypassOsCache" $true
+    }
+    foreach ($legacyKey in @("fsd.openflags", "fwd.openflags")) {
+        if (Get-ProfileParamEnabled $Profile $legacyKey) {
+            $legacyValue = Get-ProfileParamValue $Profile $legacyKey ""
+            if (-not [string]::IsNullOrWhiteSpace($legacyValue) -and $legacyValue -ne "none") {
+                Set-ProfileParamValue $Profile "fsd.bypassOsCache" "yes"
+                Set-ProfileParamEnabled $Profile "fsd.bypassOsCache" $true
+                break
+            }
+        }
+    }
+    Set-ProfileParamEnabled $Profile "fsd.openflags" $false
+    Set-ProfileParamEnabled $Profile "fwd.openflags" $false
+}
+
+function Test-ProfileBypassOsCacheEnabled {
+    param([object]$Profile)
+    if ($null -eq $Profile) {
+        return $false
+    }
+    if (-not (Get-ProfileParamEnabled $Profile "fsd.bypassOsCache")) {
+        return $false
+    }
+    $value = Get-ProfileParamValue $Profile "fsd.bypassOsCache" "yes"
+    return ($value -eq "yes")
 }
 
 $script:CommonParameterMirrors = @{

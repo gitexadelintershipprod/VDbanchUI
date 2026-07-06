@@ -638,6 +638,25 @@
     "Group": "FSD tree layout"
   },
   {
+    "Key": "fsd.bypassOsCache",
+    "Section": "FSD",
+    "Label": "Bypass OS cache (direct I/O)",
+    "VdbenchName": "bypassOsCache",
+    "Line": "fsd",
+    "Type": "dropdown",
+    "Default": "yes",
+    "Options": [
+      "yes",
+      "no"
+    ],
+    "AppliesTo": "fs",
+    "Required": false,
+    "Help": "When enabled, each generated fsd= line gets openflags=directio on Windows slaves and openflags=o_direct on Linux slaves.",
+    "Example": "yes",
+    "SortOrder": 65,
+    "Group": "FSD tree layout"
+  },
+  {
     "Key": "fsd.distribution",
     "Section": "FSD",
     "Label": "File distribution",
@@ -707,7 +726,8 @@
     "Help": "Extra flags passed to file open (platform dependent).",
     "Example": "o_direct",
     "SortOrder": 100,
-    "Group": "FSD advanced"
+    "Group": "FSD advanced",
+    "EditorHidden": true
   },
   {
     "Key": "fsd.shared",
@@ -928,7 +948,8 @@
     "Help": "Extra open flags for this workload.",
     "Example": "o_direct",
     "SortOrder": 100,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "EditorHidden": true
   },
   {
     "Key": "run.fwdrate",

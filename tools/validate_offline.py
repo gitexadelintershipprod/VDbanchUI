@@ -110,15 +110,41 @@ def enabled(profile: dict, key: str) -> bool:
     return bool(item and item.get("Enabled"))
 
 
+def bypass_os_cache_enabled(profile: dict) -> bool:
+    item = profile["Parameters"].get("fsd.bypassOsCache")
+    if not item or not item.get("Enabled"):
+        return False
+    return str(item.get("Value") or "yes") == "yes"
+
+
+def openflags_for_os_type(os_type: str) -> str:
+    return "o_direct" if os_type == "Linux" else "directio"
+
+
+SKIP_FSD_PARAM_KEYS = {"fsd.openflags", "fwd.openflags", "fsd.bypassOsCache"}
+
+
 def add_params(parts: list[str], disabled: list[str], catalog: list[dict], profile: dict, line: str, test_kind: str):
     for definition in catalog:
         if definition["Line"] != line or not applies(definition, test_kind):
             continue
         key = definition["Key"]
+        if line == "fsd" and key in SKIP_FSD_PARAM_KEYS:
+            continue
         value = param(profile, key)
+        if key == "fsd.files":
+            value = "1"
+        elif key == "fsd.shared":
+            value = "no"
+        elif key == "fwd.fileio":
+            if not value.strip() or value == "random":
+                value = "(random,shared)"
         if not value.strip():
             continue
         name = definition["VdbenchName"]
+        if key in {"fsd.files", "fsd.shared", "fwd.fileio"}:
+            parts.append(f"{name}={value}")
+            continue
         if enabled(profile, key):
             if name == "openflags" and value == "none":
                 continue
@@ -247,6 +273,8 @@ def render_config(
                 fs_targets = [t for t in slave.get("Targets", []) if t.get("Selected") and t.get("Kind") == "Filesystem"]
                 for index, target in enumerate(fs_targets, start=1):
                     parts = [f"fsd=fsd_{safe_name}_{index}", f"anchor={target['Target']}"]
+                    if bypass_os_cache_enabled(profile):
+                        parts.append(f"openflags={openflags_for_os_type(str(slave.get('OsType') or 'Linux'))}")
                     for definition in catalog:
                         if definition["Key"] == "fsd.anchor":
                             continue
@@ -258,6 +286,8 @@ def render_config(
             for index, target in enumerate(fs_targets, start=1):
                 name = fsd_name if len(fs_targets) == 1 else f"{fsd_name}_{index}"
                 parts = [f"fsd={name}", f"anchor={target['Target']}"]
+                if bypass_os_cache_enabled(profile):
+                    parts.append(f"openflags={openflags_for_os_type('Windows')}")
                 for definition in catalog:
                     if definition["Key"] == "fsd.anchor":
                         continue
@@ -525,7 +555,63 @@ Invoke-AppSelfTest
     _run_ssh_alias_default_regression_check(pwsh)
     _run_linux_filesystem_filter_regression_check(pwsh)
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
+    _run_directory_listing_regression_check(pwsh)
     return True
+
+
+def _run_directory_listing_regression_check(pwsh: str) -> None:
+    """Verify remote/local browse listing output is parsed into folder and file targets."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-dir-listing-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-dir-listing-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+. (Join-Path $script:ModuleRoot "TargetDiscovery.ps1")
+$sample = @"
+folder|/stresstest/fs-test|Folder
+file|/stresstest/fs-test/vdb1_1_1.html|12345
+folder|D:\\fs_test|Folder
+file|D:\\fs_test\\vdb1_1_1.html|4096
+"@
+$parsed = @(Convert-HostDirectoryListingOutput $sample)
+$results = [pscustomobject]@{{
+    Count = $parsed.Count
+    FolderKind = $parsed[0].Kind
+    FileKind = $parsed[1].Kind
+    FileTarget = $parsed[1].Target
+    ParentPath = (Get-HostParentPath "/stresstest/fs-test" "Linux")
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                app_root=str(ROOT),
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("directory listing regression harness failed to run")
+
+        parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
+        assert parsed.get("Count") == 4, f"expected 4 parsed entries, got {parsed.get('Count')!r}"
+        assert parsed.get("FolderKind") == "Filesystem", parsed
+        assert parsed.get("FileKind") == "Test file", parsed
+        assert parsed.get("FileTarget") == "/stresstest/fs-test/vdb1_1_1.html", parsed
+        assert parsed.get("ParentPath") == "/stresstest", parsed
+        print("directory listing regression check: folder/file parse + parent path")
 
 
 def _run_filesystem_profile_fixed_defaults_regression_check(pwsh: str) -> None:
@@ -566,6 +652,7 @@ $legacy = [pscustomobject]@{{
         [pscustomobject]@{{ Key = "fsd.files"; Enabled = $true; Value = "100" }}
         [pscustomobject]@{{ Key = "fsd.shared"; Enabled = $false; Value = "yes" }}
         [pscustomobject]@{{ Key = "fwd.fileio"; Enabled = $true; Value = "random" }}
+        [pscustomobject]@{{ Key = "fsd.openflags"; Enabled = $true; Value = "o_direct" }}
     )
     AdvancedActive = ""
     AdvancedDisabled = ""
@@ -576,6 +663,9 @@ $results = [pscustomobject]@{{
     FilesValue = (Get-ProfileParamValue $legacy "fsd.files" "")
     SharedValue = (Get-ProfileParamValue $legacy "fsd.shared" "")
     FileioValue = (Get-ProfileParamValue $legacy "fwd.fileio" "")
+    BypassValue = (Get-ProfileParamValue $legacy "fsd.bypassOsCache" "")
+    BypassEnabled = (Get-ProfileParamEnabled $legacy "fsd.bypassOsCache")
+    LegacyOpenflagsEnabled = (Get-ProfileParamEnabled $legacy "fsd.openflags")
 }}
 $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
 """.format(
@@ -606,9 +696,14 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         assert parsed.get("FileioValue") == "(random,shared)", (
             f"legacy profile must normalize fwd.fileio, got {parsed.get('FileioValue')!r}"
         )
+        assert parsed.get("BypassValue") == "yes", (
+            f"legacy fsd.openflags must migrate to bypassOsCache=yes, got {parsed.get('BypassValue')!r}"
+        )
+        assert parsed.get("BypassEnabled") is True, parsed
+        assert parsed.get("LegacyOpenflagsEnabled") is False, parsed
         print(
             "filesystem profile fixed-defaults regression check: "
-            "legacy files/shared/fileio normalize on profile load"
+            "legacy files/shared/fileio/bypassOsCache normalize on profile load"
         )
 
 
@@ -2166,6 +2261,7 @@ def main() -> int:
     assert '"Key": "fsd.files"' in catalog_text and '"EditorHidden": true' in catalog_text
     assert '"Default": "(random,shared)"' in catalog_text
     assert "Apply-FilesystemProfileFixedDefaults" in config_module
+    assert "Add-FsdOpenflagsForOsType" in config_module
     assert '"Section": "SD"' in catalog_text
     assert '"Section": "WD"' in catalog_text
     assert '"Section": "FSD"' in catalog_text
@@ -2181,6 +2277,17 @@ def main() -> int:
     assert "function Get-CachedTargetInventory" in target_discovery_module
     assert "function Filter-TargetInventoryRecords" in target_discovery_module
     assert "function Test-SelectableLinuxFilesystemMount" in target_discovery_module
+    assert "function Show-HostPathBrowser" in target_discovery_module
+    assert "function Get-HostDirectoryListing" in target_discovery_module
+    core_module = (MODULE_ROOT / "Core.ps1").read_text(encoding="utf-8")
+    assert "function Get-VdbenchOpenflagsForOsType" in core_module
+    assert "function Get-LocalHostOsType" in core_module
+    assert "$IsLinux" not in (MODULE_ROOT / "ConfigGeneration.ps1").read_text(encoding="utf-8"), (
+        "Get-LocalHostOsType must not use bare $IsLinux - Windows PowerShell 5.x "
+        "self-test runs under Set-StrictMode and that variable is undefined there"
+    )
+    assert "$IsLinux" not in (MODULE_ROOT / "TargetDiscovery.ps1").read_text(encoding="utf-8")
+    assert '"Key": "fsd.bypassOsCache"' in catalog_text
     assert "/proc|/proc/*" in target_discovery_module, (
         "Linux remote discovery must filter pseudo mount points like /proc from findmnt"
     )
@@ -2413,6 +2520,10 @@ def main() -> int:
         "Show-SlaveTargetPicker must refuse Save selection when no Use checkbox is "
         "checked, instead of silently saving an empty Targets summary"
     )
+    assert 'New-Button "Explore"' in ui_slave_module
+    assert "Show-HostPathBrowser" in ui_slave_module
+    assert 'New-Button "Explore"' in ui_tabs_module
+    assert "local-host-explore" in ui_tabs_module
     assert "vdbench creates test files at run time" in ui_tabs_module.lower()
     assert 'Get-PropertyValue $row.Cells["Selected"].Value $false' in ui_tabs_module, (
         "Get-TargetGridRows must read checkbox values via Get-PropertyValue so "
@@ -2429,6 +2540,8 @@ def main() -> int:
     self_test_module = (MODULE_ROOT / "SelfTest.ps1").read_text(encoding="utf-8")
     assert "Use-SelfTestPaths" in self_test_module
     assert "distributed filesystem definition" in self_test_module
+    assert "directory listing parser count" in self_test_module
+    assert "filesystem local openflags" in self_test_module
 
     fake_runner = FAKE_RUNNER_PATH.read_text(encoding="utf-8")
     assert "Fake Vdbench runner" in fake_runner
@@ -2497,6 +2610,7 @@ def main() -> int:
     assert "interval=1" in fs_config
     assert "fwdrate=max" in fs_config
     assert "format=no" in fs_config
+    assert "openflags=directio" in fs_config
 
     fs_distributed = render_config(
         catalog,
@@ -2506,6 +2620,7 @@ def main() -> int:
             {
                 "Name": "test-002",
                 "Host": "10.0.0.12",
+                "OsType": "Linux",
                 "SshAlias": "test-002",
                 "VdbenchPath": "/opt/vdbench",
                 "Targets": [{"Kind": "Filesystem", "Target": "/mnt/test", "Selected": True}],
@@ -2514,6 +2629,7 @@ def main() -> int:
     )
     assert "create_anchors=yes" in fs_distributed
     assert "fsd=fsd_test_002_1,anchor=/mnt/test" in fs_distributed
+    assert "openflags=o_direct" in fs_distributed
     assert "fwd=fwd_test_002_1,fsd=fsd_test_002_1,host=test-002" in fs_distributed
     assert "rd=rd1,fwd=fwd*" in fs_distributed
 

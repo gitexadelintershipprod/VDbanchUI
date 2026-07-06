@@ -16,6 +16,17 @@ function Definition-AppliesToKind {
     return $false
 }
 
+function Add-FsdOpenflagsForOsType {
+    param(
+        [System.Collections.Generic.List[string]]$Parts,
+        [string]$OsType
+    )
+    if (-not (Test-ProfileBypassOsCacheEnabled $script:CurrentProfile)) {
+        return
+    }
+    [void]$Parts.Add(("openflags={0}" -f (Get-VdbenchOpenflagsForOsType $OsType)))
+}
+
 function Add-EnabledParameter {
     param(
         [System.Collections.Generic.List[string]]$Parts,
@@ -44,6 +55,9 @@ function Add-EnabledParameter {
     $name = [string]$Definition.VdbenchName
     if (@("fsd.files", "fsd.shared", "fwd.fileio") -contains $key) {
         [void]$Parts.Add(("{0}={1}" -f $name, $value))
+        return
+    }
+    if (@("fsd.openflags", "fwd.openflags", "fsd.bypassOsCache") -contains $key) {
         return
     }
     if (Get-ProfileParamEnabled $script:CurrentProfile $key) {
@@ -569,6 +583,7 @@ function Build-VdbenchConfig {
                     $parts = New-Object System.Collections.Generic.List[string]
                     [void]$parts.Add(("fsd=fsd_{0}_{1}" -f $safeName, $targetIndex))
                     [void]$parts.Add(("anchor={0}" -f ([string]$target.Target)))
+                    Add-FsdOpenflagsForOsType $parts ([string]$slave.OsType)
                     foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
                         if ($def.Key -eq "fsd.anchor") {
                             continue
@@ -590,6 +605,7 @@ function Build-VdbenchConfig {
                 $parts = New-Object System.Collections.Generic.List[string]
                 [void]$parts.Add(("fsd={0}" -f $name))
                 [void]$parts.Add(("anchor={0}" -f ([string]$target.Target)))
+                Add-FsdOpenflagsForOsType $parts (Get-LocalHostOsType)
                 foreach ($def in Get-DefinitionsForLine "fsd" $testKind) {
                     if ($def.Key -eq "fsd.anchor") {
                         continue
