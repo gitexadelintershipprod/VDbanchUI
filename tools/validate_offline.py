@@ -1182,7 +1182,7 @@ function New-MockSlaveRow {{
 
 $script:StartBackgroundUiWorkCalls = New-Object 'System.Collections.Generic.List[string]'
 function Start-BackgroundUiWork {{
-    param($Owner, [scriptblock]$OnComplete, [hashtable]$Context = @{{}}, [scriptblock]$Work = $null, [string]$CommandName = "")
+    param($Owner, [scriptblock]$OnComplete = $null, [string]$OnCompleteCommandName = "", [hashtable]$Context = @{{}}, [scriptblock]$Work = $null, [string]$CommandName = "")
     $script:StartBackgroundUiWorkCalls.Add($CommandName)
 }}
 function Get-BackgroundUiWorkCallCount {{
@@ -2252,6 +2252,7 @@ def main() -> int:
     assert "function Notify-ProfileTargetContextChanged" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Sync-ProfileEditorTargetContext" in ui_tabs_module
     assert "function Request-ProfileTargetContextSync" in ui_tabs_module
+    assert "[System.Action]" not in ui_tabs_module
     assert "ProfileEditorBanner" in ui_tabs_module
     assert "LogLevel" in settings
     assert "ProfileKindCombo" not in ui_tabs_module
@@ -2371,7 +2372,9 @@ def main() -> int:
         )
     assert "function Invoke-GridBatchUpdate" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     ui_helpers_module = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Invoke-OnUiThread" in ui_helpers_module
     assert "function Start-BackgroundUiWork" in ui_helpers_module
+    assert "OnCompleteCommandName" in ui_helpers_module
     assert "function Initialize-BackgroundRunspace" in ui_helpers_module
     assert "BackgroundUiWorkerJobs" not in ui_helpers_module
     assert "BackgroundUiCompletionQueue" not in ui_helpers_module
@@ -2499,7 +2502,8 @@ def main() -> int:
     assert "-Context $readyContext" in ui_slave_module
     assert 'CommandName "Invoke-SlaveReadinessBackgroundWork"' in ui_slave_module
     assert 'CommandName "Invoke-SlavePingBackgroundWork"' in ui_slave_module
-    assert "param($Result, $ErrorMessage, $Context)" in ui_slave_module
+    assert "function Complete-SlaveReadinessBackgroundWork" in ui_slave_module
+    assert "function Complete-SlavePingBackgroundWork" in ui_slave_module
     assert "$WorkError.Exception.Message" not in ui_slave_module
     assert "$timer.Tag" not in ui_slave_module
     assert "New-TargetListView" in ui_tabs_module
@@ -2535,6 +2539,8 @@ def main() -> int:
     assert "function Invoke-UiSafe" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "SetUnhandledExceptionMode" in core_module
     assert "function Start-VdbenchRunCore" in runner_module_full
+    assert "function Complete-VdbenchProcessExited" in runner_module_full
+    assert "RunFileWriteQueue" in runner_module_full
     assert "Invoke-UiSafe { Start-VdbenchRun }" in ui_tabs_module
     assert "Clear-TargetListViewBulkSyncDeferred" in ui_tabs_module
     assert "DoEvents" not in ui_tabs_module

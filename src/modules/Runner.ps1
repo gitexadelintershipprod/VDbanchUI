@@ -4,6 +4,18 @@ function Queue-RunLog {
 }
 
 function Flush-RunLog {
+    if ($script:RunFileWriteQueue.Count -gt 0) {
+        $fileItem = $null
+        $fileWrites = 0
+        while ($fileWrites -lt 250 -and $script:RunFileWriteQueue.TryDequeue([ref]$fileItem)) {
+            try {
+                [System.IO.File]::AppendAllText([string]$fileItem.Path, [string]$fileItem.Line + [Environment]::NewLine)
+            } catch {
+                Write-AppLog ("Run log file append failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
+            $fileWrites++
+        }
+    }
     if (-not $script:RunLogBox) {
         return
     }
@@ -181,18 +193,37 @@ function Invoke-RunFinishedUiRefresh {
         [string]$RunId,
         [string]$Status
     )
-    if (Get-Command Notify-RunFinished -ErrorAction SilentlyContinue) {
-        if ($null -ne $script:Form -and -not $script:Form.IsDisposed) {
-            $capturedRunId = $RunId
-            $capturedStatus = $Status
-            $action = {
-                Notify-RunFinished -RunId $capturedRunId -Status $capturedStatus
-            }.GetNewClosure()
-            $null = $script:Form.BeginInvoke($action)
-            return
-        }
-        Notify-RunFinished -RunId $RunId -Status $Status
+    Invoke-OnUiThread -HandlerName "Notify-RunFinished" -Arguments @{
+        RunId = $RunId
+        Status = $Status
     }
+}
+
+function Complete-VdbenchProcessExited {
+    param(
+        [int]$ExitCode,
+        [string]$RunId,
+        [string]$StdoutPath
+    )
+    $status = "Failed"
+    if ($script:KillRequested) {
+        $status = "Killed"
+    } elseif ($ExitCode -eq 0) {
+        $status = "Completed"
+    }
+    $script:LogQueue.Enqueue(("Run exited with code {0}" -f $ExitCode))
+    $updates = @{
+        CompletedAt = (Get-Date).ToString("o")
+        Status = $status
+        ExitCode = [string]$ExitCode
+    }
+    $summary = Get-RunSummaryFromFile $StdoutPath
+    foreach ($key in $summary.Keys) {
+        $updates[$key] = $summary[$key]
+    }
+    Set-RunMetadata $RunId $updates
+    Write-AppLog ("Run {0} finished with status {1} (exit {2})" -f $RunId, $status, $ExitCode)
+    Notify-RunFinished -RunId $RunId -Status $status
 }
 
 function Get-RunOutputRoot {
@@ -449,48 +480,33 @@ function Start-VdbenchRunCore {
     $process.add_OutputDataReceived({
         param($sender, $eventArgs)
         if ($eventArgs.Data) {
-            $script:LogQueue.Enqueue($eventArgs.Data)
-            try {
-                [System.IO.File]::AppendAllText($capturedStdoutPath, $eventArgs.Data + [Environment]::NewLine)
-            } catch {
-                Write-AppLog ("Stdout append failed: {0}" -f $_.Exception.Message) "ERROR"
-            }
+            $line = [string]$eventArgs.Data
+            $script:LogQueue.Enqueue($line)
+            $script:RunFileWriteQueue.Enqueue([pscustomobject]@{
+                Path = $capturedStdoutPath
+                Line = $line
+            })
         }
     })
     $process.add_ErrorDataReceived({
         param($sender, $eventArgs)
         if ($eventArgs.Data) {
-            $script:LogQueue.Enqueue("[stderr] " + $eventArgs.Data)
-            try {
-                [System.IO.File]::AppendAllText($capturedStderrPath, $eventArgs.Data + [Environment]::NewLine)
-            } catch {
-                Write-AppLog ("Stderr append failed: {0}" -f $_.Exception.Message) "ERROR"
-            }
+            $line = "[stderr] " + [string]$eventArgs.Data
+            $script:LogQueue.Enqueue($line)
+            $script:RunFileWriteQueue.Enqueue([pscustomobject]@{
+                Path = $capturedStderrPath
+                Line = $line
+            })
         }
     })
     $process.add_Exited({
         param($sender, $eventArgs)
         try {
-            $exitCode = $sender.ExitCode
-            $status = "Failed"
-            if ($script:KillRequested) {
-                $status = "Killed"
-            } elseif ($exitCode -eq 0) {
-                $status = "Completed"
+            Invoke-OnUiThread -HandlerName "Complete-VdbenchProcessExited" -Arguments @{
+                ExitCode = [int]$sender.ExitCode
+                RunId = $capturedRunId
+                StdoutPath = $capturedStdoutPath
             }
-            $script:LogQueue.Enqueue(("Run exited with code {0}" -f $exitCode))
-            $updates = @{
-                CompletedAt = (Get-Date).ToString("o")
-                Status = $status
-                ExitCode = [string]$exitCode
-            }
-            $summary = Get-RunSummaryFromFile $capturedStdoutPath
-            foreach ($key in $summary.Keys) {
-                $updates[$key] = $summary[$key]
-            }
-            Set-RunMetadata $capturedRunId $updates
-            Write-AppLog ("Run {0} finished with status {1} (exit {2})" -f $capturedRunId, $status, $exitCode)
-            Invoke-RunFinishedUiRefresh -RunId $capturedRunId -Status $status
         } catch {
             Write-AppLog ("Run exit handler failed: {0}" -f $_.Exception.Message) "ERROR"
         }

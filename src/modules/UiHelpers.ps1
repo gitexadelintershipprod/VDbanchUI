@@ -11,6 +11,83 @@ function Invoke-UiSafe {
     }
 }
 
+function Initialize-UiThreadWorkTimer {
+    if ($null -ne $script:UiThreadWorkTimer) {
+        return
+    }
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 1
+    $script:UiThreadWorkTimer = $timer
+    $timer.Add_Tick({
+        Invoke-PendingUiThreadWork
+    })
+    $timer.Start()
+}
+
+function Invoke-PendingUiThreadWork {
+    if ($script:UiThreadWorkQueue.Count -eq 0) {
+        return
+    }
+    $processed = 0
+    while ($processed -lt 32) {
+        $item = $null
+        if (-not $script:UiThreadWorkQueue.TryDequeue([ref]$item)) {
+            break
+        }
+        $processed++
+        try {
+            if ($item -is [scriptblock]) {
+                & $item
+            } elseif ($null -ne $item.HandlerName) {
+                $handler = Get-Command $item.HandlerName -ErrorAction Stop
+                $handlerArgs = $item.Arguments
+                if ($null -ne $handlerArgs -and $handlerArgs.Count -gt 0) {
+                    & $handler @handlerArgs
+                } else {
+                    & $handler
+                }
+            }
+        } catch {
+            Write-AppLog ("UI thread work failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        }
+    }
+}
+
+function Invoke-OnUiThread {
+    param(
+        [string]$HandlerName = "",
+        [hashtable]$HandlerArguments = @{},
+        [scriptblock]$Action = $null
+    )
+    $needsMarshal = ($null -ne $script:Form -and -not $script:Form.IsDisposed -and $script:Form.InvokeRequired)
+    if (-not $needsMarshal) {
+        try {
+            if ($null -ne $Action) {
+                & $Action
+            } elseif (-not [string]::IsNullOrWhiteSpace($HandlerName)) {
+                $handler = Get-Command $HandlerName -ErrorAction Stop
+                if ($HandlerArguments.Count -gt 0) {
+                    & $handler @HandlerArguments
+                } else {
+                    & $handler
+                }
+            }
+        } catch {
+            Write-AppLog ("UI thread work failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        }
+        return
+    }
+    if ($null -ne $Action) {
+        $script:UiThreadWorkQueue.Enqueue($Action)
+    } else {
+        $script:UiThreadWorkQueue.Enqueue([pscustomobject]@{
+            HandlerName = $HandlerName
+            Arguments = $HandlerArguments
+        })
+    }
+    Initialize-UiThreadWorkTimer
+}
+
 function New-Label {
     param(
         [string]$Text,
@@ -312,10 +389,19 @@ function Initialize-BackgroundUiPollTimer {
             }
             Write-DebugLog ("Background UI work finished: id={0} error={1}" -f $jobId, [bool]$workErrorMessage)
             try {
-                if ($null -ne $workErrorMessage) {
-                    & $job.OnComplete $null $workErrorMessage $job.Context
-                } else {
-                    & $job.OnComplete $workResult $null $job.Context
+                if (-not [string]::IsNullOrWhiteSpace([string]$job.OnCompleteCommandName)) {
+                    $handler = Get-Command $job.OnCompleteCommandName -ErrorAction Stop
+                    if ($null -ne $workErrorMessage) {
+                        & $handler $null $workErrorMessage $job.Context
+                    } else {
+                        & $handler $workResult $null $job.Context
+                    }
+                } elseif ($null -ne $job.OnComplete) {
+                    if ($null -ne $workErrorMessage) {
+                        & $job.OnComplete $null $workErrorMessage $job.Context
+                    } else {
+                        & $job.OnComplete $workResult $null $job.Context
+                    }
                 }
             } catch {
                 Write-AppLog ("Background UI OnComplete handler failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
@@ -332,13 +418,17 @@ function Initialize-BackgroundUiPollTimer {
 function Start-BackgroundUiWork {
     param(
         $Owner,
-        [scriptblock]$OnComplete,
+        [scriptblock]$OnComplete = $null,
+        [string]$OnCompleteCommandName = "",
         [hashtable]$Context = @{},
         [scriptblock]$Work = $null,
         [string]$CommandName = ""
     )
     if ([string]::IsNullOrWhiteSpace($CommandName) -and $null -eq $Work) {
         throw "Start-BackgroundUiWork requires -Work or -CommandName."
+    }
+    if ([string]::IsNullOrWhiteSpace($OnCompleteCommandName) -and $null -eq $OnComplete) {
+        throw "Start-BackgroundUiWork requires -OnComplete or -OnCompleteCommandName."
     }
     if ($null -eq $Owner) {
         try {
@@ -347,9 +437,20 @@ function Start-BackgroundUiWork {
             } else {
                 $result = & $Work $Context
             }
-            & $OnComplete $result $null $Context
+            if (-not [string]::IsNullOrWhiteSpace($OnCompleteCommandName)) {
+                $handler = Get-Command $OnCompleteCommandName -ErrorAction Stop
+                & $handler $result $null $Context
+            } else {
+                & $OnComplete $result $null $Context
+            }
         } catch {
-            & $OnComplete $null (Get-BackgroundUiErrorMessage $_) $Context
+            $errorMessage = Get-BackgroundUiErrorMessage $_
+            if (-not [string]::IsNullOrWhiteSpace($OnCompleteCommandName)) {
+                $handler = Get-Command $OnCompleteCommandName -ErrorAction Stop
+                & $handler $null $errorMessage $Context
+            } else {
+                & $OnComplete $null $errorMessage $Context
+            }
         }
         return
     }
@@ -374,6 +475,7 @@ function Start-BackgroundUiWork {
         PowerShellInstance = $ps
         Async = $async
         OnComplete = $OnComplete
+        OnCompleteCommandName = $OnCompleteCommandName
         Context = $Context
     }
 }
