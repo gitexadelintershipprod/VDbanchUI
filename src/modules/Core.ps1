@@ -455,6 +455,13 @@ public static class ProcessEventBridge {
     private static string _stderrPath;
     private static string _runId;
 
+    public static readonly DataReceivedEventHandler StdoutHandler =
+        new DataReceivedEventHandler(OnStdout);
+    public static readonly DataReceivedEventHandler StderrHandler =
+        new DataReceivedEventHandler(OnStderr);
+    public static readonly EventHandler ExitedHandler =
+        new EventHandler(OnExited);
+
     public static void Initialize(
         ConcurrentQueue<string> logQueue,
         ConcurrentQueue<object> fileWriteQueue,
@@ -528,6 +535,17 @@ public static class ProcessEventBridge {
     )
     $script:ProcessEventBridgeReady = $true
     Write-DebugLog "Process event bridge initialized"
+}
+
+function Register-ProcessEventBridgeHandlers {
+    param([System.Diagnostics.Process]$Process)
+    if ($null -eq $Process) {
+        throw "Register-ProcessEventBridgeHandlers requires a Process instance."
+    }
+    Initialize-ProcessEventBridge
+    $Process.add_OutputDataReceived([VdbenchUi.ProcessEventBridge]::StdoutHandler)
+    $Process.add_ErrorDataReceived([VdbenchUi.ProcessEventBridge]::StderrHandler)
+    $Process.add_Exited([VdbenchUi.ProcessEventBridge]::ExitedHandler)
 }
 
 function Register-AppExceptionLogging {
