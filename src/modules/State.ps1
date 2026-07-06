@@ -265,6 +265,14 @@ function Notify-ProfileTargetContextChanged {
         }
         return
     }
+    if (Get-Command Request-ProfileTargetContextSync -ErrorAction SilentlyContinue) {
+        Request-ProfileTargetContextSync -Source $Source
+        return
+    }
+    if (Get-Command Sync-ProfileEditorTargetContext -ErrorAction SilentlyContinue) {
+        Sync-ProfileEditorTargetContext -ChangeSource $Source
+        return
+    }
     if (Get-Command Refresh-ProfileEditor -ErrorAction SilentlyContinue) {
         Refresh-ProfileEditor -ChangeSource $Source
     }

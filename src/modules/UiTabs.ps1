@@ -236,12 +236,16 @@ function Register-TargetSelectionGridHandlers {
     })
     $Grid.Add_CellValueChanged({
         param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -ge 0) {
-            $extra = $null
-            if ($null -ne $sender.Tag) {
-                $extra = $sender.Tag.TargetSelectionOnRowChanged
+        try {
+            if ($eventArgs.RowIndex -ge 0) {
+                $extra = $null
+                if ($null -ne $sender.Tag) {
+                    $extra = $sender.Tag.TargetSelectionOnRowChanged
+                }
+                Invoke-TargetGridRowChanged -Grid $sender -Row $sender.Rows[$eventArgs.RowIndex] -Extra $extra
             }
-            Invoke-TargetGridRowChanged -Grid $sender -Row $sender.Rows[$eventArgs.RowIndex] -Extra $extra
+        } catch {
+            Write-AppLog ("Target grid CellValueChanged failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
         }
     })
     $Grid.Add_CellContentClick({
@@ -711,9 +715,7 @@ function Capture-LocalHostTargets {
 
 function Apply-LocalHostTargetSelections {
     Capture-LocalHostTargets
-    Refresh-ConfigPreview
-    Refresh-RunTabSummary
-    Notify-ProfileTargetContextChanged "local-host-save"
+    Request-ProfileTargetContextSync "local-host-save"
     Show-Info "Local target selections saved."
 }
 
@@ -815,9 +817,7 @@ function Build-LocalHostTab {
                 $script:RefreshingLocalTargets = $false
             }
             Capture-LocalHostTargets
-            Refresh-ConfigPreview
-            Refresh-RunTabSummary
-            Notify-ProfileTargetContextChanged "local-host-explore"
+            Request-ProfileTargetContextSync "local-host-explore"
         } catch {
             Show-Warning ("Explore failed: " + $_.Exception.Message)
         }
@@ -849,10 +849,12 @@ function Build-LocalHostTab {
         if ($script:RefreshingLocalTargets) {
             return
         }
-        Capture-LocalHostTargets
-        Refresh-ConfigPreview
-        Refresh-RunTabSummary
-        Notify-ProfileTargetContextChanged "local-host-grid"
+        try {
+            Capture-LocalHostTargets
+            Request-ProfileTargetContextSync "local-host-grid"
+        } catch {
+            Write-AppLog ("Local host target selection failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        }
     }
     $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
     Refresh-LocalHostTab
@@ -1090,6 +1092,85 @@ function Capture-ProfileEditor {
     } else {
         Sync-CommonProfileParameters $script:CurrentProfile
     }
+}
+
+function Test-RunMonitorTabSelected {
+    if ($null -eq $script:MainTabControl) {
+        return $false
+    }
+    $selected = $script:MainTabControl.SelectedTab
+    if ($null -eq $selected) {
+        return $false
+    }
+    return (Get-MainTabFullTitle $selected) -eq "Run Monitor"
+}
+
+function Initialize-ProfileTargetContextDebounceTimer {
+    if ($null -ne $script:ProfileTargetContextDebounceTimer) {
+        return
+    }
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 150
+    $script:ProfileTargetContextDebounceTimer = $timer
+    $timer.Add_Tick({
+        try {
+            $script:ProfileTargetContextDebounceTimer.Stop()
+            $source = [string]$script:ProfileTargetContextDebounceSource
+            $script:ProfileTargetContextDebounceSource = ""
+            Sync-ProfileEditorTargetContext -ChangeSource $source
+        } catch {
+            Write-AppLog ("Profile target context debounce failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
+        }
+    })
+}
+
+function Request-ProfileTargetContextSync {
+    param([string]$Source = "unknown")
+    if (-not [string]::IsNullOrWhiteSpace($Source)) {
+        $script:ProfileTargetContextDebounceSource = $Source
+    }
+    Initialize-ProfileTargetContextDebounceTimer
+    $script:ProfileTargetContextDebounceTimer.Stop()
+    $script:ProfileTargetContextDebounceTimer.Start()
+}
+
+function Sync-ProfileEditorTargetContext {
+    param([string]$ChangeSource = "target-context")
+    if ($script:RefreshingProfileEditor) {
+        $script:ProfileEditorRefreshPending = $true
+        if (-not [string]::IsNullOrWhiteSpace($ChangeSource)) {
+            $script:ProfileEditorRefreshPendingSource = $ChangeSource
+        }
+        return
+    }
+
+    $context = Get-ProfileEditorContext
+    $newLocked = [bool]$context.Locked
+    $newTestKind = [string]$context.TestKind
+    $oldLocked = [bool]$script:ProfileEditorLocked
+    $oldTestKind = [string]$script:ProfileEditorLastTestKind
+    $needsFullRefresh = ($newLocked -ne $oldLocked) -or ($newTestKind -ne $oldTestKind)
+
+    Write-DebugLog ("Sync-ProfileEditorTargetContext: source={0}; fullRefresh={1}; locked={2}->{3}; testKind={4}->{5}" -f $ChangeSource, $needsFullRefresh, $oldLocked, $newLocked, $oldTestKind, $newTestKind)
+
+    $script:ProfileEditorLocked = $newLocked
+    $script:ProfileEditorTestKind = $newTestKind
+    if (-not [string]::IsNullOrWhiteSpace($newTestKind)) {
+        $script:ProfileEditorLastTestKind = $newTestKind
+    }
+
+    if ($needsFullRefresh -and (Test-ProfileTabSelected)) {
+        Refresh-ProfileEditor -ChangeSource $ChangeSource
+        return
+    }
+
+    if (Test-ProfileTabSelected) {
+        Set-ProfileToolbarLockState $newLocked
+        Set-ProfileEditorBanner $newLocked ([string]$context.Message)
+    }
+
+    Refresh-ConfigPreview
+    Update-RunModeIndicator
 }
 
 function Refresh-ProfileEditor {
@@ -1700,10 +1781,10 @@ function Build-MainForm {
     $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 82 5 230 24
     $script:RunModeCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $script:RunModeCombo.Add_SelectedIndexChanged({
-        Sync-RunModeToSettings
-        Update-RunModeIndicator
-        Refresh-ConfigPreview
-        Notify-ProfileTargetContextChanged "run-mode"
+        Invoke-UiSafe {
+            Sync-RunModeToSettings
+            Request-ProfileTargetContextSync "run-mode"
+        } "Run mode change"
     })
     $header.Controls.Add($script:RunModeCombo)
     $script:RunModeIndicator = New-Label "Profile: (none)  |  Test kind: (pending targets)" 322 8 900 20

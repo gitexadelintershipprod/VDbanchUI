@@ -639,7 +639,6 @@ function Build-SlaveGrid {
                 $row.Cells["Enabled"].Value = $false
             } else {
                 Capture-SlaveGrid
-                Refresh-ConfigPreview
                 Notify-ProfileTargetContextChanged "slave-enabled"
             }
             return
@@ -958,7 +957,6 @@ function Browse-SlaveTargetsForRow {
                 $Row.Cells["Enabled"].Value = $true
             }
             Capture-SlaveGrid
-            Refresh-ConfigPreview
             Notify-ProfileTargetContextChanged "slave-target-picker"
         }
     } catch {
