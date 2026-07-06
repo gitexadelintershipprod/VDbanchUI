@@ -258,6 +258,13 @@ function Test-ProfileEditorLocked {
 function Notify-ProfileTargetContextChanged {
     param([string]$Source = "unknown")
     Write-DebugLog ("Profile target context changed: source={0}" -f $Source)
+    if ($script:RefreshingProfileEditor) {
+        $script:ProfileEditorRefreshPending = $true
+        if (-not [string]::IsNullOrWhiteSpace($Source)) {
+            $script:ProfileEditorRefreshPendingSource = $Source
+        }
+        return
+    }
     if (Get-Command Refresh-ProfileEditor -ErrorAction SilentlyContinue) {
         Refresh-ProfileEditor -ChangeSource $Source
     }
