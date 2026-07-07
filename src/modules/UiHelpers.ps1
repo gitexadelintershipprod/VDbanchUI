@@ -391,7 +391,7 @@ function Set-ToolbarButtonSize {
     $textSize = [System.Windows.Forms.TextRenderer]::MeasureText(
         $Button.Text,
         $font,
-        [System.Drawing.Size]::new([int]::Max($MinWidth, 320), 0),
+        [System.Drawing.Size]::new([Math]::Max($MinWidth, 320), 0),
         [System.Windows.Forms.TextFormatFlags]::SingleLine
     )
     $padH = [int][Math]::Max(24, [Math]::Round(18 * $scale))
