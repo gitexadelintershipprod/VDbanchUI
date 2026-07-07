@@ -73,6 +73,7 @@ $script:LocalHostTargetGrid = $null
 $script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
 $script:MainFormLayout = $null
+$script:MainHeaderLayout = $null
 $script:UiFont = $null
 $script:UiTabFont = $null
 $script:UiMonoFont = $null

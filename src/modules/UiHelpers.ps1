@@ -197,6 +197,53 @@ function Get-UiScaleFactor {
     }
 }
 
+function Get-DataGridRowHeight {
+    param(
+        [System.Windows.Forms.Control]$Control = $null,
+        [int]$BaseHeight = 32,
+        [switch]$WithButtons
+    )
+    $scale = 1.0
+    if ($Control) {
+        $scale = Get-UiScaleFactor $Control
+    }
+    $base = if ($WithButtons) { [Math]::Max($BaseHeight, 40) } else { $BaseHeight }
+    return [int][Math]::Max($base, [Math]::Round($base * $scale))
+}
+
+function Apply-DataGridResponsiveLayout {
+    param(
+        [System.Windows.Forms.DataGridView]$Grid,
+        [switch]$WithButtons
+    )
+    if ($null -eq $Grid) {
+        return
+    }
+    $scale = Get-UiScaleFactor $Grid
+    $rowHeight = Get-DataGridRowHeight -Control $Grid -WithButtons:([bool]$WithButtons)
+    $headerHeight = [int][Math]::Max(32, [Math]::Round(30 * $scale))
+    $pad = [int][Math]::Max(3, [Math]::Round(4 * $scale))
+    $padding = New-Object System.Windows.Forms.Padding -ArgumentList $pad, $pad, $pad, $pad
+    $gridFont = if ($script:UiFont) { $script:UiFont } else { $Grid.Font }
+
+    $Grid.Font = $gridFont
+    $Grid.RowTemplate.Height = $rowHeight
+    $Grid.ColumnHeadersHeight = $headerHeight
+    $Grid.AutoSizeRowsMode = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::None
+    $Grid.DefaultCellStyle.Padding = $padding
+    $Grid.DefaultCellStyle.Alignment = [System.Windows.Forms.DataGridViewContentAlignment]::MiddleLeft
+    $Grid.ColumnHeadersDefaultCellStyle.Font = $gridFont
+    $Grid.ColumnHeadersDefaultCellStyle.Padding = $padding
+    $Grid.ColumnHeadersDefaultCellStyle.Alignment = [System.Windows.Forms.DataGridViewContentAlignment]::MiddleCenter
+
+    foreach ($row in @($Grid.Rows)) {
+        if (-not $row.IsNewRow) {
+            $row.Height = $rowHeight
+        }
+    }
+    $Grid.Invalidate()
+}
+
 function Apply-MainFormResponsiveLayout {
     param([System.Windows.Forms.Form]$Form)
     if ($null -eq $Form) {
@@ -247,6 +294,11 @@ function Apply-MainFormResponsiveLayout {
         $script:RunModeCombo.Height = $comboHeight
     }
 
+    if ($script:MainHeaderLayout) {
+        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(100, [Math]::Round(98 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(300, [Math]::Round(300 * $scale))
+    }
+
     if ($script:MasterSlaveToolbarLayout) {
         $toolbarHeight = [int][Math]::Max(76, [Math]::Round(76 * $scale))
         $script:MasterSlaveToolbarLayout.RowStyles[0].Height = [single]$toolbarHeight
@@ -269,6 +321,10 @@ function Apply-MainFormResponsiveLayout {
             Set-FlowToolbarControlHeight $script:ProfileNameBox
         }
     }
+
+    Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
+    Apply-DataGridResponsiveLayout $script:LocalHostTargetGrid
+    Apply-DataGridResponsiveLayout $script:ReportsGrid
 
     Update-FlowToolbarButtonSizes $Form
 }
