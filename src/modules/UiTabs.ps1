@@ -681,39 +681,14 @@ function Refresh-LocalHostTab {
     Update-LocalHostTargetPreview -ForceInventory:$ForceInventory
 }
 
-function Format-LocalHostTargetDisplay {
-    param(
-        [object]$Target
-    )
-    $kind = [string](Get-PropertyValue $Target "Kind" "")
-    $targetPath = [string](Get-PropertyValue $Target "Target" "")
-    $description = [string](Get-PropertyValue $Target "Description" "")
-    if ([string]::IsNullOrWhiteSpace($description)) {
-        return ("{0}: {1}" -f $kind, $targetPath)
-    }
-    return ("{0}: {1} - {2}" -f $kind, $targetPath, $description)
-}
-
 function Update-LocalHostTargetPreview {
     param([switch]$ForceInventory)
-    if ($null -eq $script:LocalHostDiskCombo -or $null -eq $script:LocalHostTargetPreview) {
+    if ($null -eq $script:LocalHostTargetPreview) {
         return
     }
     try {
         $inventory = @(Get-LocalTargetInventory -Force:$ForceInventory)
         $merged = @(Merge-TargetSelections $inventory @(Get-LocalHostTargetStore))
-        $script:LocalHostDiskCombo.BeginUpdate()
-        try {
-            $script:LocalHostDiskCombo.Items.Clear()
-            foreach ($item in $merged) {
-                [void]$script:LocalHostDiskCombo.Items.Add((Format-LocalHostTargetDisplay $item))
-            }
-            if ($script:LocalHostDiskCombo.Items.Count -gt 0) {
-                $script:LocalHostDiskCombo.SelectedIndex = 0
-            }
-        } finally {
-            $script:LocalHostDiskCombo.EndUpdate()
-        }
         Invoke-GridBatchUpdate $script:LocalHostTargetPreview {
             $script:LocalHostTargetPreview.Rows.Clear()
             foreach ($item in @(Normalize-TargetEntries $merged)) {
@@ -728,7 +703,6 @@ function Update-LocalHostTargetPreview {
         }
     } catch {
         $message = "Disk discovery failed: " + $_.Exception.Message
-        $script:LocalHostDiskCombo.Items.Clear()
         Invoke-GridBatchUpdate $script:LocalHostTargetPreview {
             $script:LocalHostTargetPreview.Rows.Clear()
             $idx = $script:LocalHostTargetPreview.Rows.Add()
@@ -830,7 +804,7 @@ function Build-LocalHostTab {
     })
     Add-FlowToolbarItem $toolbar $validateButton
 
-    $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the grid after Browse, then Save on the Profile tab if needed." 0 0 400 48
+    $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the target list after Browse." 0 0 400 48
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
     $note.AccessibleDescription = "48"
@@ -885,31 +859,6 @@ function Build-LocalHostTab {
     $targetGroup.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 18, 10, 8
     $content.Controls.Add($targetGroup, 0, 1)
 
-    $targetLayout = New-Object System.Windows.Forms.TableLayoutPanel
-    $targetLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $targetLayout.RowCount = 2
-    $targetLayout.ColumnCount = 1
-    $targetLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
-    $targetLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $targetGroup.Controls.Add($targetLayout)
-
-    $script:LocalHostDiskCombo = New-Object System.Windows.Forms.ComboBox
-    $script:LocalHostDiskCombo.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostDiskCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-    $script:LocalHostDiskCombo.IntegralHeight = $false
-    $script:LocalHostDiskCombo.Add_SelectedIndexChanged({
-        if ($null -eq $script:LocalHostTargetPreview) {
-            return
-        }
-        $index = $script:LocalHostDiskCombo.SelectedIndex
-        if ($index -ge 0 -and $index -lt $script:LocalHostTargetPreview.Rows.Count) {
-            $script:LocalHostTargetPreview.ClearSelection()
-            $script:LocalHostTargetPreview.Rows[$index].Selected = $true
-            $script:LocalHostTargetPreview.FirstDisplayedScrollingRowIndex = $index
-        }
-    })
-    $targetLayout.Controls.Add($script:LocalHostDiskCombo, 0, 0)
-
     $script:LocalHostTargetPreview = New-Object System.Windows.Forms.DataGridView
     $script:LocalHostTargetPreview.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:LocalHostTargetPreview.ReadOnly = $true
@@ -922,7 +871,7 @@ function Build-LocalHostTab {
     foreach ($col in @($script:LocalHostTargetPreview.Columns)) {
         $col.ReadOnly = $true
     }
-    $targetLayout.Controls.Add($script:LocalHostTargetPreview, 0, 1)
+    $targetGroup.Controls.Add($script:LocalHostTargetPreview)
 
     Refresh-LocalHostTab
     return $tab
@@ -1426,8 +1375,8 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 82)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 30)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
     $script:ProfileToolbarLayout = $container
@@ -1453,17 +1402,19 @@ function Build-ProfileTab {
     $toolbar.Controls.Add($script:ProfileNameBox)
     $toolbar.SetFlowBreak($script:ProfileNameBox, $true)
 
-    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 0 0 400 30
+    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 0 0 400 48
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
+    $note.AccessibleDescription = "48"
+    $note.ForeColor = [System.Drawing.Color]::DimGray
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
 
-    $script:ProfileEditorBanner = New-Label "Select a target to edit profile parameters." 10 4 1040 20
+    $script:ProfileEditorBanner = New-Label "Select a target to edit profile parameters." 10 4 1040 36
     $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
     $script:ProfileEditorBanner.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:ProfileEditorBanner.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $script:ProfileEditorBanner.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 8, 0
+    $script:ProfileEditorBanner.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 4, 8, 4
     $container.Controls.Add($script:ProfileEditorBanner, 0, 1)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl

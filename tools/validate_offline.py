@@ -520,7 +520,6 @@ $script:LocalHostComputerLabel = $null
 $script:LocalHostOsLabel = $null
 $script:LocalHostRunModeLabel = $null
 $script:LocalHostPathsLabel = $null
-$script:LocalHostDiskCombo = $null
 $script:LocalHostTargetPreview = $null
 $script:LocalHostContentLayout = $null
 $script:RefreshingLocalTargets = $false
@@ -2639,6 +2638,10 @@ def main() -> int:
     assert 'New-Button "Browse"' in ui_tabs_module
     assert "function Browse-LocalHostTargets" in ui_tabs_module
     assert "function Update-LocalHostTargetPreview" in ui_tabs_module
+    assert "LocalHostDiskCombo" not in ui_tabs_module
+    assert "HorizontalScroll.Enabled = $false" in ui_helpers_module
+    assert "LocalHostTargetPreview -HeaderBase 46" in ui_helpers_module
+    assert "ProfileToolbarLayout.RowStyles[1].Height" in ui_helpers_module
     assert "function New-ProfileDropdown" in ui_helpers_module
     assert "function Get-ProfileEditorControlValue" in ui_helpers_module
     assert "New-ProfileDropdown $items $displayValue" in ui_tabs_module
