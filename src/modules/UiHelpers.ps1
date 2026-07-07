@@ -495,7 +495,7 @@ function Update-FlowToolbarResponsiveWidths {
         if ($role -eq "flow-toolbar-wrap") {
             $ctrl.Width = $available
             $font = if ($ctrl.Font) { $ctrl.Font } else { [System.Drawing.SystemFonts]::DefaultFont }
-            $proposedSize = New-Object System.Drawing.Size -ArgumentList $available, [int]::MaxValue
+            $proposedSize = [System.Drawing.Size]::new($available, 10000)
             $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak
             $textSize = [System.Windows.Forms.TextRenderer]::MeasureText($ctrl.Text, $font, $proposedSize, $flags)
             $minHeight = 40
