@@ -75,7 +75,6 @@ $script:LocalHostComputerLabel = $null
 $script:LocalHostOsLabel = $null
 $script:LocalHostRunModeLabel = $null
 $script:LocalHostPathsLabel = $null
-$script:LocalHostDiskCombo = $null
 $script:LocalHostTargetPreview = $null
 $script:LocalHostContentLayout = $null
 $script:RefreshingLocalTargets = $false

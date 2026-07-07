@@ -385,9 +385,9 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:ProfileToolbarLayout) {
-        $profileToolbarHeight = [int][Math]::Max(82, [Math]::Round(82 * $scale))
+        $profileToolbarHeight = [int][Math]::Max(100, [Math]::Round(100 * $scale))
         $script:ProfileToolbarLayout.RowStyles[0].Height = [single]$profileToolbarHeight
-        $profileBannerHeight = [int][Math]::Max(30, [Math]::Round(30 * $scale))
+        $profileBannerHeight = [int][Math]::Max(44, [Math]::Round(44 * $scale))
         $script:ProfileToolbarLayout.RowStyles[1].Height = [single]$profileBannerHeight
     }
 
@@ -425,7 +425,7 @@ function Apply-MainFormResponsiveLayout {
 
     Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
     Apply-DataGridResponsiveLayout $script:ReportsGrid -HeaderBase 46
-    Apply-DataGridResponsiveLayout $script:LocalHostTargetPreview
+    Apply-DataGridResponsiveLayout $script:LocalHostTargetPreview -HeaderBase 46
 
     Update-FlowToolbarButtonSizes $Form
 }
@@ -725,6 +725,8 @@ function New-FlowToolbar {
     $toolbar.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
     $toolbar.WrapContents = $true
     $toolbar.AutoScroll = $true
+    $toolbar.HorizontalScroll.Enabled = $false
+    $toolbar.HorizontalScroll.Visible = $false
     $toolbar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6, 5, 6, 5
     return $toolbar
 }
