@@ -72,7 +72,7 @@ function Build-SettingsTab {
 
     $requirePreview = New-Object System.Windows.Forms.CheckBox
     $requirePreview.Text = "Require preview confirmation before run"
-    $requirePreview.Checked = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $true)
+    $requirePreview.Checked = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $false)
     $requirePreview.Location = New-Object System.Drawing.Point -ArgumentList 210, $y
     $requirePreview.Size = New-Object System.Drawing.Size -ArgumentList 300, 24
     $panel.Controls.Add($requirePreview)
