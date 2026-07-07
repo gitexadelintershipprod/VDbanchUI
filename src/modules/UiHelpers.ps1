@@ -286,14 +286,15 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:MainFormLayout) {
-        $headerHeight = [int][Math]::Max(52, [Math]::Round(52 * $scale))
+        $headerHeight = [int][Math]::Max(60, [Math]::Round(60 * $scale))
         $script:MainFormLayout.RowStyles[0].Height = [single]$headerHeight
     }
 
     if ($script:RunModeCombo) {
-        $comboHeight = [int][Math]::Max(26, [Math]::Round(26 * $scale))
+        $comboHeight = [int][Math]::Max(30, [Math]::Round(30 * $scale))
         $script:RunModeCombo.Height = $comboHeight
         $script:RunModeCombo.Font = $script:UiFont
+        $script:RunModeCombo.IntegralHeight = $false
         $longestText = 0
         foreach ($item in @($script:RunModeCombo.Items)) {
             $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText([string]$item, $script:UiFont).Width
@@ -336,7 +337,7 @@ function Apply-MainFormResponsiveLayout {
     foreach ($layoutInfo in @(
             @{ Layout = $script:PreviewToolbarLayout; Height = 52 },
             @{ Layout = $script:ReportsToolbarLayout; Height = 52 },
-            @{ Layout = $script:LocalHostToolbarLayout; Height = 112 }
+            @{ Layout = $script:LocalHostToolbarLayout; Height = 64 }
         )) {
         if ($layoutInfo.Layout) {
             $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
@@ -344,7 +345,6 @@ function Apply-MainFormResponsiveLayout {
     }
 
     Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
-    Apply-DataGridResponsiveLayout $script:LocalHostTargetGrid
     Apply-DataGridResponsiveLayout $script:ReportsGrid
 
     Update-FlowToolbarButtonSizes $Form
@@ -380,20 +380,27 @@ function Set-ToolbarButtonSize {
     if ($null -eq $Button) {
         return
     }
-    $font = $Button.Font
-    if ($null -eq $font) {
-        $font = [System.Drawing.SystemFonts]::DefaultFont
-    }
     $scale = 1.0
     if ($Button.TopLevelControl) {
         $scale = Get-UiScaleFactor $Button.TopLevelControl
+    } elseif ($script:Form) {
+        $scale = Get-UiScaleFactor $script:Form
     }
-    $height = [int][Math]::Max($BaseHeight, [Math]::Round($BaseHeight * $scale))
-    $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText($Button.Text, $font).Width
-    $width = [int][Math]::Max($MinWidth, $textWidth + 24)
+    $font = if ($script:UiFont) { $script:UiFont } elseif ($Button.Font) { $Button.Font } else { [System.Drawing.SystemFonts]::DefaultFont }
+    $Button.Font = $font
+    $textSize = [System.Windows.Forms.TextRenderer]::MeasureText(
+        $Button.Text,
+        $font,
+        [System.Drawing.Size]::new([int]::Max($MinWidth, 320), 0),
+        [System.Windows.Forms.TextFormatFlags]::SingleLine
+    )
+    $padH = [int][Math]::Max(24, [Math]::Round(18 * $scale))
+    $padV = [int][Math]::Max(12, [Math]::Round(10 * $scale))
+    $width = [int][Math]::Max($MinWidth, $textSize.Width + $padH)
+    $height = [int][Math]::Max([Math]::Max($BaseHeight, [Math]::Round($BaseHeight * $scale)), $textSize.Height + $padV)
     $Button.Size = New-Object System.Drawing.Size -ArgumentList $width, $height
     if ($Button.Margin -eq [System.Windows.Forms.Padding]::Empty) {
-        $Button.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 2, 8, 2
+        $Button.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 3, 8, 3
     }
 }
 
@@ -548,6 +555,25 @@ function Initialize-ResponsiveChildForm {
         $Form.Size = New-Object System.Drawing.Size -ArgumentList ([int][Math]::Round($BaseWidth * $scale)), ([int][Math]::Round($BaseHeight * $scale))
     }
     return $scale
+}
+
+function Apply-ResponsiveDialogControlFonts {
+    param([System.Windows.Forms.Control]$Root)
+    if ($null -eq $Root) {
+        return
+    }
+    $font = Get-ScaledUiFont -Control $Root
+    if ($Root -is [System.Windows.Forms.Form]) {
+        $Root.Font = $font
+    }
+    foreach ($child in @($Root.Controls)) {
+        if ($child -is [System.Windows.Forms.Button] -or $child -is [System.Windows.Forms.Label] -or $child -is [System.Windows.Forms.TextBox]) {
+            $child.Font = $font
+        }
+        if ($child.Controls.Count -gt 0) {
+            Apply-ResponsiveDialogControlFonts $child
+        }
+    }
 }
 
 function New-ResponsiveDialogButtonPanel {

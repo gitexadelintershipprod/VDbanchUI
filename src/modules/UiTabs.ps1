@@ -651,9 +651,7 @@ function Refresh-LocalHostTab {
         return
     }
     Capture-Settings
-    if (-not $script:RefreshingLocalTargets) {
-        Capture-LocalHostTargets
-    }
+    Capture-LocalHostTargets
     $computer = [string]$env:COMPUTERNAME
     if ([string]::IsNullOrWhiteSpace($computer)) {
         $computer = "localhost"
@@ -685,54 +683,39 @@ function Refresh-LocalHostTab {
         [void]$lines.Add(("{0,-16} {1,-55} Exists={2}" -f $item.Name, $item.Path, $exists))
     }
     [void]$lines.Add("")
-    [void]$lines.Add("Select one or more local raw/file or filesystem targets below.")
+    [void]$lines.Add("Click Browse to pick local targets (same dialog as Slaves -> Browse).")
     [void]$lines.Add("Selections are stored in localhost.json and used by the Run tab.")
+    [void]$lines.Add("")
+    $selected = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore))
+    if ($selected.Count -eq 0) {
+        [void]$lines.Add("Selected targets: (none)")
+    } else {
+        [void]$lines.Add(("Selected targets ({0}):" -f $selected.Count))
+        foreach ($target in $selected) {
+            [void]$lines.Add(("  [{0}] {1}" -f [string](Get-PropertyValue $target "Kind" ""), [string](Get-PropertyValue $target "Target" "")))
+        }
+    }
     $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
-
-    if ($null -eq $script:LocalHostTargetGrid) {
-        return
-    }
-    try {
-        $existing = @(Get-LocalHostTargetStore)
-        $targets = @(Merge-TargetSelections (Get-LocalTargetInventory -Force:$ForceInventory) $existing)
-        $script:RefreshingLocalTargets = $true
-        try {
-            Set-TargetGridRows $script:LocalHostTargetGrid $targets
-            foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                Update-TargetCreateFileEditability $row
-            }
-        } finally {
-            $script:RefreshingLocalTargets = $false
-        }
-    } catch {
-        Invoke-GridBatchUpdate $script:LocalHostTargetGrid {
-            $script:LocalHostTargetGrid.Rows.Clear()
-            $idx = $script:LocalHostTargetGrid.Rows.Add()
-            $row = $script:LocalHostTargetGrid.Rows[$idx]
-            $row.Cells["Selected"].Value = $false
-            $row.Cells["Kind"].Value = "Error"
-            $row.Cells["Target"].Value = ""
-            $row.Cells["CreateFile"].Value = $false
-            $row.Cells["Description"].Value = $_.Exception.Message
-        }
-    }
 }
 
 function Capture-LocalHostTargets {
-    if ($null -eq $script:LocalHostTargetGrid) {
-        return
-    }
-    if ($script:RefreshingLocalTargets) {
-        return
-    }
-    $script:LocalHostTargets = @(Get-TargetGridRows $script:LocalHostTargetGrid)
     Save-LocalHostTargets
 }
 
-function Apply-LocalHostTargetSelections {
-    Capture-LocalHostTargets
-    Request-ProfileTargetContextSync "local-host-save"
-    Show-Info "Local target selections saved."
+function Browse-LocalHostTargets {
+    Capture-Settings
+    try {
+        $targets = @(Get-LocalTargetInventory -Force)
+        $selected = Show-TargetPicker -Row $null -Inventory $targets -Existing @(Get-LocalHostTargetStore)
+        if ($null -ne $selected) {
+            $script:LocalHostTargets = @(Normalize-TargetEntries $selected)
+            Save-LocalHostTargets
+            Request-ProfileTargetContextSync "local-host-browse"
+            Refresh-LocalHostTab
+        }
+    } catch {
+        Show-Warning ("Target discovery failed: " + $_.Exception.Message)
+    }
 }
 
 function Test-RunModeTabDisabled {
@@ -779,159 +762,27 @@ function Build-LocalHostTab {
 
     $container = New-Object System.Windows.Forms.TableLayoutPanel
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.RowCount = 3
+    $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 112)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 64)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
     $script:LocalHostToolbarLayout = $container
 
     $toolbar = New-FlowToolbar
     Register-FlowToolbarResponsive $toolbar
-    $refreshButton = New-Button "Refresh targets" 10 8 120 28
-    $refreshButton.Add_Click({ Refresh-LocalHostTab -ForceInventory })
-    Add-FlowToolbarItem $toolbar $refreshButton
+    $browseButton = New-Button "Browse" 10 8 90 28
+    $browseButton.Add_Click({ Browse-LocalHostTargets })
+    Add-FlowToolbarItem $toolbar $browseButton
 
-    $applyButton = New-Button "Save selections" 138 8 120 28
-    $applyButton.Add_Click({ Apply-LocalHostTargetSelections })
-    Set-ControlToolTip $applyButton "Persist selected local targets in localhost.json."
-    Add-FlowToolbarItem $toolbar $applyButton
-
-    $validateButton = New-Button "Validate paths" 266 8 110 28
+    $validateButton = New-Button "Validate paths" 108 8 110 28
     $validateButton.Add_Click({
         Validate-SettingsPaths
         Refresh-LocalHostTab
     })
     Add-FlowToolbarItem $toolbar $validateButton
 
-    $newFolderButton = New-Button "New folder" 384 8 95 28
-    $newFolderButton.Add_Click({
-        try {
-            $path = Prompt-HostFolderPath
-            if ([string]::IsNullOrWhiteSpace($path)) {
-                return
-            }
-            New-HostFolderPath -Path $path
-            $existing = @(Get-LocalHostTargetStore)
-            $entry = New-TargetSelection -Kind "Filesystem" -Target $path -Description "Created from UI" -Selected $true
-            $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
-            $script:RefreshingLocalTargets = $true
-            try {
-                Set-TargetGridRows $script:LocalHostTargetGrid $merged
-                foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                    Update-TargetCreateFileEditability $row
-                }
-            } finally {
-                $script:RefreshingLocalTargets = $false
-            }
-            Capture-LocalHostTargets
-            Request-ProfileTargetContextSync "local-host-new-folder"
-        } catch {
-            Show-Warning ("Create folder failed: " + $_.Exception.Message)
-        }
-    })
-    Add-FlowToolbarItem $toolbar $newFolderButton
-
-    $addPathButton = New-Button "Add path" 487 8 85 28
-    $addPathButton.Add_Click({
-        $path = Prompt-HostPathEntry
-        if ([string]::IsNullOrWhiteSpace($path)) {
-            return
-        }
-        $kind = if ($path -match '^\\\\\.\\|^/dev/') { "Raw disk" } elseif ($path -match '\.(dat|bin|img)$') { "Test file" } else { "Filesystem" }
-        $existing = @(Get-LocalHostTargetStore)
-        $entry = New-TargetSelection -Kind $kind -Target $path -Description "Manual entry" -Selected $true
-        $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
-        $script:RefreshingLocalTargets = $true
-        try {
-            Set-TargetGridRows $script:LocalHostTargetGrid $merged
-            foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                Update-TargetCreateFileEditability $row
-            }
-        } finally {
-            $script:RefreshingLocalTargets = $false
-        }
-        Capture-LocalHostTargets
-        Request-ProfileTargetContextSync "local-host-add-path"
-    })
-    Add-FlowToolbarItem $toolbar $addPathButton
-
-    $exploreButton = New-Button "Explore" 580 8 90 28
-    $exploreButton.Add_Click({
-        try {
-            $existing = @(Get-LocalHostTargetStore)
-            $initial = ""
-            foreach ($item in $existing) {
-                if ([string](Get-PropertyValue $item "Kind" "") -eq "Filesystem") {
-                    $candidate = [string](Get-PropertyValue $item "Target" "")
-                    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
-                        $initial = $candidate
-                        break
-                    }
-                }
-            }
-            $picked = Show-HostPathBrowser -InitialPath $initial
-            if ($null -eq $picked) {
-                return
-            }
-            $entry = New-TargetSelection -Kind ([string]$picked.Kind) -Target ([string]$picked.Target) -Description ([string]$picked.Description) -Selected $true
-            $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
-            $script:RefreshingLocalTargets = $true
-            try {
-                Set-TargetGridRows $script:LocalHostTargetGrid $merged
-                foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                    Update-TargetCreateFileEditability $row
-                }
-            } finally {
-                $script:RefreshingLocalTargets = $false
-            }
-            Capture-LocalHostTargets
-            Request-ProfileTargetContextSync "local-host-explore"
-        } catch {
-            Show-Warning ("Explore failed: " + $_.Exception.Message)
-        }
-    })
-    Add-FlowToolbarItem $toolbar $exploreButton
-
-    $selectAllButton = New-Button "Select all" 678 8 80 28
-    $selectAllButton.Add_Click({
-        $script:RefreshingLocalTargets = $true
-        try {
-            foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                if ($row.IsNewRow) {
-                    continue
-                }
-                $row.Cells["Selected"].Value = $true
-            }
-        } finally {
-            $script:RefreshingLocalTargets = $false
-        }
-        Capture-LocalHostTargets
-        Request-ProfileTargetContextSync "local-host-select-all"
-    })
-    Add-FlowToolbarItem $toolbar $selectAllButton
-
-    $clearAllButton = New-Button "Clear all" 764 8 80 28
-    $clearAllButton.Add_Click({
-        $script:RefreshingLocalTargets = $true
-        try {
-            foreach ($row in $script:LocalHostTargetGrid.Rows) {
-                if ($row.IsNewRow) {
-                    continue
-                }
-                $row.Cells["Selected"].Value = $false
-            }
-        } finally {
-            $script:RefreshingLocalTargets = $false
-        }
-        Capture-LocalHostTargets
-        Request-ProfileTargetContextSync "local-host-clear-all"
-    })
-    Add-FlowToolbarItem $toolbar $clearAllButton
-    $toolbar.SetFlowBreak($clearAllButton, $true)
-
-    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; New folder / Add path / Explore manage targets. Check Use for each target." 0 0 400 32
+    $note = New-Label "Active when Run mode = Single local run. Click Browse to open the same target picker used on Slaves." 0 0 400 32
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
@@ -945,28 +796,6 @@ function Build-LocalHostTab {
     $script:LocalHostInfoBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:LocalHostInfoBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
     $container.Controls.Add($script:LocalHostInfoBox, 0, 1)
-
-    $script:LocalHostTargetGrid = New-Object System.Windows.Forms.DataGridView
-    $script:LocalHostTargetGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostTargetGrid.AllowUserToAddRows = $false
-    $script:LocalHostTargetGrid.AllowUserToDeleteRows = $false
-    $script:LocalHostTargetGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
-    $script:LocalHostTargetGrid.MultiSelect = $false
-    $script:LocalHostTargetGrid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    Add-TargetSelectionColumns $script:LocalHostTargetGrid
-    Register-TargetSelectionGridHandlers -Grid $script:LocalHostTargetGrid -OnRowChanged {
-        param($Grid, $Row)
-        if ($script:RefreshingLocalTargets) {
-            return
-        }
-        try {
-            Capture-LocalHostTargets
-            Request-ProfileTargetContextSync "local-host-grid"
-        } catch {
-            Write-AppLog ("Local host target selection failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
-        }
-    }
-    $container.Controls.Add($script:LocalHostTargetGrid, 0, 2)
     Refresh-LocalHostTab
     return $tab
 }
@@ -1913,7 +1742,7 @@ function Build-MainForm {
 
     $runModeHost = New-Object System.Windows.Forms.Panel
     $runModeHost.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $runModeHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 2, 0, 2
+    $runModeHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 4
     $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 0 0 228 24
     $script:RunModeCombo.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunModeCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
