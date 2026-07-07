@@ -15,7 +15,7 @@
     ],
     "AppliesTo": "both",
     "Required": true,
-    "Help": "Internal sync key. Edit I/O rate (iorate) on General for raw/block. Filesystem fwdrate is fixed at max.",
+    "Help": "Internal sync key. Edit I/O rate on General for raw/block (fixed at max) or transfer size on WD/FWD.",
     "Example": "max",
     "SortOrder": 1,
     "EditorHidden": true
@@ -93,10 +93,10 @@
     ],
     "AppliesTo": "raw",
     "Required": true,
-    "Help": "Target I/O rate for raw/block runs (rd=,iorate=).",
+    "Help": "Fixed at max for all raw/block profiles.",
     "Example": "max",
-    "SortOrder": 20,
-    "Group": "Run definition (RD)"
+    "SortOrder": 56,
+    "EditorHidden": true
   },
   {
     "Key": "run.elapsed",
@@ -289,6 +289,25 @@
     "Group": "SD layout"
   },
   {
+    "Key": "storage.bypassOsCache",
+    "Section": "SD",
+    "Label": "Bypass OS cache (direct I/O)",
+    "VdbenchName": "bypassOsCache",
+    "Line": "storage",
+    "Type": "dropdown",
+    "Default": "yes",
+    "Options": [
+      "yes",
+      "no"
+    ],
+    "AppliesTo": "raw",
+    "Required": false,
+    "Help": "When enabled, each generated sd= line gets openflags=directio on Windows and openflags=o_direct on Linux slaves.",
+    "Example": "yes",
+    "SortOrder": 70,
+    "Group": "SD layout"
+  },
+  {
     "Key": "storage.openflags",
     "Section": "SD",
     "Label": "Open flags",
@@ -304,10 +323,10 @@
     ],
     "AppliesTo": "raw",
     "Required": false,
-    "Help": "Optional open flags when opening the lun or file.",
+    "Help": "Legacy open flags field. Use Bypass OS cache instead.",
     "Example": "o_direct",
-    "SortOrder": 70,
-    "Group": "SD layout"
+    "SortOrder": 71,
+    "EditorHidden": true
   },
   {
     "Key": "storage.compratio",
@@ -323,7 +342,7 @@
     "Help": "Requested compressibility ratio for generated data.",
     "Example": "2",
     "SortOrder": 80,
-    "Group": "SD data pattern"
+    "Group": "SD advanced"
   },
   {
     "Key": "storage.dedupratio",
@@ -339,7 +358,7 @@
     "Help": "Requested duplicate data ratio for deduplication-aware testing.",
     "Example": "2",
     "SortOrder": 90,
-    "Group": "SD data pattern"
+    "Group": "SD advanced"
   },
   {
     "Key": "storage.dedupunit",
@@ -355,7 +374,7 @@
     "Help": "Granularity for dedup data generation.",
     "Example": "4k",
     "SortOrder": 100,
-    "Group": "SD data pattern"
+    "Group": "SD advanced"
   },
   {
     "Key": "storage.threads",
@@ -368,10 +387,10 @@
     "Options": [],
     "AppliesTo": "raw",
     "Required": false,
-    "Help": "Maximum concurrent outstanding I/O for this SD (sd=,threads=).",
+    "Help": "Fixed off; use workload threads on the WD tab instead.",
     "Example": "8",
     "SortOrder": 110,
-    "Group": "SD tuning"
+    "EditorHidden": true
   },
   {
     "Key": "workload.name",
@@ -444,8 +463,8 @@
     "Required": false,
     "Help": "Read hit percentage for cache testing.",
     "Example": "0",
-    "SortOrder": 40,
-    "Group": "Workload definition (WD)"
+    "SortOrder": 90,
+    "Group": "WD advanced"
   },
   {
     "Key": "workload.whpct",
@@ -460,8 +479,8 @@
     "Required": false,
     "Help": "Write hit percentage for cache testing.",
     "Example": "0",
-    "SortOrder": 50,
-    "Group": "Workload definition (WD)"
+    "SortOrder": 100,
+    "Group": "WD advanced"
   },
   {
     "Key": "workload.skew",
@@ -476,8 +495,8 @@
     "Required": false,
     "Help": "Percentage of total workload assigned to this WD.",
     "Example": "50",
-    "SortOrder": 60,
-    "Group": "Workload definition (WD)"
+    "SortOrder": 80,
+    "Group": "Workload I/O"
   },
   {
     "Key": "workload.stride",
@@ -492,7 +511,7 @@
     "Required": false,
     "Help": "Skip-sequential I/O range (min,max).",
     "Example": "8k,128k",
-    "SortOrder": 70,
+    "SortOrder": 60,
     "Group": "Workload I/O"
   },
   {
@@ -508,7 +527,7 @@
     "Required": false,
     "Help": "Limit seek range within the SD for this workload.",
     "Example": "0,50g",
-    "SortOrder": 80,
+    "SortOrder": 70,
     "Group": "Workload I/O"
   },
   {
@@ -524,7 +543,7 @@
     "Required": false,
     "Help": "Concurrent threads for this workload (wd=,threads=).",
     "Example": "16",
-    "SortOrder": 90,
+    "SortOrder": 50,
     "Group": "Workload I/O"
   },
   {
@@ -549,7 +568,7 @@
     "Required": true,
     "Help": "Data transfer size (wd=,xfersize=).",
     "Example": "4k",
-    "SortOrder": 100,
+    "SortOrder": 40,
     "Group": "Workload I/O"
   },
   {
@@ -566,7 +585,7 @@
     "Help": "I/O priority for this workload.",
     "Example": "0",
     "SortOrder": 110,
-    "Group": "Workload I/O"
+    "Group": "WD advanced"
   },
   {
     "Key": "workload.iorate",
@@ -579,10 +598,10 @@
     "Options": [],
     "AppliesTo": "raw",
     "Required": false,
-    "Help": "Optional per-workload fixed I/O rate override (wd=,iorate=).",
+    "Help": "Fixed off; I/O rate is always max on the run definition.",
     "Example": "1000",
     "SortOrder": 120,
-    "Group": "Workload I/O"
+    "EditorHidden": true
   },
   {
     "Key": "fsd.name",

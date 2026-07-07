@@ -2,6 +2,7 @@
 
 The application creates default JSON profiles on first launch:
 
+- `Default-Raw-Random-Read` — raw/block 4k random read (`rdpct=100`, `seekpct=100`, `iorate=max`)
 - `Default-Filesystem-Random-Read` — filesystem read workload (`format=no`)
 - `Default-Filesystem-Format` — create/populate test files (`format=yes`, default file size `12g`)
 - `Default-Distributed-WP` — acceptance Workload Profile: 100% random, 32k, 70% read / 30% write
@@ -12,7 +13,9 @@ The application creates default JSON profiles on first launch:
 
 Retired built-in profiles (`Default-4K-Random-Read`, `Default-70-30-Random-Mix`) are removed on startup if still present.
 
-Filesystem profiles always use fixed defaults (hidden in the Profile editor): one test file per target (`files=1`), non-shared FSD (`shared=no`), and multi-thread-safe random I/O (`fileio=(random,shared)`). **Bypass OS cache (direct I/O)** is enabled by default (`fsd.bypassOsCache=yes`); each generated `fsd=` line then gets `openflags=directio` on Windows and `openflags=o_direct` on Linux slaves. Opening or saving a profile normalizes these values automatically.
+Filesystem profiles always use fixed defaults (hidden in the Profile editor): one test file per target (`files=1`), non-shared FSD (`shared=no`), and multi-thread-safe random I/O (`fileio=(random,shared)`). **Bypass OS cache (direct I/O)** is enabled by default (`fsd.bypassOsCache=yes`); each generated `fsd=` line then gets `openflags=directio` on Windows and `openflags=o_direct` on Linux slaves.
+
+Raw/block profiles use the same pattern on the SD tab: `storage.bypassOsCache=yes` by default, `run.iorate=max` (hidden), and workload threads on WD (not SD). Opening or saving a profile normalizes these values automatically.
 
 Use **Explore** in the target picker (Master/Slave Browse dialog or Local Host tab) to navigate into folders and pick existing test paths or files — Refresh alone only lists drive roots and mount points.
 

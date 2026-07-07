@@ -27,6 +27,17 @@ function Add-FsdOpenflagsForOsType {
     [void]$Parts.Add(("openflags={0}" -f (Get-VdbenchOpenflagsForOsType $OsType)))
 }
 
+function Add-SdOpenflagsForOsType {
+    param(
+        [System.Collections.Generic.List[string]]$Parts,
+        [string]$OsType
+    )
+    if (-not (Test-ProfileRawBypassOsCacheEnabled $script:CurrentProfile)) {
+        return
+    }
+    [void]$Parts.Add(("openflags={0}" -f (Get-VdbenchOpenflagsForOsType $OsType)))
+}
+
 function Add-EnabledParameter {
     param(
         [System.Collections.Generic.List[string]]$Parts,
@@ -57,7 +68,7 @@ function Add-EnabledParameter {
         [void]$Parts.Add(("{0}={1}" -f $name, $value))
         return
     }
-    if (@("fsd.openflags", "fwd.openflags", "fsd.bypassOsCache") -contains $key) {
+    if (@("fsd.openflags", "fwd.openflags", "fsd.bypassOsCache", "storage.openflags", "storage.bypassOsCache") -contains $key) {
         return
     }
     if (Get-ProfileParamEnabled $script:CurrentProfile $key) {
@@ -391,6 +402,7 @@ function Build-VdbenchConfig {
     $script:CurrentProfile = $profile
 
     Apply-FilesystemProfileFixedDefaults $script:CurrentProfile
+    Apply-RawProfileFixedDefaults $script:CurrentProfile
 
     try {
         $resolved = Resolve-RunTestKind
@@ -516,6 +528,7 @@ function Build-VdbenchConfig {
                         }
                         Add-EnabledParameter $parts $disabled $def "storage"
                     }
+                    Add-SdOpenflagsForOsType $parts ([string]$slave.OsType)
                     [void]$lines.Add(($parts -join ","))
                 }
             }
@@ -537,6 +550,7 @@ function Build-VdbenchConfig {
                     }
                     Add-EnabledParameter $parts $disabled $def "storage"
                 }
+                Add-SdOpenflagsForOsType $parts (Get-LocalHostOsType)
                 [void]$lines.Add(($parts -join ","))
             }
         }

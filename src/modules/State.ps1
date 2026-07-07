@@ -66,6 +66,32 @@ function Ensure-ProfileCatalogKeys {
     }
     Sync-CommonProfileParameters $Profile
     Apply-FilesystemProfileFixedDefaults $Profile
+    Apply-RawProfileFixedDefaults $Profile
+}
+
+function Apply-RawProfileFixedDefaults {
+    param([object]$Profile)
+    if ($null -eq $Profile) {
+        return
+    }
+    Set-ProfileParamEnabled $Profile "storage.threads" $false
+    Set-ProfileParamEnabled $Profile "workload.iorate" $false
+    if ([string]::IsNullOrWhiteSpace((Get-ProfileParamValue $Profile "storage.bypassOsCache" ""))) {
+        Set-ProfileParamValue $Profile "storage.bypassOsCache" "yes"
+        Set-ProfileParamEnabled $Profile "storage.bypassOsCache" $true
+    }
+    if (Get-ProfileParamEnabled $Profile "storage.openflags") {
+        $legacyValue = Get-ProfileParamValue $Profile "storage.openflags" ""
+        if (-not [string]::IsNullOrWhiteSpace($legacyValue) -and $legacyValue -ne "none") {
+            Set-ProfileParamValue $Profile "storage.bypassOsCache" "yes"
+            Set-ProfileParamEnabled $Profile "storage.bypassOsCache" $true
+        }
+    }
+    Set-ProfileParamEnabled $Profile "storage.openflags" $false
+    Set-ProfileParamValue $Profile "run.iorate" "max"
+    Set-ProfileParamEnabled $Profile "run.iorate" $true
+    Set-ProfileParamValue $Profile "common.rate" "max"
+    Set-ProfileParamEnabled $Profile "common.rate" $true
 }
 
 function Apply-FilesystemProfileFixedDefaults {
@@ -99,6 +125,18 @@ function Apply-FilesystemProfileFixedDefaults {
     Set-ProfileParamEnabled $Profile "run.fwdrate" $true
     Set-ProfileParamValue $Profile "common.rate" "max"
     Set-ProfileParamEnabled $Profile "common.rate" $true
+}
+
+function Test-ProfileRawBypassOsCacheEnabled {
+    param([object]$Profile)
+    if ($null -eq $Profile) {
+        return $false
+    }
+    if (-not (Get-ProfileParamEnabled $Profile "storage.bypassOsCache")) {
+        return $false
+    }
+    $value = Get-ProfileParamValue $Profile "storage.bypassOsCache" "yes"
+    return ($value -eq "yes")
 }
 
 function Test-ProfileBypassOsCacheEnabled {
@@ -159,12 +197,15 @@ function Sync-EditorProfileParametersToCommon {
     if ($TestKind -eq "Raw/block") {
         foreach ($pair in @(
                 @("common.threads", "workload.threads"),
-                @("common.xfersize", "workload.xfersize"),
-                @("common.rate", "run.iorate")
+                @("common.xfersize", "workload.xfersize")
             )) {
             Set-ProfileParamValue $Profile $pair[0] (Get-ProfileParamValue $Profile $pair[1] "")
             Set-ProfileParamEnabled $Profile $pair[0] (Get-ProfileParamEnabled $Profile $pair[1])
         }
+        Set-ProfileParamValue $Profile "run.iorate" "max"
+        Set-ProfileParamEnabled $Profile "run.iorate" $true
+        Set-ProfileParamValue $Profile "common.rate" "max"
+        Set-ProfileParamEnabled $Profile "common.rate" $true
     } elseif ($TestKind -eq "Filesystem") {
         foreach ($pair in @(
                 @("common.threads", "fwd.threads"),
@@ -780,6 +821,16 @@ function Ensure-DefaultProfiles {
             Remove-Item -LiteralPath $path -Force
             Write-DebugLog ("Removed retired default profile {0}" -f $fileName)
         }
+    }
+
+    $rawReadPath = Join-Path $script:ProfileRoot "Default-Raw-Random-Read.json"
+    if (-not [System.IO.File]::Exists($rawReadPath)) {
+        $profileObject = New-DefaultProfile "Default-Raw-Random-Read" "Raw/block"
+        Set-ProfileParamValue $profileObject "workload.rdpct" "100"
+        Set-ProfileParamValue $profileObject "workload.seekpct" "100"
+        Set-ProfileParamValue $profileObject "workload.xfersize" "4k"
+        Apply-RawProfileFixedDefaults $profileObject
+        Write-JsonFile $rawReadPath $profileObject
     }
 
     $readPath = Join-Path $script:ProfileRoot "Default-Filesystem-Random-Read.json"

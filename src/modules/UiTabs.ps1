@@ -1316,7 +1316,7 @@ function Refresh-RunProfileList {
         if (-not [string]::IsNullOrWhiteSpace($current)) {
             $script:RunProfileSelector.Text = $current
         } elseif ($script:RunProfileSelector.Items.Count -gt 0) {
-            $preferred = @("Default-Filesystem-Random-Read", "Default-Distributed-WP", "Default-Filesystem-Format")
+            $preferred = @("Default-Raw-Random-Read", "Default-Filesystem-Random-Read", "Default-Distributed-WP", "Default-Filesystem-Format")
             $picked = $null
             foreach ($name in $preferred) {
                 if ($script:RunProfileSelector.Items.Contains($name)) {
