@@ -893,7 +893,7 @@ function Test-ProfileTabSelected {
 function Set-ProfileToolbarLockState {
     param([bool]$Locked)
     $script:ProfileEditorLocked = $Locked
-    foreach ($button in @($script:ProfileNewButton, $script:ProfileSaveButton, $script:ProfilePreviewButton)) {
+    foreach ($button in @($script:ProfileNewButton, $script:ProfileSaveButton)) {
         if ($null -ne $button) {
             $button.Enabled = -not $Locked
         }
@@ -1373,12 +1373,8 @@ function Build-ProfileTab {
     $script:ProfileSaveButton.Add_Click({ Save-CurrentProfile })
     $toolbar.Controls.Add($script:ProfileSaveButton)
 
-    $script:ProfilePreviewButton = New-Button "Preview draft" 201 9 110 27
-    $script:ProfilePreviewButton.Add_Click({ Preview-DraftProfile })
-    $toolbar.Controls.Add($script:ProfilePreviewButton)
-
-    $toolbar.Controls.Add((New-Label "Name" 330 12 50))
-    $script:ProfileNameBox = New-TextBox "" 382 9 360
+    $toolbar.Controls.Add((New-Label "Name" 210 12 50))
+    $script:ProfileNameBox = New-TextBox "" 262 9 360
     $toolbar.Controls.Add($script:ProfileNameBox)
 
     $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 10 38 1040 18
@@ -1455,40 +1451,33 @@ function Build-RunTab {
     $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 140)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar = New-FlowToolbar
+    $toolbar.WrapContents = $false
     $container.Controls.Add($toolbar, 0, 0)
 
-    $startButton = New-Button "Start" 10 10 80 28
+    $startButton = New-Button "Start" 0 0 80 28
     $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
     $toolbar.Controls.Add($startButton)
 
-    $configOnlyButton = New-Button "Config only" 100 10 95 28
-    $configOnlyButton.Add_Click({ New-ConfigOnlyRun })
-    $toolbar.Controls.Add($configOnlyButton)
-
-    $stopButton = New-Button "Stop/Kill" 205 10 90 28
+    $stopButton = New-Button "Stop/Kill" 0 0 90 28
     $stopButton.Add_Click({ Stop-VdbenchRun })
     $toolbar.Controls.Add($stopButton)
 
-    $openButton = New-Button "Open folder" 305 10 100 28
+    $openButton = New-Button "Open folder" 0 0 100 28
     $openButton.Add_Click({ Open-CurrentRunFolder })
     $toolbar.Controls.Add($openButton)
 
-    $script:RunStatusLabel = New-Label "Idle" 425 13 600
-    $toolbar.Controls.Add($script:RunStatusLabel)
+    $profileLabel = New-Label "Run profile" 0 6 70 20
+    $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 6, 0, 0
+    $toolbar.Controls.Add($profileLabel)
 
-    $orchestrator = New-Object System.Windows.Forms.Panel
-    $orchestrator.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $container.Controls.Add($orchestrator, 0, 1)
-
-    $orchestrator.Controls.Add((New-Label "Run profile" 10 10 80))
-    $script:RunProfileSelector = New-ComboBox @() "" 95 8 280
+    $script:RunProfileSelector = New-ComboBox @() "" 0 0 240 24
+    $script:RunProfileSelector.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 0, 0
     $script:RunProfileSelector.Add_SelectedIndexChanged({
         if ($script:SuppressRunProfileSelectorEvents) {
             return
@@ -1499,41 +1488,47 @@ function Build-RunTab {
             Refresh-ConfigPreview
         } "Run profile selection"
     })
-    $orchestrator.Controls.Add($script:RunProfileSelector)
+    $toolbar.Controls.Add($script:RunProfileSelector)
 
-    $reloadButton = New-Button "Reload" 385 7 75 27
+    $reloadButton = New-Button "Reload" 0 0 75 28
     $reloadButton.Add_Click({ Reload-RunProfile })
-    $orchestrator.Controls.Add($reloadButton)
+    $toolbar.Controls.Add($reloadButton)
 
-    $deleteButton = New-Button "Delete" 10 40 75 27
+    $deleteButton = New-Button "Delete" 0 0 75 28
     $deleteButton.Add_Click({ Delete-SelectedProfile })
-    $orchestrator.Controls.Add($deleteButton)
+    $toolbar.Controls.Add($deleteButton)
 
-    $duplicateButton = New-Button "Duplicate" 92 40 85 27
-    $duplicateButton.Add_Click({ Duplicate-RunProfile })
-    $orchestrator.Controls.Add($duplicateButton)
-
-    $importButton = New-Button "Import" 184 40 75 27
-    $importButton.Add_Click({ Import-Profile })
-    $orchestrator.Controls.Add($importButton)
-
-    $exportButton = New-Button "Export" 266 40 75 27
-    $exportButton.Add_Click({ Export-RunProfile })
-    $orchestrator.Controls.Add($exportButton)
-
-    $folderButton = New-Button "Folder" 348 40 75 27
+    $folderButton = New-Button "Folder" 0 0 75 28
     $folderButton.Add_Click({ Open-ProfileFolder })
-    $orchestrator.Controls.Add($folderButton)
+    $toolbar.Controls.Add($folderButton)
 
-    $orchestrator.Controls.Add((New-Label "Run summary" 10 74 90))
+    $script:RunStatusLabel = New-Label "Idle" 0 6 500 20
+    $script:RunStatusLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 16, 6, 0, 0
+    $toolbar.Controls.Add($script:RunStatusLabel)
+
+    $summaryPanel = New-Object System.Windows.Forms.Panel
+    $summaryPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $summaryPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 4, 8, 4
+    $container.Controls.Add($summaryPanel, 0, 1)
+
+    $summaryLayout = New-Object System.Windows.Forms.TableLayoutPanel
+    $summaryLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $summaryLayout.RowCount = 2
+    $summaryLayout.ColumnCount = 1
+    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 22)) | Out-Null
+    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $summaryPanel.Controls.Add($summaryLayout)
+
+    $summaryLayout.Controls.Add((New-Label "Run summary" 0 0 120 20), 0, 0)
+
     $script:RunSummaryBox = New-Object System.Windows.Forms.TextBox
+    $script:RunSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunSummaryBox.Multiline = $true
     $script:RunSummaryBox.ReadOnly = $true
     $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
     $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
-    $script:RunSummaryBox.Location = New-Object System.Drawing.Point -ArgumentList 10, 96
-    $script:RunSummaryBox.Size = New-Object System.Drawing.Size -ArgumentList 1120, 78
-    $orchestrator.Controls.Add($script:RunSummaryBox)
+    $script:RunSummaryBox.WordWrap = $true
+    $summaryLayout.Controls.Add($script:RunSummaryBox, 0, 1)
 
     Refresh-RunProfileList
     Refresh-RunTabSummary
@@ -1710,18 +1705,6 @@ function Build-ReportsTab {
     $openButton = New-Button "Open folder" 100 8 100 28
     $openButton.Add_Click({ Open-SelectedReportFolder })
     $toolbar.Controls.Add($openButton)
-
-    $configButton = New-Button "Show config" 210 8 100 28
-    $configButton.Add_Click({ Show-SelectedRunConfig })
-    $toolbar.Controls.Add($configButton)
-
-    $logButton = New-Button "Show logs" 320 8 90 28
-    $logButton.Add_Click({ Show-SelectedRunLog })
-    $toolbar.Controls.Add($logButton)
-
-    $bundleButton = New-Button "Export ZIP" 420 8 95 28
-    $bundleButton.Add_Click({ Export-SelectedRunBundle })
-    $toolbar.Controls.Add($bundleButton)
 
     $script:ReportsGrid = New-Object System.Windows.Forms.DataGridView
     $script:ReportsGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
