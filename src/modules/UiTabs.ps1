@@ -1454,11 +1454,11 @@ function Build-RunTab {
 
     $startButton = New-Button "Start" 0 0 80 28
     $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
-    $toolbar.Controls.Add($startButton)
+    Add-FlowToolbarItem $toolbar $startButton
 
     $stopButton = New-Button "Stop/Kill" 0 0 90 28
     $stopButton.Add_Click({ Stop-VdbenchRun })
-    $toolbar.Controls.Add($stopButton)
+    Add-FlowToolbarItem $toolbar $stopButton
 
     $profileLabel = New-Label "Run profile" 0 6 70 20
     $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 6, 0, 0
@@ -1480,15 +1480,15 @@ function Build-RunTab {
 
     $reloadButton = New-Button "Set Profiles" 0 0 95 28
     $reloadButton.Add_Click({ Reload-RunProfile })
-    $toolbar.Controls.Add($reloadButton)
+    Add-FlowToolbarItem $toolbar $reloadButton
 
     $deleteButton = New-Button "Delete" 0 0 75 28
     $deleteButton.Add_Click({ Delete-SelectedProfile })
-    $toolbar.Controls.Add($deleteButton)
+    Add-FlowToolbarItem $toolbar $deleteButton
 
     $folderButton = New-Button "Profiles" 0 0 80 28
     $folderButton.Add_Click({ Open-ProfileFolder })
-    $toolbar.Controls.Add($folderButton)
+    Add-FlowToolbarItem $toolbar $folderButton
 
     $script:RunStatusLabel = New-Label "Idle" 0 6 500 20
     $script:RunStatusLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 16, 6, 0, 0
@@ -1745,29 +1745,32 @@ function Build-MainForm {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 2
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 38)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 46)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $form.Controls.Add($layout)
     $script:MainFormLayout = $layout
 
     $header = New-Object System.Windows.Forms.TableLayoutPanel
     $header.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 6, 8, 4
     $header.ColumnCount = 3
     $header.RowCount = 1
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 78)) | Out-Null
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 240)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 84)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 252)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
 
     $runModeLabel = New-Label "Run mode" 0 0 70 24
     $runModeLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
     $runModeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $runModeLabel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 1, 0, 0
     $header.Controls.Add($runModeLabel, 0, 0)
 
     $runModeHost = New-Object System.Windows.Forms.Panel
     $runModeHost.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 0 4 228 24
-    $script:RunModeCombo.Anchor = [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+    $runModeHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 2, 0, 2
+    $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 0 0 228 24
+    $script:RunModeCombo.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunModeCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $script:RunModeCombo.Add_SelectedIndexChanged({
         Invoke-UiSafe {

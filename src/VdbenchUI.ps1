@@ -52,6 +52,7 @@ $script:RunModeCombo = $null
 $script:RunProfileSelector = $null
 $script:RunSummaryBox = $null
 $script:RunTabLayout = $null
+$script:MasterSlaveToolbarLayout = $null
 $script:AdvancedActiveBox = $null
 $script:AdvancedDisabledBox = $null
 $script:ConfigPreviewBox = $null

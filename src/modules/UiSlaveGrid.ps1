@@ -994,16 +994,18 @@ function Build-MasterSlaveTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 76)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
+    $script:MasterSlaveToolbarLayout = $container
 
     $toolbar = New-FlowToolbar
+    $toolbar.WrapContents = $true
     $container.Controls.Add($toolbar, 0, 0)
 
     $addButton = New-Button "Add slave" 10 8 95 28
     $addButton.Add_Click({ Add-NewSlaveRow })
-    $toolbar.Controls.Add($addButton)
+    Add-FlowToolbarItem $toolbar $addButton
 
     $removeButton = New-Button "Remove" 112 8 80 28
     $removeButton.Add_Click({
@@ -1012,14 +1014,24 @@ function Build-MasterSlaveTab {
             $script:SlaveGrid.Rows.Remove($row)
         }
     })
-    $toolbar.Controls.Add($removeButton)
+    Add-FlowToolbarItem $toolbar $removeButton
 
     $saveButton = New-Button "Save" 200 8 80 28
     $saveButton.Add_Click({ Save-Slaves })
-    $toolbar.Controls.Add($saveButton)
+    Add-FlowToolbarItem $toolbar $saveButton -FlowBreak
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 1100 36
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 400 32
+    $note.AutoSize = $false
+    $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
+    $toolbar.Add_Resize({
+        param($sender, $eventArgs)
+        foreach ($ctrl in @($sender.Controls)) {
+            if ($ctrl -is [System.Windows.Forms.Label] -and [string]$ctrl.Text -like "Enter Host*") {
+                $ctrl.Width = [Math]::Max(320, $sender.ClientSize.Width - 12)
+            }
+        }
+    })
 
     $script:SlaveGrid = Build-SlaveGrid
     $container.Controls.Add($script:SlaveGrid, 0, 1)
