@@ -15,7 +15,7 @@
     ],
     "AppliesTo": "both",
     "Required": true,
-    "Help": "Internal sync key. Edit I/O rate (iorate) on General for raw, or Filesystem rate (fwdrate) on FS Run for filesystem.",
+    "Help": "Internal sync key. Edit I/O rate (iorate) on General for raw/block. Filesystem fwdrate is fixed at max.",
     "Example": "max",
     "SortOrder": 1,
     "EditorHidden": true
@@ -145,6 +145,51 @@
     "Example": "1",
     "SortOrder": 50,
     "Group": "Run definition (RD)"
+  },
+  {
+    "Key": "run.format",
+    "Section": "General",
+    "Label": "Format",
+    "VdbenchName": "format",
+    "Line": "run",
+    "Type": "dropdown",
+    "Default": "no",
+    "Options": [
+      "no",
+      "yes",
+      "only",
+      "restart",
+      "clean",
+      "once",
+      "directories"
+    ],
+    "AppliesTo": "fs",
+    "Required": false,
+    "Help": "Pre-format directory/file structure before the run. Review destructive options carefully.",
+    "Example": "no",
+    "SortOrder": 55,
+    "Group": "Filesystem options"
+  },
+  {
+    "Key": "run.fwdrate",
+    "Section": "General",
+    "Label": "Filesystem rate (fwdrate)",
+    "VdbenchName": "fwdrate",
+    "Line": "run",
+    "Type": "dropdown",
+    "Default": "max",
+    "Options": [
+      "max",
+      "100",
+      "1000",
+      "10000"
+    ],
+    "AppliesTo": "fs",
+    "Required": true,
+    "Help": "Fixed at max for all filesystem profiles.",
+    "Example": "max",
+    "SortOrder": 56,
+    "EditorHidden": true
   },
   {
     "Key": "storage.name",
@@ -950,50 +995,5 @@
     "SortOrder": 100,
     "Group": "Filesystem workload (FWD)",
     "EditorHidden": true
-  },
-  {
-    "Key": "run.fwdrate",
-    "Section": "FS Run",
-    "Label": "Filesystem rate (fwdrate)",
-    "VdbenchName": "fwdrate",
-    "Line": "run",
-    "Type": "dropdown",
-    "Default": "max",
-    "Options": [
-      "max",
-      "100",
-      "1000",
-      "10000"
-    ],
-    "AppliesTo": "fs",
-    "Required": true,
-    "Help": "Filesystem operations per second (rd=,fwdrate=).",
-    "Example": "max",
-    "SortOrder": 10,
-    "Group": "Filesystem run (RD)"
-  },
-  {
-    "Key": "run.format",
-    "Section": "FS Run",
-    "Label": "Format",
-    "VdbenchName": "format",
-    "Line": "run",
-    "Type": "dropdown",
-    "Default": "no",
-    "Options": [
-      "no",
-      "yes",
-      "only",
-      "restart",
-      "clean",
-      "once",
-      "directories"
-    ],
-    "AppliesTo": "fs",
-    "Required": false,
-    "Help": "Pre-format directory/file structure before the run. Review destructive options carefully.",
-    "Example": "no",
-    "SortOrder": 20,
-    "Group": "Filesystem run (RD)"
   }
 ]

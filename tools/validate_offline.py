@@ -2345,7 +2345,8 @@ def main() -> int:
     assert "Get-ProfileTargetDisplayValue" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "Sync-EditorProfileParametersToCommon" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
-    assert "function Apply-FilesystemProfileFixedDefaults" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    state_module = (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Apply-FilesystemProfileFixedDefaults" in state_module
     assert '"Key": "fsd.files"' in catalog_text and '"EditorHidden": true' in catalog_text
     assert '"Default": "(random,shared)"' in catalog_text
     assert "Apply-FilesystemProfileFixedDefaults" in config_module
@@ -2354,7 +2355,10 @@ def main() -> int:
     assert '"Section": "WD"' in catalog_text
     assert '"Section": "FSD"' in catalog_text
     assert '"Section": "FWD"' in catalog_text
-    assert '"Section": "FS Run"' in catalog_text
+    assert '"Section": "FS Run"' not in catalog_text
+    assert '"Group": "Filesystem options"' in catalog_text
+    assert '$visibleSections += @("FSD", "FWD")' in state_module
+    assert 'Set-ProfileParamValue $Profile "run.fwdrate" "max"' in state_module
     assert "SortOrder" in catalog_text
     assert "DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed" in ui_tabs_module
     assert "GetTabRect" in ui_tabs_module
