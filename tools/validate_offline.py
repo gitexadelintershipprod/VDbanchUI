@@ -592,7 +592,7 @@ $script:ProcessEventBridgeReady = $false
 $script:ModuleRoot = "{module_root}"
 . (Join-Path $script:ModuleRoot "Core.ps1")
 Initialize-ProcessEventBridge
-$stdoutHandler = [VdbenchUi.ProcessEventBridge]::StdoutHandler
+$stdoutHandler = Get-ProcessEventBridgeDelegate -FieldName "StdoutHandler" -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
 if ($stdoutHandler -isnot [System.Diagnostics.DataReceivedEventHandler]) {{
     throw "StdoutHandler is not a DataReceivedEventHandler"
 }}
@@ -2598,6 +2598,7 @@ def main() -> int:
     assert "SetUnhandledExceptionMode" in core_module
     assert "function Initialize-ProcessEventBridge" in core_module
     assert "VdbenchUi.ProcessEventBridge" in core_module
+    assert "function Get-ProcessEventBridgeDelegate" in core_module
     assert "function Register-ProcessEventBridgeHandlers" in core_module
     assert "StdoutHandler" in core_module
     assert "add_OutputDataReceived({" not in runner_module_full

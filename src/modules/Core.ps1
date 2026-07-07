@@ -537,15 +537,48 @@ public static class ProcessEventBridge {
     Write-DebugLog "Process event bridge initialized"
 }
 
+function Get-ProcessEventBridgeDelegate {
+    param(
+        [string]$FieldName,
+        [Type]$DelegateType
+    )
+    $bridgeType = [VdbenchUi.ProcessEventBridge]
+    $field = $bridgeType.GetField(
+        $FieldName,
+        [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public
+    )
+    if ($null -eq $field) {
+        throw ("ProcessEventBridge delegate field not found: {0}" -f $FieldName)
+    }
+    $value = $field.GetValue($null)
+    if ($null -eq $value) {
+        throw ("ProcessEventBridge delegate is null: {0}" -f $FieldName)
+    }
+    if (-not $DelegateType.IsInstanceOfType($value)) {
+        throw ("ProcessEventBridge {0} has type {1}, expected {2}" -f $FieldName, $value.GetType().FullName, $DelegateType.FullName)
+    }
+    return $value
+}
+
 function Register-ProcessEventBridgeHandlers {
     param([System.Diagnostics.Process]$Process)
     if ($null -eq $Process) {
         throw "Register-ProcessEventBridgeHandlers requires a Process instance."
     }
     Initialize-ProcessEventBridge
-    $Process.add_OutputDataReceived([VdbenchUi.ProcessEventBridge]::StdoutHandler)
-    $Process.add_ErrorDataReceived([VdbenchUi.ProcessEventBridge]::StderrHandler)
-    $Process.add_Exited([VdbenchUi.ProcessEventBridge]::ExitedHandler)
+    $stdoutHandler = Get-ProcessEventBridgeDelegate `
+        -FieldName "StdoutHandler" `
+        -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
+    $stderrHandler = Get-ProcessEventBridgeDelegate `
+        -FieldName "StderrHandler" `
+        -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
+    $exitedHandler = Get-ProcessEventBridgeDelegate `
+        -FieldName "ExitedHandler" `
+        -DelegateType ([System.EventHandler])
+    $Process.add_OutputDataReceived($stdoutHandler)
+    $Process.add_ErrorDataReceived($stderrHandler)
+    $Process.add_Exited($exitedHandler)
+    Write-DebugLog "Process event bridge handlers registered"
 }
 
 function Register-AppExceptionLogging {
