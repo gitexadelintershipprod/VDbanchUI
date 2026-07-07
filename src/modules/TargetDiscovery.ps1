@@ -808,6 +808,8 @@ function Show-HostPathBrowser {
     Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancelButton, $selectButton, $useFolderButton)
     $dialog.AcceptButton = $selectButton
     $dialog.CancelButton = $cancelButton
+    Apply-ResponsiveDialogControlFonts $dialog
+    Update-FlowToolbarButtonSizes $dialog
 
     try {
         & $loadPath $currentPath

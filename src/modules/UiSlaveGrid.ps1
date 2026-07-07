@@ -791,18 +791,29 @@ function Get-SelectedSlaveRow {
     return $null
 }
 
-function Show-SlaveTargetPicker {
+function Show-TargetPicker {
     param(
-        [System.Windows.Forms.DataGridViewRow]$Row,
+        $Row,
         [object[]]$Inventory,
-        [object[]]$Existing
+        [object[]]$Existing,
+        [string]$Title = ""
     )
     $merged = @(Merge-TargetSelections $Inventory $Existing)
     if ($merged.Count -eq 0) {
         Show-Warning "No selectable targets were found."
         return $null
     }
-    $hostLabel = [string]$Row.Cells["Host"].Value
+    $hostLabel = [string]$Title
+    if ([string]::IsNullOrWhiteSpace($hostLabel)) {
+        if ($null -ne $Row -and -not $Row.IsNewRow) {
+            $hostLabel = [string]$Row.Cells["Host"].Value
+        } else {
+            $hostLabel = [string]$env:COMPUTERNAME
+            if ([string]::IsNullOrWhiteSpace($hostLabel)) {
+                $hostLabel = "localhost"
+            }
+        }
+    }
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = ("Targets for {0}" -f $hostLabel)
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
@@ -814,10 +825,10 @@ function Show-SlaveTargetPicker {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 3
     $layout.ColumnCount = 1
-    $toolbarHeight = [int][Math]::Max(88, [Math]::Round(88 * $scale))
+    $toolbarHeight = [int][Math]::Max(96, [Math]::Round(96 * $scale))
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), $toolbarHeight)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), ([int][Math]::Max(46, [Math]::Round(46 * $scale))))) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), ([int][Math]::Max(52, [Math]::Round(52 * $scale))))) | Out-Null
     $dialog.Controls.Add($layout)
 
     $toolbar = New-FlowToolbar
@@ -847,7 +858,7 @@ function Show-SlaveTargetPicker {
     $listView.Font = $listFont
     foreach ($column in @($listView.Columns)) {
         if ($column.Text -eq "Kind") {
-            $column.Width = [int][Math]::Max(100, [Math]::Round(100 * $scale))
+            $column.Width = [int][Math]::Max(160, [Math]::Round(160 * $scale))
         } elseif ($column.Text -eq "Target") {
             $column.Width = [int][Math]::Max(280, [Math]::Round(280 * $scale))
         } else {
@@ -892,7 +903,11 @@ function Show-SlaveTargetPicker {
 
     $refreshButton.Add_Click({
         try {
-            $discovered = @(Get-SlaveTargetInventory $Row -Force)
+            if ($null -ne $Row -and -not $Row.IsNewRow) {
+                $discovered = @(Get-SlaveTargetInventory $Row -Force)
+            } else {
+                $discovered = @(Get-LocalTargetInventory -Force)
+            }
             $current = @(Get-TargetListViewTargets $listView)
             & $reloadList @(Merge-TargetSelections $discovered $current)
         } catch {
@@ -939,7 +954,11 @@ function Show-SlaveTargetPicker {
                 }
             }
             if ([string]::IsNullOrWhiteSpace($initial)) {
-                $selected = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
+                if ($null -ne $Row -and -not $Row.IsNewRow) {
+                    $selected = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
+                } else {
+                    $selected = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore))
+                }
                 if ($selected.Count -gt 0) {
                     $initial = [string](Get-PropertyValue $selected[0] "Target" "")
                 }
@@ -956,7 +975,7 @@ function Show-SlaveTargetPicker {
         }
     }.GetNewClosure())
 
-    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $buttonPanel = New-ResponsiveDialogButtonPanel -BaseHeight 52
     $layout.Controls.Add($buttonPanel, 0, 2)
 
     $okButton = New-Button "Save selection" 0 0 125 28
@@ -975,11 +994,22 @@ function Show-SlaveTargetPicker {
     Update-TargetListViewSelectionCounter $counterLabel $listView
     $dialog.AcceptButton = $okButton
     $dialog.CancelButton = $cancelButton
+    Apply-ResponsiveDialogControlFonts $dialog
+    Update-FlowToolbarButtonSizes $dialog
 
     if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
         return $null
     }
     return @(Get-TargetListViewTargets $listView)
+}
+
+function Show-SlaveTargetPicker {
+    param(
+        [System.Windows.Forms.DataGridViewRow]$Row,
+        [object[]]$Inventory,
+        [object[]]$Existing
+    )
+    return Show-TargetPicker -Row $Row -Inventory $Inventory -Existing $Existing
 }
 
 function Browse-SlaveTargetsForRow {
