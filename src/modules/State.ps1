@@ -95,6 +95,10 @@ function Apply-FilesystemProfileFixedDefaults {
     }
     Set-ProfileParamEnabled $Profile "fsd.openflags" $false
     Set-ProfileParamEnabled $Profile "fwd.openflags" $false
+    Set-ProfileParamValue $Profile "run.fwdrate" "max"
+    Set-ProfileParamEnabled $Profile "run.fwdrate" $true
+    Set-ProfileParamValue $Profile "common.rate" "max"
+    Set-ProfileParamEnabled $Profile "common.rate" $true
 }
 
 function Test-ProfileBypassOsCacheEnabled {
@@ -164,12 +168,15 @@ function Sync-EditorProfileParametersToCommon {
     } elseif ($TestKind -eq "Filesystem") {
         foreach ($pair in @(
                 @("common.threads", "fwd.threads"),
-                @("common.xfersize", "fwd.xfersize"),
-                @("common.rate", "run.fwdrate")
+                @("common.xfersize", "fwd.xfersize")
             )) {
             Set-ProfileParamValue $Profile $pair[0] (Get-ProfileParamValue $Profile $pair[1] "")
             Set-ProfileParamEnabled $Profile $pair[0] (Get-ProfileParamEnabled $Profile $pair[1])
         }
+        Set-ProfileParamValue $Profile "run.fwdrate" "max"
+        Set-ProfileParamEnabled $Profile "run.fwdrate" $true
+        Set-ProfileParamValue $Profile "common.rate" "max"
+        Set-ProfileParamEnabled $Profile "common.rate" $true
     }
     Sync-CommonProfileParameters $Profile
 }
@@ -239,7 +246,7 @@ function Get-ProfileEditorContext {
         if ($testKind -eq "Raw/block") {
             $visibleSections += @("SD", "WD")
         } elseif ($testKind -eq "Filesystem") {
-            $visibleSections += @("FSD", "FWD", "FS Run")
+            $visibleSections += @("FSD", "FWD")
         }
     }
     return [pscustomobject]@{

@@ -100,7 +100,7 @@ Write-Host "Helper scripts OK."
 
 Write-Host "Validating catalog coverage..."
 $sections = @($catalog | Select-Object -ExpandProperty Section -Unique)
-foreach ($section in @("General", "SD", "WD", "FSD", "FWD", "FS Run")) {
+foreach ($section in @("General", "SD", "WD", "FSD", "FWD")) {
     if ($sections -notcontains $section) {
         throw ("Missing catalog section: {0}" -f $section)
     }
