@@ -685,17 +685,56 @@ function Refresh-LocalHostTab {
     [void]$lines.Add("")
     [void]$lines.Add("Click Browse to pick local targets (same dialog as Slaves -> Browse).")
     [void]$lines.Add("Selections are stored in localhost.json and used by the Run tab.")
-    [void]$lines.Add("")
-    $selected = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore))
-    if ($selected.Count -eq 0) {
-        [void]$lines.Add("Selected targets: (none)")
-    } else {
-        [void]$lines.Add(("Selected targets ({0}):" -f $selected.Count))
-        foreach ($target in $selected) {
-            [void]$lines.Add(("  [{0}] {1}" -f [string](Get-PropertyValue $target "Kind" ""), [string](Get-PropertyValue $target "Target" "")))
-        }
-    }
     $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
+    Update-LocalHostDiskList -ForceInventory:$ForceInventory
+}
+
+function Format-LocalHostTargetDisplay {
+    param(
+        [object]$Target
+    )
+    $kind = [string](Get-PropertyValue $Target "Kind" "")
+    $targetPath = [string](Get-PropertyValue $Target "Target" "")
+    $description = [string](Get-PropertyValue $Target "Description" "")
+    $selected = [bool](Get-PropertyValue $Target "Selected" $false)
+    $prefix = if ($selected) { "[Use] " } else { "" }
+    if ([string]::IsNullOrWhiteSpace($description)) {
+        return ("{0}{1}: {2}" -f $prefix, $kind, $targetPath)
+    }
+    return ("{0}{1}: {2} - {3}" -f $prefix, $kind, $targetPath, $description)
+}
+
+function Update-LocalHostDiskList {
+    param([switch]$ForceInventory)
+    if ($null -eq $script:LocalHostDiskCombo -or $null -eq $script:LocalHostTargetList) {
+        return
+    }
+    try {
+        $inventory = @(Get-LocalTargetInventory -Force:$ForceInventory)
+        $merged = @(Merge-TargetSelections $inventory @(Get-LocalHostTargetStore))
+        $script:LocalHostDiskCombo.BeginUpdate()
+        $script:LocalHostTargetList.BeginUpdate()
+        try {
+            $script:LocalHostDiskCombo.Items.Clear()
+            $script:LocalHostTargetList.Items.Clear()
+            foreach ($item in $merged) {
+                $display = Format-LocalHostTargetDisplay $item
+                [void]$script:LocalHostDiskCombo.Items.Add($display)
+                [void]$script:LocalHostTargetList.Items.Add($display)
+            }
+            if ($script:LocalHostDiskCombo.Items.Count -gt 0) {
+                $script:LocalHostDiskCombo.SelectedIndex = 0
+            }
+        } finally {
+            $script:LocalHostDiskCombo.EndUpdate()
+            $script:LocalHostTargetList.EndUpdate()
+        }
+    } catch {
+        $message = "Disk discovery failed: " + $_.Exception.Message
+        $script:LocalHostDiskCombo.Items.Clear()
+        $script:LocalHostTargetList.Items.Clear()
+        [void]$script:LocalHostTargetList.Items.Add($message)
+    }
 }
 
 function Capture-LocalHostTargets {
@@ -775,27 +814,70 @@ function Build-LocalHostTab {
     $browseButton.Add_Click({ Browse-LocalHostTargets })
     Add-FlowToolbarItem $toolbar $browseButton
 
-    $validateButton = New-Button "Validate paths" 108 8 110 28
+    $refreshDisksButton = New-Button "Refresh disks" 108 8 105 28
+    $refreshDisksButton.Add_Click({ Refresh-LocalHostTab -ForceInventory })
+    Add-FlowToolbarItem $toolbar $refreshDisksButton
+
+    $validateButton = New-Button "Validate paths" 220 8 110 28
     $validateButton.Add_Click({
         Validate-SettingsPaths
         Refresh-LocalHostTab
     })
     Add-FlowToolbarItem $toolbar $validateButton
 
-    $note = New-Label "Active when Run mode = Single local run. Click Browse to open the same target picker used on Slaves." 0 0 400 32
+    $note = New-Label "Active when Run mode = Single local run. Browse opens the target picker; disk list below refreshes from this host." 0 0 400 32
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
     $container.Controls.Add($toolbar, 0, 0)
 
+    $content = New-Object System.Windows.Forms.TableLayoutPanel
+    $content.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $content.RowCount = 2
+    $content.ColumnCount = 1
+    $content.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 188)) | Out-Null
+    $content.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $script:LocalHostContentLayout = $content
+    $container.Controls.Add($content, 0, 1)
+
     $script:LocalHostInfoBox = New-Object System.Windows.Forms.TextBox
     $script:LocalHostInfoBox.Multiline = $true
     $script:LocalHostInfoBox.ReadOnly = $true
-    $script:LocalHostInfoBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $script:LocalHostInfoBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
     $script:LocalHostInfoBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:LocalHostInfoBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
-    $container.Controls.Add($script:LocalHostInfoBox, 0, 1)
+    $script:LocalHostInfoBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $content.Controls.Add($script:LocalHostInfoBox, 0, 0)
+
+    $diskPanel = New-Object System.Windows.Forms.TableLayoutPanel
+    $diskPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $diskPanel.RowCount = 3
+    $diskPanel.ColumnCount = 1
+    $diskPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 6, 0, 0
+    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 24)) | Out-Null
+    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
+    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $content.Controls.Add($diskPanel, 0, 1)
+
+    $diskLabel = New-Label "Available disks & targets" 0 0 200 22
+    $diskLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $diskLabel.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 9.5, ([System.Drawing.FontStyle]::Bold)
+    $diskPanel.Controls.Add($diskLabel, 0, 0)
+
+    $script:LocalHostDiskCombo = New-Object System.Windows.Forms.ComboBox
+    $script:LocalHostDiskCombo.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostDiskCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $script:LocalHostDiskCombo.IntegralHeight = $false
+    $diskPanel.Controls.Add($script:LocalHostDiskCombo, 0, 1)
+
+    $script:LocalHostTargetList = New-Object System.Windows.Forms.ListBox
+    $script:LocalHostTargetList.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostTargetList.IntegralHeight = $false
+    $script:LocalHostTargetList.HorizontalScrollbar = $true
+    $script:LocalHostTargetList.ScrollAlwaysVisible = $true
+    $diskPanel.Controls.Add($script:LocalHostTargetList, 0, 2)
+
     Refresh-LocalHostTab
     return $tab
 }
@@ -1729,16 +1811,17 @@ function Build-MainForm {
     $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     $header.ColumnCount = 3
     $header.RowCount = 1
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 96)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 112)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 430)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
 
-    $runModeLabel = New-Label "Run mode" 0 0 70 24
-    $runModeLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $runModeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $runModeLabel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 1, 0, 0
-    $header.Controls.Add($runModeLabel, 0, 0)
+    $script:RunModeLabel = New-Label "Run mode" 0 0 100 24
+    $script:RunModeLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:RunModeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $script:RunModeLabel.ForeColor = [System.Drawing.Color]::FromArgb(0, 70, 140)
+    $script:RunModeLabel.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 9, ([System.Drawing.FontStyle]::Bold)
+    $header.Controls.Add($script:RunModeLabel, 0, 0)
 
     $runModeHost = New-Object System.Windows.Forms.Panel
     $runModeHost.Dock = [System.Windows.Forms.DockStyle]::Fill
