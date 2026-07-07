@@ -647,7 +647,7 @@ function Update-TargetCreateFileEditability {
 
 function Refresh-LocalHostTab {
     param([switch]$ForceInventory)
-    if ($null -eq $script:LocalHostInfoBox) {
+    if ($null -eq $script:LocalHostComputerLabel) {
         return
     }
     Capture-Settings
@@ -662,31 +662,23 @@ function Refresh-LocalHostTab {
         $osCaption = [string]$os.Caption
     } catch {
     }
-    $paths = @(
-        @{ Name = "Vdbench root"; Path = [string](Get-PropertyValue $script:Settings "VdbenchRoot" "") },
-        @{ Name = "Master runner"; Path = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "") },
-        @{ Name = "Reports root"; Path = [string](Get-PropertyValue $script:Settings "ReportsRoot" "") }
-    )
-    $lines = New-Object System.Collections.Generic.List[string]
-    [void]$lines.Add("Local single-host run")
-    [void]$lines.Add("====================")
-    [void]$lines.Add(("Computer: {0}" -f $computer))
-    [void]$lines.Add(("OS: {0}" -f $osCaption))
-    [void]$lines.Add(("Run mode: {0}" -f (Get-Mode)))
-    [void]$lines.Add("")
-    [void]$lines.Add("Master paths on this host:")
-    foreach ($item in $paths) {
+    $script:LocalHostComputerLabel.Text = ("Computer: {0}" -f $computer)
+    $script:LocalHostOsLabel.Text = ("OS: {0}" -f $osCaption)
+    $script:LocalHostRunModeLabel.Text = ("Run mode: {0}" -f (Get-Mode))
+    $pathLines = New-Object System.Collections.Generic.List[string]
+    foreach ($item in @(
+            @{ Name = "Vdbench root"; Path = [string](Get-PropertyValue $script:Settings "VdbenchRoot" "") },
+            @{ Name = "Master runner"; Path = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "") },
+            @{ Name = "Reports root"; Path = [string](Get-PropertyValue $script:Settings "ReportsRoot" "") }
+        )) {
         $exists = $false
         if (-not [string]::IsNullOrWhiteSpace($item.Path)) {
             $exists = Test-Path -LiteralPath $item.Path
         }
-        [void]$lines.Add(("{0,-16} {1,-55} Exists={2}" -f $item.Name, $item.Path, $exists))
+        [void]$pathLines.Add(("{0,-16} {1}  Exists={2}" -f $item.Name, $item.Path, $exists))
     }
-    [void]$lines.Add("")
-    [void]$lines.Add("Click Browse to pick local targets (same dialog as Slaves -> Browse).")
-    [void]$lines.Add("Selections are stored in localhost.json and used by the Run tab.")
-    $script:LocalHostInfoBox.Text = ($lines -join [Environment]::NewLine)
-    Update-LocalHostDiskList -ForceInventory:$ForceInventory
+    $script:LocalHostPathsLabel.Text = ($pathLines -join [Environment]::NewLine)
+    Update-LocalHostTargetPreview -ForceInventory:$ForceInventory
 }
 
 function Format-LocalHostTargetDisplay {
@@ -696,44 +688,57 @@ function Format-LocalHostTargetDisplay {
     $kind = [string](Get-PropertyValue $Target "Kind" "")
     $targetPath = [string](Get-PropertyValue $Target "Target" "")
     $description = [string](Get-PropertyValue $Target "Description" "")
-    $selected = [bool](Get-PropertyValue $Target "Selected" $false)
-    $prefix = if ($selected) { "[Use] " } else { "" }
     if ([string]::IsNullOrWhiteSpace($description)) {
-        return ("{0}{1}: {2}" -f $prefix, $kind, $targetPath)
+        return ("{0}: {1}" -f $kind, $targetPath)
     }
-    return ("{0}{1}: {2} - {3}" -f $prefix, $kind, $targetPath, $description)
+    return ("{0}: {1} - {2}" -f $kind, $targetPath, $description)
 }
 
-function Update-LocalHostDiskList {
+function Update-LocalHostTargetPreview {
     param([switch]$ForceInventory)
-    if ($null -eq $script:LocalHostDiskCombo -or $null -eq $script:LocalHostTargetList) {
+    if ($null -eq $script:LocalHostDiskCombo -or $null -eq $script:LocalHostTargetPreview) {
         return
     }
     try {
         $inventory = @(Get-LocalTargetInventory -Force:$ForceInventory)
         $merged = @(Merge-TargetSelections $inventory @(Get-LocalHostTargetStore))
         $script:LocalHostDiskCombo.BeginUpdate()
-        $script:LocalHostTargetList.BeginUpdate()
         try {
             $script:LocalHostDiskCombo.Items.Clear()
-            $script:LocalHostTargetList.Items.Clear()
             foreach ($item in $merged) {
-                $display = Format-LocalHostTargetDisplay $item
-                [void]$script:LocalHostDiskCombo.Items.Add($display)
-                [void]$script:LocalHostTargetList.Items.Add($display)
+                [void]$script:LocalHostDiskCombo.Items.Add((Format-LocalHostTargetDisplay $item))
             }
             if ($script:LocalHostDiskCombo.Items.Count -gt 0) {
                 $script:LocalHostDiskCombo.SelectedIndex = 0
             }
         } finally {
             $script:LocalHostDiskCombo.EndUpdate()
-            $script:LocalHostTargetList.EndUpdate()
+        }
+        Invoke-GridBatchUpdate $script:LocalHostTargetPreview {
+            $script:LocalHostTargetPreview.Rows.Clear()
+            foreach ($item in @(Normalize-TargetEntries $merged)) {
+                $idx = $script:LocalHostTargetPreview.Rows.Add()
+                $row = $script:LocalHostTargetPreview.Rows[$idx]
+                $row.Cells["Selected"].Value = [bool](Get-PropertyValue $item "Selected" $false)
+                $row.Cells["Kind"].Value = [string](Get-PropertyValue $item "Kind" "")
+                $row.Cells["Target"].Value = [string](Get-PropertyValue $item "Target" "")
+                $row.Cells["CreateFile"].Value = [bool](Get-PropertyValue $item "CreateFile" $false)
+                $row.Cells["Description"].Value = [string](Get-PropertyValue $item "Description" "")
+            }
         }
     } catch {
         $message = "Disk discovery failed: " + $_.Exception.Message
         $script:LocalHostDiskCombo.Items.Clear()
-        $script:LocalHostTargetList.Items.Clear()
-        [void]$script:LocalHostTargetList.Items.Add($message)
+        Invoke-GridBatchUpdate $script:LocalHostTargetPreview {
+            $script:LocalHostTargetPreview.Rows.Clear()
+            $idx = $script:LocalHostTargetPreview.Rows.Add()
+            $row = $script:LocalHostTargetPreview.Rows[$idx]
+            $row.Cells["Selected"].Value = $false
+            $row.Cells["Kind"].Value = "Error"
+            $row.Cells["Target"].Value = ""
+            $row.Cells["CreateFile"].Value = $false
+            $row.Cells["Description"].Value = $message
+        }
     }
 }
 
@@ -803,7 +808,7 @@ function Build-LocalHostTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 64)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
     $script:LocalHostToolbarLayout = $container
@@ -825,9 +830,11 @@ function Build-LocalHostTab {
     })
     Add-FlowToolbarItem $toolbar $validateButton
 
-    $note = New-Label "Active when Run mode = Single local run. Browse opens the target picker; disk list below refreshes from this host." 0 0 400 32
+    $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the grid after Browse, then Save on the Profile tab if needed." 0 0 400 48
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
+    $note.AccessibleDescription = "48"
+    $note.ForeColor = [System.Drawing.Color]::DimGray
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
     $container.Controls.Add($toolbar, 0, 0)
@@ -836,47 +843,86 @@ function Build-LocalHostTab {
     $content.Dock = [System.Windows.Forms.DockStyle]::Fill
     $content.RowCount = 2
     $content.ColumnCount = 1
-    $content.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 188)) | Out-Null
+    $content.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 4, 4
+    $content.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $content.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $script:LocalHostContentLayout = $content
     $container.Controls.Add($content, 0, 1)
 
-    $script:LocalHostInfoBox = New-Object System.Windows.Forms.TextBox
-    $script:LocalHostInfoBox.Multiline = $true
-    $script:LocalHostInfoBox.ReadOnly = $true
-    $script:LocalHostInfoBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
-    $script:LocalHostInfoBox.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostInfoBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
-    $script:LocalHostInfoBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $content.Controls.Add($script:LocalHostInfoBox, 0, 0)
+    $hostGroup = New-Object System.Windows.Forms.GroupBox
+    $hostGroup.Text = "Host information"
+    $hostGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostGroup.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 18, 10, 8
+    $content.Controls.Add($hostGroup, 0, 0)
 
-    $diskPanel = New-Object System.Windows.Forms.TableLayoutPanel
-    $diskPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $diskPanel.RowCount = 3
-    $diskPanel.ColumnCount = 1
-    $diskPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 6, 0, 0
-    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 24)) | Out-Null
-    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
-    $diskPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $content.Controls.Add($diskPanel, 0, 1)
+    $hostLayout = New-Object System.Windows.Forms.TableLayoutPanel
+    $hostLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostLayout.ColumnCount = 1
+    $hostLayout.RowCount = 4
+    $hostLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 26)) | Out-Null
+    $hostLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 26)) | Out-Null
+    $hostLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 26)) | Out-Null
+    $hostLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $hostGroup.Controls.Add($hostLayout)
 
-    $diskLabel = New-Label "Available disks & targets" 0 0 200 22
-    $diskLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $diskLabel.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 9.5, ([System.Drawing.FontStyle]::Bold)
-    $diskPanel.Controls.Add($diskLabel, 0, 0)
+    $script:LocalHostComputerLabel = New-Label "Computer:" 0 0 400 22
+    $script:LocalHostComputerLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostLayout.Controls.Add($script:LocalHostComputerLabel, 0, 0)
+    $script:LocalHostOsLabel = New-Label "OS:" 0 0 400 22
+    $script:LocalHostOsLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostLayout.Controls.Add($script:LocalHostOsLabel, 0, 1)
+    $script:LocalHostRunModeLabel = New-Label "Run mode:" 0 0 400 22
+    $script:LocalHostRunModeLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostLayout.Controls.Add($script:LocalHostRunModeLabel, 0, 2)
+    $script:LocalHostPathsLabel = New-Label "" 0 0 400 60
+    $script:LocalHostPathsLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostPathsLabel.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
+    $hostLayout.Controls.Add($script:LocalHostPathsLabel, 0, 3)
+
+    $targetGroup = New-Object System.Windows.Forms.GroupBox
+    $targetGroup.Text = "Available disks & targets"
+    $targetGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $targetGroup.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 18, 10, 8
+    $content.Controls.Add($targetGroup, 0, 1)
+
+    $targetLayout = New-Object System.Windows.Forms.TableLayoutPanel
+    $targetLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $targetLayout.RowCount = 2
+    $targetLayout.ColumnCount = 1
+    $targetLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
+    $targetLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $targetGroup.Controls.Add($targetLayout)
 
     $script:LocalHostDiskCombo = New-Object System.Windows.Forms.ComboBox
     $script:LocalHostDiskCombo.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:LocalHostDiskCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $script:LocalHostDiskCombo.IntegralHeight = $false
-    $diskPanel.Controls.Add($script:LocalHostDiskCombo, 0, 1)
+    $script:LocalHostDiskCombo.Add_SelectedIndexChanged({
+        if ($null -eq $script:LocalHostTargetPreview) {
+            return
+        }
+        $index = $script:LocalHostDiskCombo.SelectedIndex
+        if ($index -ge 0 -and $index -lt $script:LocalHostTargetPreview.Rows.Count) {
+            $script:LocalHostTargetPreview.ClearSelection()
+            $script:LocalHostTargetPreview.Rows[$index].Selected = $true
+            $script:LocalHostTargetPreview.FirstDisplayedScrollingRowIndex = $index
+        }
+    })
+    $targetLayout.Controls.Add($script:LocalHostDiskCombo, 0, 0)
 
-    $script:LocalHostTargetList = New-Object System.Windows.Forms.ListBox
-    $script:LocalHostTargetList.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:LocalHostTargetList.IntegralHeight = $false
-    $script:LocalHostTargetList.HorizontalScrollbar = $true
-    $script:LocalHostTargetList.ScrollAlwaysVisible = $true
-    $diskPanel.Controls.Add($script:LocalHostTargetList, 0, 2)
+    $script:LocalHostTargetPreview = New-Object System.Windows.Forms.DataGridView
+    $script:LocalHostTargetPreview.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:LocalHostTargetPreview.ReadOnly = $true
+    $script:LocalHostTargetPreview.AllowUserToAddRows = $false
+    $script:LocalHostTargetPreview.AllowUserToDeleteRows = $false
+    $script:LocalHostTargetPreview.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $script:LocalHostTargetPreview.MultiSelect = $false
+    $script:LocalHostTargetPreview.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
+    Add-TargetSelectionColumns $script:LocalHostTargetPreview
+    foreach ($col in @($script:LocalHostTargetPreview.Columns)) {
+        $col.ReadOnly = $true
+    }
+    $targetLayout.Controls.Add($script:LocalHostTargetPreview, 0, 1)
 
     Refresh-LocalHostTab
     return $tab
@@ -1056,7 +1102,7 @@ function Add-ParameterRow {
         foreach ($option in @($Definition.Options)) {
             $items += [string]$option
         }
-        $valueControl = New-ComboBox $items $displayValue 330 $Y 220
+        $valueControl = New-ProfileDropdown $items $displayValue 330 $Y 220
     } else {
         $valueControl = New-TextBox $displayValue 330 $Y 220
     }
@@ -1102,7 +1148,7 @@ function Capture-ProfileEditor {
             continue
         }
         Set-ProfileParamEnabled $script:CurrentProfile $key ([bool]$entry.Enabled.Checked)
-        Set-ProfileParamValue $script:CurrentProfile $key ([string]$entry.Value.Text)
+        Set-ProfileParamValue $script:CurrentProfile $key (Get-ProfileEditorControlValue $entry.Value)
     }
     if ($script:AdvancedActiveBox) {
         $script:CurrentProfile.AdvancedActive = $script:AdvancedActiveBox.Text

@@ -516,8 +516,13 @@ $script:ActiveStderrPath = $null
 $script:MainTabControl = $null
 $script:LocalHostTab = $null
 $script:MasterSlaveTab = $null
-$script:LocalHostInfoBox = $null
-$script:LocalHostTargetGrid = $null
+$script:LocalHostComputerLabel = $null
+$script:LocalHostOsLabel = $null
+$script:LocalHostRunModeLabel = $null
+$script:LocalHostPathsLabel = $null
+$script:LocalHostDiskCombo = $null
+$script:LocalHostTargetPreview = $null
+$script:LocalHostContentLayout = $null
 $script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
 $script:MainFormLayout = $null
@@ -834,7 +839,7 @@ $script:CurrentRunId = $null
 $script:CurrentProcess = $null
 $script:RunFinishedNotified = $false
 $script:ProfileEditorLocked = $true
-$script:LocalHostTargetGrid = $null
+$script:LocalHostTargetPreview = $null
 $script:RefreshingLocalTargets = $false
 $script:RunModeCombo = $null
 $script:ModuleRoot = "{module_root}"
@@ -2633,7 +2638,12 @@ def main() -> int:
     assert "DoEvents" not in ui_tabs_module
     assert 'New-Button "Browse"' in ui_tabs_module
     assert "function Browse-LocalHostTargets" in ui_tabs_module
-    assert "function Update-LocalHostDiskList" in ui_tabs_module
+    assert "function Update-LocalHostTargetPreview" in ui_tabs_module
+    assert "function New-ProfileDropdown" in ui_helpers_module
+    assert "function Get-ProfileEditorControlValue" in ui_helpers_module
+    assert "New-ProfileDropdown $items $displayValue" in ui_tabs_module
+    assert "Get-ProfileEditorControlValue $entry.Value" in ui_tabs_module
+    assert "AccessibleDescription = \"48\"" in ui_slave_module
     assert "function Show-TargetPicker" in ui_slave_module
     assert "Show-TargetPicker -Row $null" in ui_tabs_module
     assert "$script:RunModeLabel" in ui_tabs_module
