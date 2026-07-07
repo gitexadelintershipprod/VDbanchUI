@@ -1018,14 +1018,6 @@ function Build-MasterSlaveTab {
     $saveButton.Add_Click({ Save-Slaves })
     $toolbar.Controls.Add($saveButton)
 
-    $exportButton = New-Button "Export" 288 8 75 28
-    $exportButton.Add_Click({ Export-SlaveInventory })
-    $toolbar.Controls.Add($exportButton)
-
-    $importButton = New-Button "Import" 370 8 75 28
-    $importButton.Add_Click({ Import-SlaveInventory })
-    $toolbar.Controls.Add($importButton)
-
     $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 1100 36
     $toolbar.Controls.Add($note)
 
