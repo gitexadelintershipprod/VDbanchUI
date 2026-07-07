@@ -2268,6 +2268,7 @@ def main() -> int:
     ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "AutoScaleMode]::None" in ui_tabs_module
     assert "Apply-MainFormResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "Apply-DataGridResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "Require preview confirmation before run" not in ui_tabs_module
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
     assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module

@@ -553,6 +553,7 @@ function Build-SlaveGrid {
     $osCol = New-Object System.Windows.Forms.DataGridViewComboBoxColumn
     $osCol.Name = "OsType"
     $osCol.HeaderText = "OS"
+    $osCol.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     [void]$osCol.Items.Add("Windows")
     [void]$osCol.Items.Add("Linux")
     $grid.Columns.Add($osCol) | Out-Null
@@ -677,6 +678,7 @@ function Build-SlaveGrid {
             }
         }
     })
+    Apply-DataGridResponsiveLayout $grid -WithButtons
     return $grid
 }
 
@@ -697,6 +699,7 @@ function Populate-SlaveGrid {
     } finally {
         $script:SlaveGridRefreshing = $false
     }
+    Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
 }
 
 function Capture-SlaveGrid {
