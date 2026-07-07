@@ -1348,31 +1348,47 @@ function Build-ProfileTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 60)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 28)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 82)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 30)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
+    $script:ProfileToolbarLayout = $container
 
     $toolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $script:ProfileNewButton = New-Button "New" 10 9 70 27
     $script:ProfileNewButton.Add_Click({ Initialize-NewDraftProfile })
-    $toolbar.Controls.Add($script:ProfileNewButton)
+    Add-FlowToolbarItem $toolbar $script:ProfileNewButton
 
     $script:ProfileSaveButton = New-Button "Save profile" 88 9 105 27
     $script:ProfileSaveButton.Add_Click({ Save-CurrentProfile })
-    $toolbar.Controls.Add($script:ProfileSaveButton)
+    Add-FlowToolbarItem $toolbar $script:ProfileSaveButton
 
-    $toolbar.Controls.Add((New-Label "Name" 210 12 50))
-    $script:ProfileNameBox = New-TextBox "" 262 9 360
+    $nameLabel = New-Label "Name" 0 6 44 24
+    $nameLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 8, 0, 0
+    $nameLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $toolbar.Controls.Add($nameLabel)
+
+    $script:ProfileNameBox = New-TextBox "" 0 0 280 24
+    $script:ProfileNameBox.Tag = "flow-toolbar-combo"
+    $script:ProfileNameBox.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 0, 0
+    Set-FlowToolbarControlHeight $script:ProfileNameBox
     $toolbar.Controls.Add($script:ProfileNameBox)
+    $toolbar.SetFlowBreak($script:ProfileNameBox, $true)
 
-    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 10 38 1040 18
+    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 0 0 400 30
+    $note.AutoSize = $false
+    $note.Tag = "flow-toolbar-wrap"
+    $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
 
     $script:ProfileEditorBanner = New-Label "Select a target to edit profile parameters." 10 4 1040 20
     $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
+    $script:ProfileEditorBanner.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:ProfileEditorBanner.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $script:ProfileEditorBanner.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 8, 0
     $container.Controls.Add($script:ProfileEditorBanner, 0, 1)
 
     $script:ProfileParamTabs = New-Object System.Windows.Forms.TabControl
@@ -1441,7 +1457,7 @@ function Build-RunTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 4
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 88)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
@@ -1449,7 +1465,7 @@ function Build-RunTab {
     $script:RunTabLayout = $container
 
     $toolbar = New-FlowToolbar
-    $toolbar.WrapContents = $false
+    Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $startButton = New-Button "Start" 0 0 80 28
@@ -1460,12 +1476,27 @@ function Build-RunTab {
     $stopButton.Add_Click({ Stop-VdbenchRun })
     Add-FlowToolbarItem $toolbar $stopButton
 
-    $profileLabel = New-Label "Run profile" 0 6 70 20
-    $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 6, 0, 0
+    $reloadButton = New-Button "Set Profiles" 0 0 95 28
+    $reloadButton.Add_Click({ Reload-RunProfile })
+    Add-FlowToolbarItem $toolbar $reloadButton
+
+    $deleteButton = New-Button "Delete" 0 0 75 28
+    $deleteButton.Add_Click({ Delete-SelectedProfile })
+    Add-FlowToolbarItem $toolbar $deleteButton
+
+    $folderButton = New-Button "Profiles" 0 0 80 28
+    $folderButton.Add_Click({ Open-ProfileFolder })
+    Add-FlowToolbarItem $toolbar $folderButton -FlowBreak
+
+    $profileLabel = New-Label "Run profile" 0 6 72 24
+    $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 6, 0, 0
+    $profileLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $toolbar.Controls.Add($profileLabel)
 
-    $script:RunProfileSelector = New-ComboBox @() "" 0 0 240 24
+    $script:RunProfileSelector = New-ComboBox @() "" 0 0 300 24
+    $script:RunProfileSelector.Tag = "flow-toolbar-combo"
     $script:RunProfileSelector.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 0, 0
+    Set-FlowToolbarControlHeight $script:RunProfileSelector
     $script:RunProfileSelector.Add_SelectedIndexChanged({
         if ($script:SuppressRunProfileSelectorEvents) {
             return
@@ -1478,20 +1509,10 @@ function Build-RunTab {
     })
     $toolbar.Controls.Add($script:RunProfileSelector)
 
-    $reloadButton = New-Button "Set Profiles" 0 0 95 28
-    $reloadButton.Add_Click({ Reload-RunProfile })
-    Add-FlowToolbarItem $toolbar $reloadButton
-
-    $deleteButton = New-Button "Delete" 0 0 75 28
-    $deleteButton.Add_Click({ Delete-SelectedProfile })
-    Add-FlowToolbarItem $toolbar $deleteButton
-
-    $folderButton = New-Button "Profiles" 0 0 80 28
-    $folderButton.Add_Click({ Open-ProfileFolder })
-    Add-FlowToolbarItem $toolbar $folderButton
-
-    $script:RunStatusLabel = New-Label "Idle" 0 6 500 20
-    $script:RunStatusLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 16, 6, 0, 0
+    $script:RunStatusLabel = New-Label "Idle" 0 6 400 24
+    $script:RunStatusLabel.AutoSize = $true
+    $script:RunStatusLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 6, 0, 0
+    $script:RunStatusLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $toolbar.Controls.Add($script:RunStatusLabel)
 
     $summaryPanel = New-Object System.Windows.Forms.Panel

@@ -1000,7 +1000,7 @@ function Build-MasterSlaveTab {
     $script:MasterSlaveToolbarLayout = $container
 
     $toolbar = New-FlowToolbar
-    $toolbar.WrapContents = $true
+    Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $addButton = New-Button "Add slave" 10 8 95 28
@@ -1022,16 +1022,9 @@ function Build-MasterSlaveTab {
 
     $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 400 32
     $note.AutoSize = $false
+    $note.Tag = "flow-toolbar-wrap"
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
-    $toolbar.Add_Resize({
-        param($sender, $eventArgs)
-        foreach ($ctrl in @($sender.Controls)) {
-            if ($ctrl -is [System.Windows.Forms.Label] -and [string]$ctrl.Text -like "Enter Host*") {
-                $ctrl.Width = [Math]::Max(320, $sender.ClientSize.Width - 12)
-            }
-        }
-    })
 
     $script:SlaveGrid = Build-SlaveGrid
     $container.Controls.Add($script:SlaveGrid, 0, 1)
