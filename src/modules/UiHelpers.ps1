@@ -214,14 +214,21 @@ function Get-DataGridRowHeight {
 function Apply-DataGridResponsiveLayout {
     param(
         [System.Windows.Forms.DataGridView]$Grid,
-        [switch]$WithButtons
+        [switch]$WithButtons,
+        [int]$HeaderBase = 0
     )
     if ($null -eq $Grid) {
         return
     }
     $scale = Get-UiScaleFactor $Grid
     $rowHeight = Get-DataGridRowHeight -Control $Grid -WithButtons:([bool]$WithButtons)
-    $headerBase = if ($WithButtons) { 42 } else { 36 }
+    if ($HeaderBase -gt 0) {
+        $headerBase = $HeaderBase
+    } elseif ($WithButtons) {
+        $headerBase = 42
+    } else {
+        $headerBase = 36
+    }
     $headerHeight = [int][Math]::Max($headerBase, [Math]::Round($headerBase * $scale))
     $pad = [int][Math]::Max(4, [Math]::Round(6 * $scale))
     $padding = New-Object System.Windows.Forms.Padding -ArgumentList $pad, $pad, $pad, $pad
@@ -295,6 +302,7 @@ function Apply-MainFormResponsiveLayout {
         $script:RunModeCombo.Height = $comboHeight
         $script:RunModeCombo.Font = $script:UiFont
         $script:RunModeCombo.IntegralHeight = $false
+        $script:RunModeCombo.ItemHeight = [int][Math]::Max(26, [Math]::Round(26 * $scale))
         $longestText = 0
         foreach ($item in @($script:RunModeCombo.Items)) {
             $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText([string]$item, $script:UiFont).Width
@@ -305,8 +313,14 @@ function Apply-MainFormResponsiveLayout {
         $script:RunModeCombo.DropDownWidth = [int][Math]::Max(300, $longestText + 32)
     }
 
+    if ($script:RunModeLabel) {
+        $script:RunModeLabel.Font = New-Object System.Drawing.Font -ArgumentList $script:UiFont.FontFamily, $script:UiFont.Size, ([System.Drawing.FontStyle]::Bold)
+        $script:RunModeLabel.ForeColor = [System.Drawing.Color]::FromArgb(0, 70, 140)
+        $script:RunModeLabel.Text = "Run mode"
+    }
+
     if ($script:MainHeaderLayout) {
-        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(96, [Math]::Round(96 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(112, [Math]::Round(112 * $scale))
         $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(430, [Math]::Round(430 * $scale))
         $script:MainHeaderLayout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     }
@@ -337,15 +351,23 @@ function Apply-MainFormResponsiveLayout {
     foreach ($layoutInfo in @(
             @{ Layout = $script:PreviewToolbarLayout; Height = 52 },
             @{ Layout = $script:ReportsToolbarLayout; Height = 52 },
-            @{ Layout = $script:LocalHostToolbarLayout; Height = 64 }
+            @{ Layout = $script:LocalHostToolbarLayout; Height = 64 },
+            @{ Layout = $script:LocalHostContentLayout; Height = 0 }
         )) {
         if ($layoutInfo.Layout) {
-            $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
+            if ($layoutInfo.Layout -eq $script:LocalHostContentLayout) {
+                $infoHeight = [int][Math]::Max(188, [Math]::Round(188 * $scale))
+                $listHeight = [int][Math]::Max(220, [Math]::Round(220 * $scale))
+                $layoutInfo.Layout.RowStyles[0].Height = [single]$infoHeight
+                $layoutInfo.Layout.RowStyles[1].Height = [single]$listHeight
+            } else {
+                $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
+            }
         }
     }
 
     Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
-    Apply-DataGridResponsiveLayout $script:ReportsGrid
+    Apply-DataGridResponsiveLayout $script:ReportsGrid -HeaderBase 46
 
     Update-FlowToolbarButtonSizes $Form
 }

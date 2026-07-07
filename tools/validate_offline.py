@@ -2633,8 +2633,11 @@ def main() -> int:
     assert "DoEvents" not in ui_tabs_module
     assert 'New-Button "Browse"' in ui_tabs_module
     assert "function Browse-LocalHostTargets" in ui_tabs_module
+    assert "function Update-LocalHostDiskList" in ui_tabs_module
     assert "function Show-TargetPicker" in ui_slave_module
     assert "Show-TargetPicker -Row $null" in ui_tabs_module
+    assert "$script:RunModeLabel" in ui_tabs_module
+    assert 'New-Button "Refresh disks"' in ui_tabs_module
     assert "vdbench creates test files at run time" in ui_tabs_module.lower()
     assert 'Get-PropertyValue $row.Cells["Selected"].Value $false' in ui_tabs_module, (
         "Get-TargetGridRows must read checkbox values via Get-PropertyValue so "
