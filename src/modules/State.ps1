@@ -684,6 +684,14 @@ function Migrate-LegacySettings {
         $changed = $true
     }
 
+    # v3 -> v4 (2026-07-07): preview confirmation before run was removed from the
+    # product workflow; older installs may still have this enabled in settings.
+    if ([bool](Get-PropertyValue $Settings "RequirePreviewBeforeRun" $false)) {
+        Set-PropertyValue $Settings "RequirePreviewBeforeRun" $false
+        Write-DebugLog "Migrated legacy setting 'RequirePreviewBeforeRun' to false"
+        $changed = $true
+    }
+
     return $changed
 }
 

@@ -68,15 +68,6 @@ function Build-SettingsTab {
     $commentDisabled.Size = New-Object System.Drawing.Size -ArgumentList 300, 24
     $panel.Controls.Add($commentDisabled)
     $script:SettingsControls["CommentDisabledParameters"] = $commentDisabled
-    $y += 30
-
-    $requirePreview = New-Object System.Windows.Forms.CheckBox
-    $requirePreview.Text = "Require preview confirmation before run"
-    $requirePreview.Checked = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $false)
-    $requirePreview.Location = New-Object System.Drawing.Point -ArgumentList 210, $y
-    $requirePreview.Size = New-Object System.Drawing.Size -ArgumentList 300, 24
-    $panel.Controls.Add($requirePreview)
-    $script:SettingsControls["RequirePreviewBeforeRun"] = $requirePreview
     $y += 42
 
     $saveButton = New-Button "Save settings" 18 $y 120 30
@@ -1741,10 +1732,8 @@ function Build-MainForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Vdbench UI - Portable Manager"
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
-    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF -ArgumentList 96, 96
-    $form.Size = New-Object System.Drawing.Size -ArgumentList 1280, 820
-    $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1100, 700
+    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
+    Initialize-MainFormWindowBounds $form
 
     $script:AppToolTip = New-Object System.Windows.Forms.ToolTip
     $script:AppToolTip.AutoPopDelay = 12000
@@ -1756,15 +1745,29 @@ function Build-MainForm {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 2
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 36)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 38)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $form.Controls.Add($layout)
+    $script:MainFormLayout = $layout
 
-    $header = New-Object System.Windows.Forms.Panel
+    $header = New-Object System.Windows.Forms.TableLayoutPanel
     $header.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $header.Height = 36
-    $header.Controls.Add((New-Label "Run mode" 12 8 70))
-    $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 82 5 230 24
+    $header.ColumnCount = 3
+    $header.RowCount = 1
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 78)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 240)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+
+    $runModeLabel = New-Label "Run mode" 0 0 70 24
+    $runModeLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $runModeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $header.Controls.Add($runModeLabel, 0, 0)
+
+    $runModeHost = New-Object System.Windows.Forms.Panel
+    $runModeHost.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:RunModeCombo = New-ComboBox @("Single local run", "Master/Slave distributed run") ([string](Get-PropertyValue $script:Settings "RunMode" "Single local run")) 0 4 228 24
+    $script:RunModeCombo.Anchor = [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
     $script:RunModeCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $script:RunModeCombo.Add_SelectedIndexChanged({
         Invoke-UiSafe {
@@ -1772,10 +1775,13 @@ function Build-MainForm {
             Request-ProfileTargetContextSync "run-mode"
         } "Run mode change"
     })
-    $header.Controls.Add($script:RunModeCombo)
-    $script:RunModeIndicator = New-Label "Profile: (none)  |  Test kind: (pending targets)" 322 8 900 20
-    $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:RunModeIndicator.Font, ([System.Drawing.FontStyle]::Bold)
-    $header.Controls.Add($script:RunModeIndicator)
+    $runModeHost.Controls.Add($script:RunModeCombo)
+    $header.Controls.Add($runModeHost, 1, 0)
+
+    $script:RunModeIndicator = New-Label "Profile: (none)  |  Test kind: (pending targets)" 0 0 200 24
+    $script:RunModeIndicator.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:RunModeIndicator.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $header.Controls.Add($script:RunModeIndicator, 2, 0)
     $layout.Controls.Add($header, 0, 0)
 
     $tabs = New-Object System.Windows.Forms.TabControl
@@ -1833,7 +1839,8 @@ function Build-MainForm {
             -bor [System.Windows.Forms.TextFormatFlags]::EndEllipsis `
             -bor [System.Windows.Forms.TextFormatFlags]::SingleLine `
             -bor [System.Windows.Forms.TextFormatFlags]::NoPadding
-        [System.Windows.Forms.TextRenderer]::DrawText($graphics, $page.Text, $sender.Font, $textRect, $foreColor, $textFlags)
+        $tabFont = if ($script:UiTabFont) { $script:UiTabFont } else { $sender.Font }
+        [System.Windows.Forms.TextRenderer]::DrawText($graphics, $page.Text, $tabFont, $textRect, $foreColor, $textFlags)
     })
 
     $tabs.Add_Selecting({
@@ -1919,5 +1926,37 @@ function Build-MainForm {
     Update-RunModeIndicator
     Update-RunModeTabs
     Apply-RunModeFromSettings
+    Apply-MainFormResponsiveLayout $form
+
+    $form.Add_Load({
+        param($sender, $eventArgs)
+        Initialize-MainFormWindowBounds $sender
+        Apply-MainFormResponsiveLayout $sender
+        if ($script:MainTabControl) {
+            $script:MainTabControl.Invalidate()
+        }
+    })
+
+    $form.Add_Resize({
+        param($sender, $eventArgs)
+        if ($script:RunSummaryBox) {
+            Resize-RunTabSummaryArea
+        }
+    })
+
+    try {
+        $form.Add_DpiChanged({
+            param($sender, $eventArgs)
+            Apply-MainFormResponsiveLayout $sender
+            if ($script:MainTabControl) {
+                $script:MainTabControl.Invalidate()
+            }
+            if ($script:RunSummaryBox) {
+                Resize-RunTabSummaryArea
+            }
+        })
+    } catch {
+    }
+
     return $form
 }
