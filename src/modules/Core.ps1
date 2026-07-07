@@ -537,15 +537,50 @@ public static class ProcessEventBridge {
     Write-DebugLog "Process event bridge initialized"
 }
 
+function New-ProcessBridgeDataReceivedHandler {
+    param([string]$MethodName)
+    $bridgeType = [VdbenchUi.ProcessEventBridge]
+    $methodInfo = $bridgeType.GetMethod(
+        $MethodName,
+        [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public
+    )
+    if ($null -eq $methodInfo) {
+        throw ("ProcessEventBridge method not found: {0}" -f $MethodName)
+    }
+    return [System.Delegate]::CreateDelegate(
+        [System.Diagnostics.DataReceivedEventHandler],
+        $methodInfo
+    )
+}
+
+function New-ProcessBridgeExitedHandler {
+    $bridgeType = [VdbenchUi.ProcessEventBridge]
+    $methodInfo = $bridgeType.GetMethod(
+        "OnExited",
+        [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public
+    )
+    if ($null -eq $methodInfo) {
+        throw "ProcessEventBridge method not found: OnExited"
+    }
+    return [System.Delegate]::CreateDelegate(
+        [System.EventHandler],
+        $methodInfo
+    )
+}
+
 function Register-ProcessEventBridgeHandlers {
     param([System.Diagnostics.Process]$Process)
     if ($null -eq $Process) {
         throw "Register-ProcessEventBridgeHandlers requires a Process instance."
     }
     Initialize-ProcessEventBridge
-    $Process.add_OutputDataReceived([VdbenchUi.ProcessEventBridge]::StdoutHandler)
-    $Process.add_ErrorDataReceived([VdbenchUi.ProcessEventBridge]::StderrHandler)
-    $Process.add_Exited([VdbenchUi.ProcessEventBridge]::ExitedHandler)
+    $stdoutHandler = New-ProcessBridgeDataReceivedHandler -MethodName "OnStdout"
+    $stderrHandler = New-ProcessBridgeDataReceivedHandler -MethodName "OnStderr"
+    $exitedHandler = New-ProcessBridgeExitedHandler
+    $Process.add_OutputDataReceived.Invoke($stdoutHandler)
+    $Process.add_ErrorDataReceived.Invoke($stderrHandler)
+    $Process.add_Exited.Invoke($exitedHandler)
+    Write-DebugLog "Process event bridge handlers registered via CreateDelegate"
 }
 
 function Register-AppExceptionLogging {
