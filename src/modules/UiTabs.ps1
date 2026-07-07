@@ -22,14 +22,18 @@ function Build-SettingsTab {
     )
 
     $y = 18
+    $labelWidth = 240
+    $fieldX = 18 + $labelWidth + 10
+    $boxWidth = 500
+    $browseX = $fieldX + $boxWidth + 10
     foreach ($field in $fields) {
         $labelText = [string](Get-PropertyValue $field "Label" "")
         if ([bool](Get-PropertyValue $field "InfoOnly" $false)) {
             $labelText = $labelText + " (reference)"
         }
-        $panel.Controls.Add((New-Label $labelText 18 $y 180))
+        $panel.Controls.Add((New-Label $labelText 18 $y $labelWidth))
         $fieldKey = [string](Get-PropertyValue $field "Key" "")
-        $box = New-TextBox ([string](Get-PropertyValue $script:Settings $fieldKey "")) 210 $y 520
+        $box = New-TextBox ([string](Get-PropertyValue $script:Settings $fieldKey "")) $fieldX $y $boxWidth
         if ([bool](Get-PropertyValue $field "InfoOnly" $false)) {
             $box.ReadOnly = $true
             $box.BackColor = [System.Drawing.Color]::Gainsboro
@@ -43,7 +47,7 @@ function Build-SettingsTab {
         $script:SettingsControls[$fieldKey] = $box
         $browse = [string](Get-PropertyValue $field "Browse" "none")
         if ($browse -ne "none") {
-            $button = New-Button "Browse" 740 ($y - 2) 80 26
+            $button = New-Button "Browse" $browseX ($y - 2) 80 26
             if ($browse -eq "folder") {
                 $button.Add_Click({
                     param($sender, $eventArgs)
@@ -64,31 +68,42 @@ function Build-SettingsTab {
     $commentDisabled = New-Object System.Windows.Forms.CheckBox
     $commentDisabled.Text = "Render disabled parameters as comments"
     $commentDisabled.Checked = [bool](Get-PropertyValue $script:Settings "CommentDisabledParameters" $true)
-    $commentDisabled.Location = New-Object System.Drawing.Point -ArgumentList 210, $y
-    $commentDisabled.Size = New-Object System.Drawing.Size -ArgumentList 300, 24
+    $commentDisabled.Location = New-Object System.Drawing.Point -ArgumentList $fieldX, $y
+    $commentDisabled.Size = New-Object System.Drawing.Size -ArgumentList 360, 24
     $panel.Controls.Add($commentDisabled)
     $script:SettingsControls["CommentDisabledParameters"] = $commentDisabled
     $y += 42
 
-    $saveButton = New-Button "Save settings" 18 $y 120 30
+    $buttonHost = New-Object System.Windows.Forms.Panel
+    $buttonHost.Location = New-Object System.Drawing.Point -ArgumentList 18, $y
+    $buttonHost.Size = New-Object System.Drawing.Size -ArgumentList 1100, 40
+    $buttonHost.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+    $panel.Controls.Add($buttonHost)
+
+    $buttonBar = New-FlowToolbar
+    $buttonBar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    Register-FlowToolbarResponsive $buttonBar
+    $buttonHost.Controls.Add($buttonBar)
+
+    $saveButton = New-Button "Save settings" 0 0 120 30
     $saveButton.Add_Click({ Save-Settings })
-    $panel.Controls.Add($saveButton)
+    Add-FlowToolbarItem $buttonBar $saveButton
 
-    $validateButton = New-Button "Validate paths" 150 $y 120 30
+    $validateButton = New-Button "Validate paths" 0 0 120 30
     $validateButton.Add_Click({ Validate-SettingsPaths })
-    $panel.Controls.Add($validateButton)
+    Add-FlowToolbarItem $buttonBar $validateButton
 
-    $fakeButton = New-Button "Use fake runner" 282 $y 125 30
+    $fakeButton = New-Button "Use fake runner" 0 0 125 30
     $fakeButton.Add_Click({ Use-FakeRunnerSettings })
-    $panel.Controls.Add($fakeButton)
+    Add-FlowToolbarItem $buttonBar $fakeButton
 
-    $importSettingsButton = New-Button "Import settings" 418 $y 125 30
+    $importSettingsButton = New-Button "Import settings" 0 0 125 30
     $importSettingsButton.Add_Click({ Import-Settings })
-    $panel.Controls.Add($importSettingsButton)
+    Add-FlowToolbarItem $buttonBar $importSettingsButton
 
-    $exportSettingsButton = New-Button "Export settings" 554 $y 125 30
+    $exportSettingsButton = New-Button "Export settings" 0 0 125 30
     $exportSettingsButton.Add_Click({ Export-Settings })
-    $panel.Controls.Add($exportSettingsButton)
+    Add-FlowToolbarItem $buttonBar $exportSettingsButton
 
     $y += 46
     $script:SettingsStatusBox = New-Object System.Windows.Forms.TextBox
@@ -97,8 +112,16 @@ function Build-SettingsTab {
     $script:SettingsStatusBox.ReadOnly = $true
     $script:SettingsStatusBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
     $script:SettingsStatusBox.Location = New-Object System.Drawing.Point -ArgumentList 18, $y
-    $script:SettingsStatusBox.Size = New-Object System.Drawing.Size -ArgumentList 1120, 250
+    $script:SettingsStatusBox.Size = New-Object System.Drawing.Size -ArgumentList 1100, 250
+    $script:SettingsStatusBox.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Bottom
     $panel.Controls.Add($script:SettingsStatusBox)
+    $script:SettingsPanel = $panel
+    $panel.Add_Resize({
+        param($sender, $eventArgs)
+        if ($script:SettingsStatusBox) {
+            $script:SettingsStatusBox.Width = [Math]::Max(400, $sender.ClientSize.Width - 36)
+        }
+    })
     Validate-SettingsPaths
     return $tab
 }
@@ -764,21 +787,22 @@ function Build-LocalHostTab {
     $tab.Controls.Add($container)
 
     $toolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $toolbar
     $refreshButton = New-Button "Refresh targets" 10 8 120 28
     $refreshButton.Add_Click({ Refresh-LocalHostTab -ForceInventory })
-    $toolbar.Controls.Add($refreshButton)
+    Add-FlowToolbarItem $toolbar $refreshButton
 
     $applyButton = New-Button "Save selections" 138 8 120 28
     $applyButton.Add_Click({ Apply-LocalHostTargetSelections })
     Set-ControlToolTip $applyButton "Persist selected local targets in localhost.json."
-    $toolbar.Controls.Add($applyButton)
+    Add-FlowToolbarItem $toolbar $applyButton
 
     $validateButton = New-Button "Validate paths" 266 8 110 28
     $validateButton.Add_Click({
         Validate-SettingsPaths
         Refresh-LocalHostTab
     })
-    $toolbar.Controls.Add($validateButton)
+    Add-FlowToolbarItem $toolbar $validateButton
 
     $exploreButton = New-Button "Explore" 384 8 90 28
     $exploreButton.Add_Click({
@@ -815,9 +839,13 @@ function Build-LocalHostTab {
             Show-Warning ("Explore failed: " + $_.Exception.Message)
         }
     })
-    $toolbar.Controls.Add($exploreButton)
+    Add-FlowToolbarItem $toolbar $exploreButton
+    $toolbar.SetFlowBreak($exploreButton, $true)
 
-    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; Explore opens folders and files. Check Use for each target." 0 0 900 40
+    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; Explore opens folders and files. Check Use for each target." 0 0 400 32
+    $note.AutoSize = $false
+    $note.Tag = "flow-toolbar-wrap"
+    $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
     $container.Controls.Add($toolbar, 0, 0)
 
@@ -1776,8 +1804,8 @@ function Build-MainForm {
     $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 6, 8, 4
     $header.ColumnCount = 3
     $header.RowCount = 1
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 84)) | Out-Null
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 252)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 300)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
 
@@ -1807,6 +1835,7 @@ function Build-MainForm {
     $script:RunModeIndicator.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $header.Controls.Add($script:RunModeIndicator, 2, 0)
     $layout.Controls.Add($header, 0, 0)
+    $script:MainHeaderLayout = $header
 
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = [System.Windows.Forms.DockStyle]::Fill

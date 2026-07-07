@@ -294,6 +294,11 @@ function Apply-MainFormResponsiveLayout {
         $script:RunModeCombo.Height = $comboHeight
     }
 
+    if ($script:MainHeaderLayout) {
+        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(100, [Math]::Round(98 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(300, [Math]::Round(300 * $scale))
+    }
+
     if ($script:MasterSlaveToolbarLayout) {
         $toolbarHeight = [int][Math]::Max(76, [Math]::Round(76 * $scale))
         $script:MasterSlaveToolbarLayout.RowStyles[0].Height = [single]$toolbarHeight
