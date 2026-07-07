@@ -202,6 +202,116 @@ function Show-Info {
     [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 }
 
+function Show-ScrollableHelpDialog {
+    param(
+        [string]$Message,
+        [string]$Title = "Parameter help"
+    )
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        Show-Info "No help text is available for this item." $Title
+        return
+    }
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $Title
+    $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $form.MinimizeBox = $false
+    $form.MaximizeBox = $true
+    $form.ShowInTaskbar = $false
+    $form.Size = New-Object System.Drawing.Size -ArgumentList 680, 520
+    $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 520, 360
+
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Multiline = $true
+    $textBox.ReadOnly = $true
+    $textBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $textBox.WordWrap = $true
+    $textBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $textBox.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 10
+    $textBox.Text = $Message
+    $form.Controls.Add($textBox)
+
+    $buttonPanel = New-Object System.Windows.Forms.Panel
+    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $buttonPanel.Height = 44
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = "OK"
+    $okButton.Width = 90
+    $okButton.Height = 28
+    $okButton.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+    $okButton.Add_Click({ $form.Close() })
+    $buttonPanel.Add_Resize({
+        param($sender, $eventArgs)
+        $okButton.Location = New-Object System.Drawing.Point -ArgumentList ($sender.Width - $okButton.Width - 12), 8
+    })
+    $okButton.Location = New-Object System.Drawing.Point -ArgumentList 572, 8
+    $buttonPanel.Controls.Add($okButton)
+    $form.Controls.Add($buttonPanel)
+    $form.AcceptButton = $okButton
+    if ($null -ne $script:MainForm) {
+        $form.Owner = $script:MainForm
+    }
+    [void]$form.ShowDialog()
+    $form.Dispose()
+}
+
+function Get-ParameterHelpMessage {
+    param([object]$Definition)
+    if ($null -eq $Definition) {
+        return ""
+    }
+    $label = [string](Get-PropertyValue $Definition "Label" "")
+    $key = [string](Get-PropertyValue $Definition "Key" "")
+    $vdbenchName = [string](Get-PropertyValue $Definition "VdbenchName" "")
+    $section = [string](Get-PropertyValue $Definition "Section" "")
+    $group = [string](Get-PropertyValue $Definition "Group" "")
+    $helpEn = [string](Get-PropertyValue $Definition "HelpEn" "")
+    if ([string]::IsNullOrWhiteSpace($helpEn)) {
+        $helpEn = [string](Get-PropertyValue $Definition "Help" "")
+    }
+    $helpKa = [string](Get-PropertyValue $Definition "HelpKa" "")
+    $example = [string](Get-PropertyValue $Definition "Example" "")
+    $options = @(Get-PropertyValue $Definition "Options" @())
+    $lines = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($label)) {
+        [void]$lines.Add($label)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($key)) {
+        [void]$lines.Add(("Key: {0}" -f $key))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($vdbenchName)) {
+        [void]$lines.Add(("Vdbench: {0}" -f $vdbenchName))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($group)) {
+        [void]$lines.Add(("Section: {0} > {1}" -f $section, $group))
+    } elseif (-not [string]::IsNullOrWhiteSpace($section)) {
+        [void]$lines.Add(("Section: {0}" -f $section))
+    }
+    [void]$lines.Add("")
+    if (-not [string]::IsNullOrWhiteSpace($helpEn)) {
+        [void]$lines.Add("ENGLISH")
+        [void]$lines.Add($helpEn)
+        [void]$lines.Add("")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($helpKa)) {
+        [void]$lines.Add("ქართული")
+        [void]$lines.Add($helpKa)
+        [void]$lines.Add("")
+    }
+    if ($options.Count -gt 0) {
+        [void]$lines.Add("Options:")
+        foreach ($option in $options) {
+            [void]$lines.Add(("  {0}" -f [string]$option))
+        }
+        [void]$lines.Add("")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($example)) {
+        [void]$lines.Add(("Example: {0}" -f $example))
+        [void]$lines.Add("")
+    }
+    [void]$lines.Add("Disable behavior: clearing Enabled keeps the value in the profile but comments it out in generated config.")
+    return ($lines -join [Environment]::NewLine)
+}
+
 function Show-Warning {
     param(
         [string]$Message,

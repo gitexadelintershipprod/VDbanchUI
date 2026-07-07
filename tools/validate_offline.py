@@ -204,7 +204,17 @@ def render_config(
         "",
     ]
     if test_kind == "Filesystem":
-        lines.extend(["create_anchors=yes", ""])
+        create_anchors_value = param(profile, "run.createAnchors", "yes")
+        if enabled(profile, "run.createAnchors"):
+            if create_anchors_value == "no":
+                lines.append("create_anchors=no")
+            else:
+                lines.append("create_anchors=yes")
+        elif create_anchors_value == "no":
+            disabled.append("* disabled: create_anchors=no (General)")
+        else:
+            disabled.append("* disabled: create_anchors=yes (General)")
+        lines.append("")
     local_target_rows = local_targets if local_targets is not None else profile.get("LocalTargets", [])
 
     if distributed:
@@ -336,6 +346,57 @@ def validate_catalog(catalog: list[dict]):
         if item["Type"] == "dropdown":
             assert item["Options"], f"dropdown parameter has no options: {key}"
         assert "SortOrder" in item, f"catalog item missing SortOrder: {key}"
+
+
+FS_VISIBLE_HELP_KEYS = {
+    "run.name",
+    "run.elapsed",
+    "run.warmup",
+    "run.interval",
+    "run.format",
+    "run.createAnchors",
+    "fsd.name",
+    "fsd.anchor",
+    "fsd.depth",
+    "fsd.width",
+    "fsd.size",
+    "fsd.bypassOsCache",
+    "fsd.distribution",
+    "fsd.totalsize",
+    "fsd.workingsetsize",
+    "fwd.name",
+    "fwd.operation",
+    "fwd.rdpct",
+    "fwd.fileselect",
+    "fwd.xfersize",
+    "fwd.threads",
+    "fwd.skew",
+    "fwd.stopafter",
+}
+
+
+def validate_filesystem_parameter_help(catalog: list[dict]):
+    by_key = {item["Key"]: item for item in catalog}
+    missing_keys = sorted(FS_VISIBLE_HELP_KEYS - set(by_key))
+    assert not missing_keys, f"filesystem help keys missing from catalog: {missing_keys}"
+    for key in sorted(FS_VISIBLE_HELP_KEYS):
+        item = by_key[key]
+        assert not item.get("EditorHidden"), f"filesystem help key is hidden in UI: {key}"
+        for field in ("HelpEn", "HelpKa"):
+            value = str(item.get(field) or "").strip()
+            assert value, f"catalog item {key} missing non-empty {field}"
+
+
+def validate_advanced_parameter_help():
+    path = ROOT / "config" / "parameter-help-advanced.json"
+    assert path.is_file(), "missing advanced parameter help file"
+    data = load_json(path)
+    for key in ("AdvancedActive", "AdvancedDisabled"):
+        entry = data.get(key)
+        assert isinstance(entry, dict), f"advanced help missing entry: {key}"
+        for field in ("Label", "HelpEn", "HelpKa"):
+            value = str(entry.get(field) or "").strip()
+            assert value, f"advanced help {key} missing non-empty {field}"
 
 
 def validate_modules():
@@ -2316,6 +2377,8 @@ def main() -> int:
     catalog = load_json(CATALOG_PATH)
 
     validate_catalog(catalog)
+    validate_filesystem_parameter_help(catalog)
+    validate_advanced_parameter_help()
     validate_modules()
     validate_no_array_wrap_property_access()
     validate_golden_fixtures()
@@ -2355,6 +2418,10 @@ def main() -> int:
     assert "AutoScaleMode]::None" in ui_tabs_module
     assert "Apply-MainFormResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "Apply-DataGridResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Show-ScrollableHelpDialog" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Get-ParameterHelpMessage" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Show-AdvancedFieldHelp" in ui_tabs_module
+    assert "fwdrate) is fixed at max" in ui_tabs_module
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "Require preview confirmation before run" not in ui_tabs_module
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
@@ -2821,6 +2888,12 @@ def main() -> int:
     fs_config = render_config(catalog, settings, fs, local_targets=fs_local_targets, test_kind="Filesystem")
     assert GOLDEN_FIXTURES["fs-local.txt"] in fs_config
     assert "create_anchors=yes" in fs_config
+    fs_no_anchors = default_profile(catalog, "Offline-FS-NoAnchors", "Filesystem")
+    fs_no_anchors["Parameters"]["run.createAnchors"] = {"Enabled": True, "Value": "no"}
+    fs_no_anchors_config = render_config(
+        catalog, settings, fs_no_anchors, local_targets=fs_local_targets, test_kind="Filesystem"
+    )
+    assert "create_anchors=no" in fs_no_anchors_config
     assert "fwd=fwd1,fsd=fsd1" in fs_config
     assert "operation=read" in fs_config
     assert "rd=rd1,fwd=fwd1" in fs_config

@@ -879,18 +879,52 @@ function Build-LocalHostTab {
 
 function Show-ParameterHelp {
     param([object]$Definition)
-    $message = @(
-        ("Parameter: {0}" -f $Definition.Label),
-        ("Vdbench name: {0}" -f $Definition.VdbenchName),
-        ("Section: {0}" -f $Definition.Section),
-        "",
-        [string]$Definition.Help,
-        "",
-        ("Example: {0}" -f $Definition.Example),
-        "",
-        "Disable behavior: clearing Enabled keeps the value in the profile but comments it out in generated config."
-    ) -join [Environment]::NewLine
-    Show-Info $message "Parameter help"
+    $title = "Parameter help"
+    $key = [string](Get-PropertyValue $Definition "Key" "")
+    if (-not [string]::IsNullOrWhiteSpace($key)) {
+        $title = ("Parameter help — {0}" -f $key)
+    }
+    Show-ScrollableHelpDialog (Get-ParameterHelpMessage $Definition) $title
+}
+
+function Show-AdvancedFieldHelp {
+    param([string]$FieldKey)
+    $path = Join-Path $script:ConfigRoot "parameter-help-advanced.json"
+    if (-not (Test-Path -LiteralPath $path)) {
+        Show-Info "Advanced field help is not available." "Parameter help"
+        return
+    }
+    $map = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $entry = $map.$FieldKey
+    if ($null -eq $entry) {
+        Show-Info "Advanced field help is not available." "Parameter help"
+        return
+    }
+    $message = Get-ParameterHelpMessage ([pscustomobject]@{
+        Label = [string](Get-PropertyValue $entry "Label" $FieldKey)
+        Key = $FieldKey
+        VdbenchName = ""
+        Section = "Advanced"
+        Group = ""
+        HelpEn = [string](Get-PropertyValue $entry "HelpEn" "")
+        HelpKa = [string](Get-PropertyValue $entry "HelpKa" "")
+        Example = ""
+        Options = @()
+    })
+    Show-ScrollableHelpDialog $message ("Parameter help — {0}" -f $FieldKey)
+}
+
+function New-ProfileHelpButton {
+    param(
+        [int]$X,
+        [int]$Y,
+        [object]$HelpTarget,
+        [scriptblock]$OnClick
+    )
+    $helpButton = New-Button "?" $X ($Y + 1) 28 24
+    $helpButton.Tag = $HelpTarget
+    $helpButton.Add_Click($OnClick)
+    return $helpButton
 }
 
 function Test-ProfileTabSelected {
@@ -997,6 +1031,13 @@ function Add-ProfileEditorSectionTab {
         $targetDerived = [bool](Get-PropertyValue $def "TargetDerived" $false)
         Add-ParameterRow $panel $def $y -ReadOnly:$ReadOnly -TargetDerived:$targetDerived
         $y += $rowStep
+    }
+    if ($Section -eq "General" -and $script:ProfileEditorTestKind -eq "Filesystem") {
+        $noteLabel = New-Label "Filesystem I/O rate (fwdrate) is fixed at max." 76 $y 820 26
+        $noteLabel.ForeColor = [System.Drawing.Color]::DimGray
+        $noteLabel.Font = $groupFont
+        $noteLabel.Enabled = -not $ReadOnly
+        $panel.Controls.Add($noteLabel)
     }
     $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
 }
@@ -1260,6 +1301,11 @@ function Refresh-ProfileEditor {
             $advTab.Controls.Add($advPanel)
 
             $advPanel.Controls.Add((New-Label "Active manual Vdbench lines" 12 12 260))
+            $activeHelp = New-ProfileHelpButton 276 10 "AdvancedActive" {
+                param($sender, $eventArgs)
+                Show-AdvancedFieldHelp $sender.Tag
+            }
+            $advPanel.Controls.Add($activeHelp)
             $script:AdvancedActiveBox = New-Object System.Windows.Forms.TextBox
             $script:AdvancedActiveBox.Multiline = $true
             $script:AdvancedActiveBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
@@ -1270,6 +1316,11 @@ function Refresh-ProfileEditor {
             $advPanel.Controls.Add($script:AdvancedActiveBox)
 
             $advPanel.Controls.Add((New-Label "Disabled/commented manual lines" 12 250 260))
+            $disabledHelp = New-ProfileHelpButton 276 248 "AdvancedDisabled" {
+                param($sender, $eventArgs)
+                Show-AdvancedFieldHelp $sender.Tag
+            }
+            $advPanel.Controls.Add($disabledHelp)
             $script:AdvancedDisabledBox = New-Object System.Windows.Forms.TextBox
             $script:AdvancedDisabledBox.Multiline = $true
             $script:AdvancedDisabledBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both

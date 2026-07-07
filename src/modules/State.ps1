@@ -123,6 +123,10 @@ function Apply-FilesystemProfileFixedDefaults {
     Set-ProfileParamEnabled $Profile "fwd.openflags" $false
     Set-ProfileParamValue $Profile "run.fwdrate" "max"
     Set-ProfileParamEnabled $Profile "run.fwdrate" $true
+    if ([string]::IsNullOrWhiteSpace((Get-ProfileParamValue $Profile "run.createAnchors" ""))) {
+        Set-ProfileParamValue $Profile "run.createAnchors" "yes"
+        Set-ProfileParamEnabled $Profile "run.createAnchors" $true
+    }
     Set-ProfileParamValue $Profile "common.rate" "max"
     Set-ProfileParamEnabled $Profile "common.rate" $true
 }

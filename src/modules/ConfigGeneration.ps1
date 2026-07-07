@@ -455,7 +455,18 @@ function Build-VdbenchConfig {
         [void]$lines.Add("")
 
         if ($testKind -eq "Filesystem") {
-            [void]$lines.Add("create_anchors=yes")
+            $createAnchorsValue = Get-ProfileParamValue $script:CurrentProfile "run.createAnchors" "yes"
+            if (Get-ProfileParamEnabled $script:CurrentProfile "run.createAnchors") {
+                if ($createAnchorsValue -eq "no") {
+                    [void]$lines.Add("create_anchors=no")
+                } else {
+                    [void]$lines.Add("create_anchors=yes")
+                }
+            } elseif ($createAnchorsValue -eq "no") {
+                [void]$disabled.Add("* disabled: create_anchors=no (General)")
+            } else {
+                [void]$disabled.Add("* disabled: create_anchors=yes (General)")
+            }
             [void]$lines.Add("")
         }
 
