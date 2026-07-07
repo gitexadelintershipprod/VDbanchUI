@@ -1451,10 +1451,11 @@ function Build-RunTab {
     $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 140)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
+    $script:RunTabLayout = $container
 
     $toolbar = New-FlowToolbar
     $toolbar.WrapContents = $false
@@ -1467,10 +1468,6 @@ function Build-RunTab {
     $stopButton = New-Button "Stop/Kill" 0 0 90 28
     $stopButton.Add_Click({ Stop-VdbenchRun })
     $toolbar.Controls.Add($stopButton)
-
-    $openButton = New-Button "Open folder" 0 0 100 28
-    $openButton.Add_Click({ Open-CurrentRunFolder })
-    $toolbar.Controls.Add($openButton)
 
     $profileLabel = New-Label "Run profile" 0 6 70 20
     $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 6, 0, 0
@@ -1490,7 +1487,7 @@ function Build-RunTab {
     })
     $toolbar.Controls.Add($script:RunProfileSelector)
 
-    $reloadButton = New-Button "Reload" 0 0 75 28
+    $reloadButton = New-Button "Set Profiles" 0 0 95 28
     $reloadButton.Add_Click({ Reload-RunProfile })
     $toolbar.Controls.Add($reloadButton)
 
@@ -1498,7 +1495,7 @@ function Build-RunTab {
     $deleteButton.Add_Click({ Delete-SelectedProfile })
     $toolbar.Controls.Add($deleteButton)
 
-    $folderButton = New-Button "Folder" 0 0 75 28
+    $folderButton = New-Button "Profiles" 0 0 80 28
     $folderButton.Add_Click({ Open-ProfileFolder })
     $toolbar.Controls.Add($folderButton)
 
@@ -1525,10 +1522,14 @@ function Build-RunTab {
     $script:RunSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunSummaryBox.Multiline = $true
     $script:RunSummaryBox.ReadOnly = $true
-    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
     $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
     $script:RunSummaryBox.WordWrap = $true
+    $script:RunSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $script:RunSummaryBox.BackColor = [System.Drawing.SystemColors]::Control
+    $script:RunSummaryBox.Add_TextChanged({ Resize-RunTabSummaryArea })
     $summaryLayout.Controls.Add($script:RunSummaryBox, 0, 1)
+    $summaryPanel.Add_Resize({ Resize-RunTabSummaryArea })
 
     Refresh-RunProfileList
     Refresh-RunTabSummary

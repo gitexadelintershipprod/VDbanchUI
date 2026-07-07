@@ -769,6 +769,32 @@ function Update-RunModeIndicator {
     Refresh-RunTabSummary
 }
 
+function Resize-RunTabSummaryArea {
+    if ($null -eq $script:RunSummaryBox -or $null -eq $script:RunTabLayout) {
+        return
+    }
+    $text = [string]$script:RunSummaryBox.Text
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        $text = " "
+    }
+    $font = $script:RunSummaryBox.Font
+    $width = $script:RunSummaryBox.ClientSize.Width
+    if ($width -lt 200) {
+        $width = [Math]::Max(200, $script:RunTabLayout.ClientSize.Width - 32)
+    }
+    $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
+    $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
+        $text,
+        $font,
+        (New-Object System.Drawing.Size($width, [int]::MaxValue)),
+        $flags
+    )
+    $contentHeight = [Math]::Max($measured.Height + 8, 44)
+    $rowHeight = 22 + 8 + $contentHeight + 8
+    $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
+    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
+}
+
 function Refresh-RunTabSummary {
     if ($null -eq $script:RunSummaryBox) {
         return
@@ -803,6 +829,7 @@ function Refresh-RunTabSummary {
         }
     }
     $script:RunSummaryBox.Text = ($lines -join [Environment]::NewLine)
+    Resize-RunTabSummaryArea
 }
 
 function Show-ConfigPreviewConfirmation {
