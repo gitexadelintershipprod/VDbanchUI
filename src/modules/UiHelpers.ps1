@@ -293,11 +293,20 @@ function Apply-MainFormResponsiveLayout {
     if ($script:RunModeCombo) {
         $comboHeight = [int][Math]::Max(26, [Math]::Round(26 * $scale))
         $script:RunModeCombo.Height = $comboHeight
+        $script:RunModeCombo.Font = $script:UiFont
+        $longestText = 0
+        foreach ($item in @($script:RunModeCombo.Items)) {
+            $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText([string]$item, $script:UiFont).Width
+            if ($textWidth -gt $longestText) {
+                $longestText = $textWidth
+            }
+        }
+        $script:RunModeCombo.DropDownWidth = [int][Math]::Max(300, $longestText + 32)
     }
 
     if ($script:MainHeaderLayout) {
-        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(110, [Math]::Round(108 * $scale))
-        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(330, [Math]::Round(330 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(96, [Math]::Round(96 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(430, [Math]::Round(430 * $scale))
         $script:MainHeaderLayout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     }
 
@@ -327,7 +336,7 @@ function Apply-MainFormResponsiveLayout {
     foreach ($layoutInfo in @(
             @{ Layout = $script:PreviewToolbarLayout; Height = 52 },
             @{ Layout = $script:ReportsToolbarLayout; Height = 52 },
-            @{ Layout = $script:LocalHostToolbarLayout; Height = 76 }
+            @{ Layout = $script:LocalHostToolbarLayout; Height = 112 }
         )) {
         if ($layoutInfo.Layout) {
             $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
@@ -486,6 +495,98 @@ function Get-ProfileEditorRowStep {
     param([System.Windows.Forms.Control]$Control = $null)
     $scale = Get-UiScaleFactor $Control
     return [int][Math]::Max(36, [Math]::Round(36 * $scale))
+}
+
+function Get-ScaledUiFont {
+    param(
+        [System.Windows.Forms.Control]$Control = $null,
+        [single]$SizeBump = 0,
+        [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular
+    )
+    $baseFont = if ($script:UiFont) {
+        $script:UiFont
+    } else {
+        $scale = Get-UiScaleFactor $Control
+        New-Object System.Drawing.Font -ArgumentList "Segoe UI", ([Math]::Round(9.0 * $scale, 1))
+    }
+    $size = [Math]::Round($baseFont.Size + $SizeBump, 1)
+    if ($size -lt 8.0) {
+        $size = 8.0
+    }
+    return New-Object System.Drawing.Font -ArgumentList $baseFont.FontFamily, $size, $Style
+}
+
+function Get-ProfileEditorHeaderFont {
+    param([System.Windows.Forms.Control]$Control = $null)
+    return Get-ScaledUiFont -Control $Control -SizeBump 1.0 -Style ([System.Drawing.FontStyle]::Bold)
+}
+
+function Get-ProfileEditorGroupFont {
+    param([System.Windows.Forms.Control]$Control = $null)
+    return Get-ScaledUiFont -Control $Control -SizeBump 2.5 -Style ([System.Drawing.FontStyle]::Bold)
+}
+
+function Initialize-ResponsiveChildForm {
+    param(
+        [System.Windows.Forms.Form]$Form,
+        [int]$BaseWidth = 0,
+        [int]$BaseHeight = 0
+    )
+    if ($null -eq $Form) {
+        return 1.0
+    }
+    $scale = Get-UiScaleFactor $script:Form
+    if ($scale -lt 1.0) {
+        $scale = 1.0
+    }
+    if ($scale -gt 2.25) {
+        $scale = 2.25
+    }
+    $Form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
+    $Form.Font = Get-ScaledUiFont
+    if ($BaseWidth -gt 0 -and $BaseHeight -gt 0) {
+        $Form.Size = New-Object System.Drawing.Size -ArgumentList ([int][Math]::Round($BaseWidth * $scale)), ([int][Math]::Round($BaseHeight * $scale))
+    }
+    return $scale
+}
+
+function New-ResponsiveDialogButtonPanel {
+    param([int]$BaseHeight = 46)
+    $scale = 1.0
+    if ($script:Form) {
+        $scale = Get-UiScaleFactor $script:Form
+    }
+    $panel = New-Object System.Windows.Forms.Panel
+    $panel.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $panel.Height = [int][Math]::Max($BaseHeight, [Math]::Round($BaseHeight * $scale))
+    $panel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 6, 8, 6
+    return $panel
+}
+
+function Add-ResponsiveDialogButtons {
+    param(
+        [System.Windows.Forms.Panel]$Panel,
+        [System.Windows.Forms.Button[]]$Buttons,
+        [System.Windows.Forms.Label]$LeadingLabel = $null
+    )
+    $flow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $flow.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $flow.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
+    $flow.WrapContents = $false
+    if ($LeadingLabel) {
+        $leadingHost = New-Object System.Windows.Forms.Panel
+        $leadingHost.Dock = [System.Windows.Forms.DockStyle]::Left
+        $leadingHost.Width = [Math]::Max(180, $LeadingLabel.PreferredWidth + 12)
+        $LeadingLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+        $LeadingLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+        $leadingHost.Controls.Add($LeadingLabel) | Out-Null
+        $Panel.Controls.Add($leadingHost) | Out-Null
+    }
+    foreach ($button in $Buttons) {
+        Set-ToolbarButtonSize $button
+        $flow.Controls.Add($button) | Out-Null
+    }
+    $Panel.Controls.Add($flow) | Out-Null
 }
 
 function Add-FlowToolbarItem {

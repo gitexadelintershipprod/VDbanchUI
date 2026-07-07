@@ -256,27 +256,70 @@ function Get-RemoteSlaveTargetInventoryCore {
     return $targets
 }
 
+function Get-HostBrowseContext {
+    param([System.Windows.Forms.DataGridViewRow]$Row)
+    if ($null -ne $Row -and -not $Row.IsNewRow) {
+        $sshAlias = [string]$Row.Cells["SshAlias"].Value
+        if ([string]::IsNullOrWhiteSpace($sshAlias)) {
+            $sshAlias = [string]$Row.Cells["Host"].Value
+        }
+        return @{
+            Row = $Row
+            OsType = [string]$Row.Cells["OsType"].Value
+            Host = [string]$Row.Cells["Host"].Value
+            User = [string]$Row.Cells["User"].Value
+            SshAlias = $sshAlias
+        }
+    }
+    return @{
+        Row = $null
+        OsType = Get-LocalHostOsType
+        Host = "localhost"
+        User = ""
+        SshAlias = "localhost"
+    }
+}
+
 function Prompt-HostPathEntry {
     param([System.Windows.Forms.DataGridViewRow]$Row)
-    $osType = [string]$Row.Cells["OsType"].Value
+    $ctx = Get-HostBrowseContext -Row $Row
+    $osType = [string]$ctx.OsType
     $defaultPath = if ($osType -eq "Linux") { "/mnt/test" } else { "C:\vdbench\test" }
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = "Add target path"
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 560, 130
     $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dialog.MaximizeBox = $false
     $dialog.MinimizeBox = $false
-    $label = New-Label "Path on host:" 12 14 80 22
-    $box = New-TextBox $defaultPath 96 12 440 24
-    $dialog.Controls.Add($label)
-    $dialog.Controls.Add($box)
-    $ok = New-Button "OK" 360 52 75 28
+    Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 620 -BaseHeight 150
+
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.ColumnCount = 2
+    $layout.RowCount = 2
+    $layout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12, 12, 12, 8
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 110)) | Out-Null
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
+    $dialog.Controls.Add($layout)
+
+    $label = New-Label "Path on host:" 0 0 100 24
+    $label.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $label.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $layout.Controls.Add($label, 0, 0)
+    $box = New-TextBox $defaultPath 0 0 440 24
+    $box.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.Controls.Add($box, 1, 0)
+
+    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $ok = New-Button "OK" 0 0 75 28
     $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $cancel = New-Button "Cancel" 441 52 75 28
+    $cancel = New-Button "Cancel" 0 0 75 28
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $dialog.Controls.Add($ok)
-    $dialog.Controls.Add($cancel)
+    Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancel, $ok)
+    $layout.Controls.Add($buttonPanel, 0, 1)
+    $layout.SetColumnSpan($buttonPanel, 2)
     $dialog.AcceptButton = $ok
     $dialog.CancelButton = $cancel
     if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -287,25 +330,44 @@ function Prompt-HostPathEntry {
 
 function Prompt-HostFolderPath {
     param([System.Windows.Forms.DataGridViewRow]$Row)
-    $osType = [string]$Row.Cells["OsType"].Value
+    $ctx = Get-HostBrowseContext -Row $Row
+    $osType = [string]$ctx.OsType
     $defaultPath = if ($osType -eq "Linux") { "/mnt/vdbench-test" } else { "C:\vdbench\fs_test" }
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = "New folder on host"
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 560, 130
     $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dialog.MaximizeBox = $false
     $dialog.MinimizeBox = $false
-    $label = New-Label "Folder path:" 12 14 80 22
-    $box = New-TextBox $defaultPath 96 12 440 24
-    $dialog.Controls.Add($label)
-    $dialog.Controls.Add($box)
-    $ok = New-Button "Create" 360 52 75 28
+    Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 620 -BaseHeight 150
+
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.ColumnCount = 2
+    $layout.RowCount = 2
+    $layout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12, 12, 12, 8
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 110)) | Out-Null
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
+    $dialog.Controls.Add($layout)
+
+    $label = New-Label "Folder path:" 0 0 100 24
+    $label.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $label.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $layout.Controls.Add($label, 0, 0)
+    $box = New-TextBox $defaultPath 0 0 440 24
+    $box.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.Controls.Add($box, 1, 0)
+
+    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $ok = New-Button "Create" 0 0 85 28
     $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $cancel = New-Button "Cancel" 441 52 75 28
+    $cancel = New-Button "Cancel" 0 0 75 28
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $dialog.Controls.Add($ok)
-    $dialog.Controls.Add($cancel)
+    Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancel, $ok)
+    $layout.Controls.Add($buttonPanel, 0, 1)
+    $layout.SetColumnSpan($buttonPanel, 2)
     $dialog.AcceptButton = $ok
     $dialog.CancelButton = $cancel
     if ($dialog.ShowDialog($script:Form) -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -322,20 +384,18 @@ function New-HostFolderPath {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         throw "Folder path is required."
     }
-    $hostName = [string]$Row.Cells["Host"].Value
+    $ctx = Get-HostBrowseContext -Row $Row
+    $hostName = [string]$ctx.Host
     if (Test-HostLooksLocal $hostName) {
         if (-not (Test-Path -LiteralPath $Path)) {
             New-Item -ItemType Directory -Path $Path -Force | Out-Null
         }
         return
     }
-    $systemName = [string]$Row.Cells["SshAlias"].Value
-    if ([string]::IsNullOrWhiteSpace($systemName)) {
-        $systemName = $hostName
-    }
-    $osType = [string]$Row.Cells["OsType"].Value
+    $systemName = [string]$ctx.SshAlias
+    $osType = [string]$ctx.OsType
     $sshParts = New-Object System.Collections.Generic.List[string]
-    Add-CommonSshOptions -SshParts $sshParts -User ([string]$Row.Cells["User"].Value)
+    Add-CommonSshOptions -SshParts $sshParts -User ([string]$ctx.User)
     [void]$sshParts.Add((Quote-ProcessArgument $systemName))
     if ($osType -eq "Linux") {
         $remoteScript = "mkdir -p " + (Convert-ToShellSingleQuoted $Path)
@@ -350,6 +410,7 @@ function New-HostFolderPath {
         throw (($result.StdErr + [Environment]::NewLine + $result.StdOut).Trim())
     }
 }
+
 function Select-TargetFromList {
     param(
         [object[]]$Targets,
@@ -591,23 +652,35 @@ function Show-HostPathBrowser {
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = "Browse folders and files"
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 980, 560
     $dialog.MinimizeBox = $false
     $dialog.MaximizeBox = $true
+    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1020 -BaseHeight 620
 
-    $pathBox = New-TextBox $currentPath 70 12 780 24
-    $dialog.Controls.Add((New-Label "Path:" 12 14 50 22))
-    $dialog.Controls.Add($pathBox)
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.RowCount = 3
+    $layout.ColumnCount = 1
+    $toolbarHeight = [int][Math]::Max(44, [Math]::Round(44 * $scale))
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), $toolbarHeight)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), ([int][Math]::Max(46, [Math]::Round(46 * $scale))))) | Out-Null
+    $dialog.Controls.Add($layout)
 
-    $upButton = New-Button "Up" 860 10 45 28
-    $goButton = New-Button "Go" 910 10 45 28
-    $dialog.Controls.Add($upButton)
-    $dialog.Controls.Add($goButton)
+    $pathToolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $pathToolbar
+    $pathLabel = Add-FlowToolbarLabel $pathToolbar "Path:" 44
+    $pathBox = New-TextBox $currentPath 0 0 640 24
+    $pathBox.Tag = "flow-toolbar-combo"
+    $pathBox.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
+    Add-FlowToolbarItem $pathToolbar $pathBox
+    $upButton = New-Button "Up" 0 0 55 28
+    Add-FlowToolbarItem $pathToolbar $upButton
+    $goButton = New-Button "Go" 0 0 55 28
+    Add-FlowToolbarItem $pathToolbar $goButton
+    $layout.Controls.Add($pathToolbar, 0, 0)
 
     $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point -ArgumentList 12, 48
-    $grid.Size = New-Object System.Drawing.Size -ArgumentList 944, 420
-    $grid.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
     $grid.ReadOnly = $true
     $grid.AllowUserToAddRows = $false
     $grid.AllowUserToDeleteRows = $false
@@ -623,12 +696,11 @@ function Show-HostPathBrowser {
         }
         $grid.Columns.Add($col) | Out-Null
     }
-    $dialog.Controls.Add($grid)
+    Apply-DataGridResponsiveLayout $grid
+    $layout.Controls.Add($grid, 0, 1)
 
-    $buttonPanel = New-Object System.Windows.Forms.Panel
-    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
-    $buttonPanel.Height = 46
-    $dialog.Controls.Add($buttonPanel)
+    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $layout.Controls.Add($buttonPanel, 0, 2)
 
     $state = @{
         Row = $Row
@@ -701,7 +773,7 @@ function Show-HostPathBrowser {
         $ctx.Dialog.Close()
     }.GetNewClosure())
 
-    $selectButton = New-Button "Use selected" 700 9 110 28
+    $selectButton = New-Button "Use selected" 0 0 110 28
     $selectButton.Add_Click({
         $ctx = $dialog.Tag
         if ($ctx.Grid.SelectedRows.Count -eq 0) {
@@ -716,8 +788,7 @@ function Show-HostPathBrowser {
         $ctx.Dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $ctx.Dialog.Close()
     }.GetNewClosure())
-    $buttonPanel.Controls.Add($selectButton)
-    $useFolderButton = New-Button "Use this folder" 560 9 120 28
+    $useFolderButton = New-Button "Use this folder" 0 0 120 28
     $useFolderButton.Add_Click({
         $ctx = $dialog.Tag
         $path = [string]$ctx.PathBox.Text.Trim()
@@ -732,10 +803,9 @@ function Show-HostPathBrowser {
         $ctx.Dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $ctx.Dialog.Close()
     }.GetNewClosure())
-    $buttonPanel.Controls.Add($useFolderButton)
-    $cancelButton = New-Button "Cancel" 820 9 80 28
+    $cancelButton = New-Button "Cancel" 0 0 80 28
     $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $buttonPanel.Controls.Add($cancelButton)
+    Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancelButton, $selectButton, $useFolderButton)
     $dialog.AcceptButton = $selectButton
     $dialog.CancelButton = $cancelButton
 

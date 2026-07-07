@@ -781,7 +781,7 @@ function Build-LocalHostTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 76)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 112)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
@@ -805,7 +805,59 @@ function Build-LocalHostTab {
     })
     Add-FlowToolbarItem $toolbar $validateButton
 
-    $exploreButton = New-Button "Explore" 384 8 90 28
+    $newFolderButton = New-Button "New folder" 384 8 95 28
+    $newFolderButton.Add_Click({
+        try {
+            $path = Prompt-HostFolderPath
+            if ([string]::IsNullOrWhiteSpace($path)) {
+                return
+            }
+            New-HostFolderPath -Path $path
+            $existing = @(Get-LocalHostTargetStore)
+            $entry = New-TargetSelection -Kind "Filesystem" -Target $path -Description "Created from UI" -Selected $true
+            $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
+            $script:RefreshingLocalTargets = $true
+            try {
+                Set-TargetGridRows $script:LocalHostTargetGrid $merged
+                foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                    Update-TargetCreateFileEditability $row
+                }
+            } finally {
+                $script:RefreshingLocalTargets = $false
+            }
+            Capture-LocalHostTargets
+            Request-ProfileTargetContextSync "local-host-new-folder"
+        } catch {
+            Show-Warning ("Create folder failed: " + $_.Exception.Message)
+        }
+    })
+    Add-FlowToolbarItem $toolbar $newFolderButton
+
+    $addPathButton = New-Button "Add path" 487 8 85 28
+    $addPathButton.Add_Click({
+        $path = Prompt-HostPathEntry
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return
+        }
+        $kind = if ($path -match '^\\\\\.\\|^/dev/') { "Raw disk" } elseif ($path -match '\.(dat|bin|img)$') { "Test file" } else { "Filesystem" }
+        $existing = @(Get-LocalHostTargetStore)
+        $entry = New-TargetSelection -Kind $kind -Target $path -Description "Manual entry" -Selected $true
+        $merged = @(Merge-TargetSelections (Get-LocalTargetInventory) @(Merge-TargetSelections @($entry) $existing))
+        $script:RefreshingLocalTargets = $true
+        try {
+            Set-TargetGridRows $script:LocalHostTargetGrid $merged
+            foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                Update-TargetCreateFileEditability $row
+            }
+        } finally {
+            $script:RefreshingLocalTargets = $false
+        }
+        Capture-LocalHostTargets
+        Request-ProfileTargetContextSync "local-host-add-path"
+    })
+    Add-FlowToolbarItem $toolbar $addPathButton
+
+    $exploreButton = New-Button "Explore" 580 8 90 28
     $exploreButton.Add_Click({
         try {
             $existing = @(Get-LocalHostTargetStore)
@@ -841,9 +893,45 @@ function Build-LocalHostTab {
         }
     })
     Add-FlowToolbarItem $toolbar $exploreButton
-    $toolbar.SetFlowBreak($exploreButton, $true)
 
-    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; Explore opens folders and files. Check Use for each target." 0 0 400 32
+    $selectAllButton = New-Button "Select all" 678 8 80 28
+    $selectAllButton.Add_Click({
+        $script:RefreshingLocalTargets = $true
+        try {
+            foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                if ($row.IsNewRow) {
+                    continue
+                }
+                $row.Cells["Selected"].Value = $true
+            }
+        } finally {
+            $script:RefreshingLocalTargets = $false
+        }
+        Capture-LocalHostTargets
+        Request-ProfileTargetContextSync "local-host-select-all"
+    })
+    Add-FlowToolbarItem $toolbar $selectAllButton
+
+    $clearAllButton = New-Button "Clear all" 764 8 80 28
+    $clearAllButton.Add_Click({
+        $script:RefreshingLocalTargets = $true
+        try {
+            foreach ($row in $script:LocalHostTargetGrid.Rows) {
+                if ($row.IsNewRow) {
+                    continue
+                }
+                $row.Cells["Selected"].Value = $false
+            }
+        } finally {
+            $script:RefreshingLocalTargets = $false
+        }
+        Capture-LocalHostTargets
+        Request-ProfileTargetContextSync "local-host-clear-all"
+    })
+    Add-FlowToolbarItem $toolbar $clearAllButton
+    $toolbar.SetFlowBreak($clearAllButton, $true)
+
+    $note = New-Label "Active when Run mode = Single local run. Refresh lists drive roots; New folder / Add path / Explore manage targets. Check Use for each target." 0 0 400 32
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
@@ -961,6 +1049,9 @@ function Add-ProfileEditorSectionTab {
 
     $y = 16
     $rowStep = Get-ProfileEditorRowStep $panel
+    $headerFont = Get-ProfileEditorHeaderFont $panel
+    $groupFont = Get-ProfileEditorGroupFont $panel
+    $headerHeight = [int][Math]::Max(28, [Math]::Round(28 * (Get-UiScaleFactor $panel)))
     $headers = @(
         @{ Text = "State"; X = 12; W = 55 },
         @{ Text = "Parameter"; X = 76; W = 210 },
@@ -970,12 +1061,12 @@ function Add-ProfileEditorSectionTab {
         @{ Text = "Line"; X = 700; W = 120 }
     )
     foreach ($header in $headers) {
-        $h = New-Label $header.Text $header.X $y $header.W 26
-        $h.Font = New-Object System.Drawing.Font -ArgumentList $h.Font, ([System.Drawing.FontStyle]::Bold)
+        $h = New-Label $header.Text $header.X $y $header.W $headerHeight
+        $h.Font = $headerFont
         $h.Enabled = -not $ReadOnly
         $panel.Controls.Add($h)
     }
-    $y += ($rowStep - 4)
+    $y += ($rowStep + 2)
     $lastGroup = ""
     $defs = @($script:Catalog | Where-Object { [string]$_.Section -eq $Section } | Sort-Object {
         [int](Get-PropertyValue $_ "SortOrder" 9999)
@@ -989,12 +1080,12 @@ function Add-ProfileEditorSectionTab {
         }
         $group = [string](Get-PropertyValue $def "Group" "")
         if (-not [string]::IsNullOrWhiteSpace($group) -and $group -ne $lastGroup) {
-            $groupLabel = New-Label $group 12 $y 900
-            $groupLabel.Font = New-Object System.Drawing.Font -ArgumentList $groupLabel.Font, ([System.Drawing.FontStyle]::Bold)
+            $groupLabel = New-Label $group 12 $y 900 ([int][Math]::Max(30, $headerHeight + 4))
+            $groupLabel.Font = $groupFont
             $groupLabel.ForeColor = [System.Drawing.Color]::DarkSlateGray
             $groupLabel.Enabled = -not $ReadOnly
             $panel.Controls.Add($groupLabel)
-            $y += ($rowStep - 10)
+            $y += ($rowStep - 2)
             $lastGroup = $group
         }
         $targetDerived = [bool](Get-PropertyValue $def "TargetDerived" $false)
@@ -1809,8 +1900,8 @@ function Build-MainForm {
     $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     $header.ColumnCount = 3
     $header.RowCount = 1
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 110)) | Out-Null
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 330)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 96)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 430)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
 

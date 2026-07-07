@@ -432,31 +432,60 @@ function Show-AddSlaveDialog {
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = "Add slave host"
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 520, 210
     $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dialog.MaximizeBox = $false
     $dialog.MinimizeBox = $false
+    Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 560 -BaseHeight 250
 
-    $hostLabel = New-Label "Host / IP:" 16 18 80 22
-    $hostBox = New-TextBox "" 104 16 380 24
-    $nameLabel = New-Label "Name:" 16 52 80 22
-    $nameBox = New-TextBox $defaultName 104 50 380 24
-    $osLabel = New-Label "OS:" 16 86 80 22
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.ColumnCount = 2
+    $layout.RowCount = 4
+    $layout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 16, 14, 16, 8
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 110)) | Out-Null
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 34)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 48)) | Out-Null
+    $dialog.Controls.Add($layout)
+
+    $hostLabel = New-Label "Host / IP:" 0 0 100 24
+    $hostLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $hostLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $layout.Controls.Add($hostLabel, 0, 0)
+    $hostBox = New-TextBox "" 0 0 380 24
+    $hostBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.Controls.Add($hostBox, 1, 0)
+
+    $nameLabel = New-Label "Name:" 0 0 100 24
+    $nameLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $nameLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $layout.Controls.Add($nameLabel, 0, 1)
+    $nameBox = New-TextBox $defaultName 0 0 380 24
+    $nameBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.Controls.Add($nameBox, 1, 1)
+
+    $osLabel = New-Label "OS:" 0 0 100 24
+    $osLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $osLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $layout.Controls.Add($osLabel, 0, 2)
     $osBox = New-Object System.Windows.Forms.ComboBox
-    $osBox.Location = New-Object System.Drawing.Point -ArgumentList 104, 84
-    $osBox.Size = New-Object System.Drawing.Size -ArgumentList 160, 24
+    $osBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $osBox.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     [void]$osBox.Items.Add("Windows")
     [void]$osBox.Items.Add("Linux")
     $osBox.SelectedIndex = 0
+    $layout.Controls.Add($osBox, 1, 2)
 
-    $dialog.Controls.AddRange(@($hostLabel, $hostBox, $nameLabel, $nameBox, $osLabel, $osBox))
-
-    $ok = New-Button "Add" 320 126 75 28
+    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $ok = New-Button "Add" 0 0 85 28
     $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $cancel = New-Button "Cancel" 401 126 75 28
+    $cancel = New-Button "Cancel" 0 0 85 28
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $dialog.Controls.AddRange(@($ok, $cancel))
+    Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancel, $ok)
+    $layout.Controls.Add($buttonPanel, 0, 3)
+    $layout.SetColumnSpan($buttonPanel, 2)
     $dialog.AcceptButton = $ok
     $dialog.CancelButton = $cancel
 
@@ -777,43 +806,57 @@ function Show-SlaveTargetPicker {
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = ("Targets for {0}" -f $hostLabel)
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 1000, 600
     $dialog.MinimizeBox = $false
     $dialog.MaximizeBox = $true
+    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1040 -BaseHeight 640
 
     $layout = New-Object System.Windows.Forms.TableLayoutPanel
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $layout.RowCount = 2
+    $layout.RowCount = 3
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 68)) | Out-Null
+    $toolbarHeight = [int][Math]::Max(88, [Math]::Round(88 * $scale))
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), $toolbarHeight)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), ([int][Math]::Max(46, [Math]::Round(46 * $scale))))) | Out-Null
     $dialog.Controls.Add($layout)
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $layout.Controls.Add($toolbar, 0, 0)
-
+    $toolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $toolbar
     $refreshButton = New-Button "Refresh" 10 8 90 28
     $newFolderButton = New-Button "New folder" 108 8 95 28
     $addPathButton = New-Button "Add path" 210 8 85 28
     $exploreButton = New-Button "Explore" 303 8 85 28
-    $toolbar.Controls.Add($refreshButton)
-    $toolbar.Controls.Add($newFolderButton)
-    $toolbar.Controls.Add($addPathButton)
-    $toolbar.Controls.Add($exploreButton)
-    $hint = New-Label "Refresh lists drive roots; Explore opens folders and files. Tick Use on each target, then Save selection." 10 40 960 24
-    $hint.ForeColor = [System.Drawing.Color]::DimGray
-    $toolbar.Controls.Add($hint)
-
     $selectAllButton = New-Button "Select all" 396 8 80 28
     $clearAllButton = New-Button "Clear all" 482 8 80 28
-    $toolbar.Controls.Add($selectAllButton)
-    $toolbar.Controls.Add($clearAllButton)
+    Add-FlowToolbarItem $toolbar $refreshButton
+    Add-FlowToolbarItem $toolbar $newFolderButton
+    Add-FlowToolbarItem $toolbar $addPathButton
+    Add-FlowToolbarItem $toolbar $exploreButton
+    Add-FlowToolbarItem $toolbar $selectAllButton
+    Add-FlowToolbarItem $toolbar $clearAllButton
+    $hint = New-Label "Refresh lists drive roots; Explore opens folders and files. Tick Use on each target, then Save selection." 0 0 400 32
+    $hint.ForeColor = [System.Drawing.Color]::DimGray
+    $hint.AutoSize = $false
+    $hint.Tag = "flow-toolbar-wrap"
+    $hint.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
+    $toolbar.Controls.Add($hint)
+    $layout.Controls.Add($toolbar, 0, 0)
 
     $listView = New-TargetListView
+    $listFont = Get-ScaledUiFont
+    $listView.Font = $listFont
+    foreach ($column in @($listView.Columns)) {
+        if ($column.Text -eq "Kind") {
+            $column.Width = [int][Math]::Max(100, [Math]::Round(100 * $scale))
+        } elseif ($column.Text -eq "Target") {
+            $column.Width = [int][Math]::Max(280, [Math]::Round(280 * $scale))
+        } else {
+            $column.Width = [int][Math]::Max(420, [Math]::Round(420 * $scale))
+        }
+    }
     $layout.Controls.Add($listView, 0, 1)
 
-    $counterLabel = New-Label "0 target(s) selected" 500 14 200 22
+    $counterLabel = New-Label "0 target(s) selected" 0 0 220 24
     $counterLabel.ForeColor = [System.Drawing.Color]::DimGray
 
     $reloadList = {
@@ -913,15 +956,10 @@ function Show-SlaveTargetPicker {
         }
     }.GetNewClosure())
 
-    $buttonPanel = New-Object System.Windows.Forms.Panel
-    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
-    $buttonPanel.Height = 46
-    $dialog.Controls.Add($buttonPanel)
+    $buttonPanel = New-ResponsiveDialogButtonPanel
+    $layout.Controls.Add($buttonPanel, 0, 2)
 
-    $buttonPanel.Controls.Add($counterLabel)
-    Update-TargetListViewSelectionCounter $counterLabel $listView
-
-    $okButton = New-Button "Save selection" 720 9 125 28
+    $okButton = New-Button "Save selection" 0 0 125 28
     $okButton.Add_Click({
         $rows = @(Get-TargetListViewTargets $listView)
         if (@(Get-SelectedTargetEntries $rows).Count -eq 0) {
@@ -931,10 +969,10 @@ function Show-SlaveTargetPicker {
         $dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $dialog.Close()
     })
-    $buttonPanel.Controls.Add($okButton)
-    $cancelButton = New-Button "Cancel" 855 9 80 28
+    $cancelButton = New-Button "Cancel" 0 0 80 28
     $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $buttonPanel.Controls.Add($cancelButton)
+    Add-ResponsiveDialogButtons -Panel $buttonPanel -Buttons @($cancelButton, $okButton) -LeadingLabel $counterLabel
+    Update-TargetListViewSelectionCounter $counterLabel $listView
     $dialog.AcceptButton = $okButton
     $dialog.CancelButton = $cancelButton
 
