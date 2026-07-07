@@ -537,27 +537,35 @@ public static class ProcessEventBridge {
     Write-DebugLog "Process event bridge initialized"
 }
 
-function Get-ProcessEventBridgeDelegate {
-    param(
-        [string]$FieldName,
-        [Type]$DelegateType
-    )
+function New-ProcessBridgeDataReceivedHandler {
+    param([string]$MethodName)
     $bridgeType = [VdbenchUi.ProcessEventBridge]
-    $field = $bridgeType.GetField(
-        $FieldName,
+    $methodInfo = $bridgeType.GetMethod(
+        $MethodName,
         [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public
     )
-    if ($null -eq $field) {
-        throw ("ProcessEventBridge delegate field not found: {0}" -f $FieldName)
+    if ($null -eq $methodInfo) {
+        throw ("ProcessEventBridge method not found: {0}" -f $MethodName)
     }
-    $value = $field.GetValue($null)
-    if ($null -eq $value) {
-        throw ("ProcessEventBridge delegate is null: {0}" -f $FieldName)
+    return [System.Delegate]::CreateDelegate(
+        [System.Diagnostics.DataReceivedEventHandler],
+        $methodInfo
+    )
+}
+
+function New-ProcessBridgeExitedHandler {
+    $bridgeType = [VdbenchUi.ProcessEventBridge]
+    $methodInfo = $bridgeType.GetMethod(
+        "OnExited",
+        [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public
+    )
+    if ($null -eq $methodInfo) {
+        throw "ProcessEventBridge method not found: OnExited"
     }
-    if (-not $DelegateType.IsInstanceOfType($value)) {
-        throw ("ProcessEventBridge {0} has type {1}, expected {2}" -f $FieldName, $value.GetType().FullName, $DelegateType.FullName)
-    }
-    return $value
+    return [System.Delegate]::CreateDelegate(
+        [System.EventHandler],
+        $methodInfo
+    )
 }
 
 function Register-ProcessEventBridgeHandlers {
@@ -566,19 +574,13 @@ function Register-ProcessEventBridgeHandlers {
         throw "Register-ProcessEventBridgeHandlers requires a Process instance."
     }
     Initialize-ProcessEventBridge
-    $stdoutHandler = Get-ProcessEventBridgeDelegate `
-        -FieldName "StdoutHandler" `
-        -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
-    $stderrHandler = Get-ProcessEventBridgeDelegate `
-        -FieldName "StderrHandler" `
-        -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
-    $exitedHandler = Get-ProcessEventBridgeDelegate `
-        -FieldName "ExitedHandler" `
-        -DelegateType ([System.EventHandler])
-    $Process.add_OutputDataReceived($stdoutHandler)
-    $Process.add_ErrorDataReceived($stderrHandler)
-    $Process.add_Exited($exitedHandler)
-    Write-DebugLog "Process event bridge handlers registered"
+    $stdoutHandler = New-ProcessBridgeDataReceivedHandler -MethodName "OnStdout"
+    $stderrHandler = New-ProcessBridgeDataReceivedHandler -MethodName "OnStderr"
+    $exitedHandler = New-ProcessBridgeExitedHandler
+    $Process.add_OutputDataReceived.Invoke($stdoutHandler)
+    $Process.add_ErrorDataReceived.Invoke($stderrHandler)
+    $Process.add_Exited.Invoke($exitedHandler)
+    Write-DebugLog "Process event bridge handlers registered via CreateDelegate"
 }
 
 function Register-AppExceptionLogging {

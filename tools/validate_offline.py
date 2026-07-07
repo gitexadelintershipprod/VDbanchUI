@@ -592,9 +592,9 @@ $script:ProcessEventBridgeReady = $false
 $script:ModuleRoot = "{module_root}"
 . (Join-Path $script:ModuleRoot "Core.ps1")
 Initialize-ProcessEventBridge
-$stdoutHandler = Get-ProcessEventBridgeDelegate -FieldName "StdoutHandler" -DelegateType ([System.Diagnostics.DataReceivedEventHandler])
+$stdoutHandler = New-ProcessBridgeDataReceivedHandler -MethodName "OnStdout"
 if ($stdoutHandler -isnot [System.Diagnostics.DataReceivedEventHandler]) {{
-    throw "StdoutHandler is not a DataReceivedEventHandler"
+    throw "OnStdout delegate is not a DataReceivedEventHandler"
 }}
 $process = New-Object System.Diagnostics.Process
 Register-ProcessEventBridgeHandlers -Process $process
@@ -614,7 +614,7 @@ Write-Output "ok"
             print(result.stdout.strip())
             print(result.stderr.strip())
             raise AssertionError("process event bridge regression harness failed to run")
-        print("process event bridge regression check: prebuilt C# delegates wire to Process events")
+        print("process event bridge regression check: CreateDelegate wires OnStdout/OnStderr/OnExited to Process events")
 
 
 def _run_directory_listing_regression_check(pwsh: str) -> None:
@@ -2598,7 +2598,9 @@ def main() -> int:
     assert "SetUnhandledExceptionMode" in core_module
     assert "function Initialize-ProcessEventBridge" in core_module
     assert "VdbenchUi.ProcessEventBridge" in core_module
-    assert "function Get-ProcessEventBridgeDelegate" in core_module
+    assert "function New-ProcessBridgeDataReceivedHandler" in core_module
+    assert "CreateDelegate" in core_module
+    assert "DataReceivedEventHandler][VdbenchUi" not in runner_module_full
     assert "function Register-ProcessEventBridgeHandlers" in core_module
     assert "StdoutHandler" in core_module
     assert "add_OutputDataReceived({" not in runner_module_full

@@ -482,14 +482,13 @@ function Start-VdbenchRunCore {
     $script:KillRequested = $false
     $script:RunFinishedNotified = $false
     $commandText = ("`"{0}`" -f `"{1}`" -o `"{2}`"" -f $masterBat, $parmPath, $runDir)
-    Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)
 
     $script:RunLogBox.Clear()
     Reset-RunChart
-    Queue-RunLog ("Starting run {0}" -f $runId)
+    Queue-RunLog ("Preparing run {0}" -f $runId)
     Queue-RunLog ("Command: {0}" -f $commandText)
     Queue-RunLog ("Output: {0}" -f $runDir)
-    $script:RunStatusLabel.Text = "Running: " + $runId
+    $script:RunStatusLabel.Text = "Starting: " + $runId
     if (Get-Command Select-MainTab -ErrorAction SilentlyContinue) {
         Select-MainTab "Run Monitor"
     }
@@ -509,22 +508,30 @@ function Start-VdbenchRunCore {
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     $process.EnableRaisingEvents = $true
-    Register-ProcessEventBridgeHandlers -Process $process
 
     try {
+        Register-ProcessEventBridgeHandlers -Process $process
         [void]$process.Start()
         $script:CurrentProcess = $process
         $process.BeginOutputReadLine()
         $process.BeginErrorReadLine()
+        Set-RunMetadata $runId (New-RunMetadataMap $context $built "Running" $commandText)
+        $script:RunStatusLabel.Text = "Running: " + $runId
+        Queue-RunLog ("Run process started (pid {0})" -f $process.Id)
+        Flush-RunLog
     } catch {
         Set-RunMetadata $runId @{
             CompletedAt = (Get-Date).ToString("o")
             Status = "Start failed"
             ExitCode = ""
         }
+        $script:CurrentRunId = ""
+        $script:CurrentProcess = $null
         Queue-RunLog ("Start failed: " + $_.Exception.Message)
         $script:RunStatusLabel.Text = "Start failed"
+        Flush-RunLog
         Refresh-Reports
+        throw
     }
 }
 
