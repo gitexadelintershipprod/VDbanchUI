@@ -849,6 +849,7 @@ function Show-TargetPicker {
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $hint.AutoSize = $false
     $hint.Tag = "flow-toolbar-wrap"
+    $hint.AccessibleDescription = "40"
     $hint.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($hint)
     $layout.Controls.Add($toolbar, 0, 0)
@@ -1066,7 +1067,7 @@ function Build-MasterSlaveTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 76)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 108)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
     $script:MasterSlaveToolbarLayout = $container
@@ -1092,9 +1093,11 @@ function Build-MasterSlaveTab {
     $saveButton.Add_Click({ Save-Slaves })
     Add-FlowToolbarItem $toolbar $saveButton -FlowBreak
 
-    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 400 32
+    $note = New-Label "Enter Host / IP when adding a slave. Click Readiness to verify the host. Browse targets, use Explore to open folders/files, tick Use beside each target, Save selection." 0 0 400 48
     $note.AutoSize = $false
     $note.Tag = "flow-toolbar-wrap"
+    $note.AccessibleDescription = "48"
+    $note.ForeColor = [System.Drawing.Color]::DimGray
     $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
     $toolbar.Controls.Add($note)
 

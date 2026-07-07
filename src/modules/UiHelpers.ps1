@@ -124,6 +124,56 @@ function New-Button {
     return $button
 }
 
+function Get-ProfileEditorControlValue {
+    param([System.Windows.Forms.Control]$Control)
+    if ($null -eq $Control) {
+        return ""
+    }
+    if ($Control -is [System.Windows.Forms.ComboBox]) {
+        $combo = [System.Windows.Forms.ComboBox]$Control
+        if ($combo.DropDownStyle -eq [System.Windows.Forms.ComboBoxStyle]::DropDownList) {
+            if ($null -ne $combo.SelectedItem) {
+                return [string]$combo.SelectedItem
+            }
+            return ""
+        }
+    }
+    return [string]$Control.Text
+}
+
+function New-ProfileDropdown {
+    param(
+        [string[]]$Items,
+        [string]$Selected,
+        [int]$X,
+        [int]$Y,
+        [int]$W = 220,
+        [int]$H = 24
+    )
+    $combo = New-Object System.Windows.Forms.ComboBox
+    $combo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $combo.IntegralHeight = $false
+    $combo.Location = New-Object System.Drawing.Point -ArgumentList $X, $Y
+    $combo.Size = New-Object System.Drawing.Size -ArgumentList $W, $H
+    $normalizedItems = @()
+    foreach ($item in @($Items)) {
+        $text = [string]$item
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $normalizedItems += $text
+        }
+    }
+    foreach ($item in $normalizedItems) {
+        [void]$combo.Items.Add($item)
+    }
+    $selectedText = [string]$Selected
+    if ($normalizedItems -contains $selectedText) {
+        $combo.SelectedItem = $selectedText
+    } elseif ($normalizedItems.Count -gt 0) {
+        $combo.SelectedIndex = 0
+    }
+    return $combo
+}
+
 function New-ComboBox {
     param(
         [string[]]$Items,
@@ -281,10 +331,14 @@ function Apply-MainFormResponsiveLayout {
         $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:UiFont, ([System.Drawing.FontStyle]::Bold)
     }
 
-    foreach ($monoBox in @($script:ConfigPreviewBox, $script:RunLogBox, $script:ReportDetailBox, $script:SettingsStatusBox, $script:LocalHostInfoBox)) {
+    foreach ($monoBox in @($script:ConfigPreviewBox, $script:RunLogBox, $script:ReportDetailBox, $script:SettingsStatusBox)) {
         if ($monoBox) {
             $monoBox.Font = $script:UiMonoFont
         }
+    }
+
+    if ($script:LocalHostPathsLabel) {
+        $script:LocalHostPathsLabel.Font = $script:UiMonoFont
     }
 
     if ($script:RunSummaryBox) {
@@ -326,7 +380,7 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:MasterSlaveToolbarLayout) {
-        $toolbarHeight = [int][Math]::Max(76, [Math]::Round(76 * $scale))
+        $toolbarHeight = [int][Math]::Max(108, [Math]::Round(108 * $scale))
         $script:MasterSlaveToolbarLayout.RowStyles[0].Height = [single]$toolbarHeight
     }
 
@@ -351,23 +405,27 @@ function Apply-MainFormResponsiveLayout {
     foreach ($layoutInfo in @(
             @{ Layout = $script:PreviewToolbarLayout; Height = 52 },
             @{ Layout = $script:ReportsToolbarLayout; Height = 52 },
-            @{ Layout = $script:LocalHostToolbarLayout; Height = 64 },
-            @{ Layout = $script:LocalHostContentLayout; Height = 0 }
+            @{ Layout = $script:LocalHostToolbarLayout; Height = 100 }
         )) {
         if ($layoutInfo.Layout) {
-            if ($layoutInfo.Layout -eq $script:LocalHostContentLayout) {
-                $infoHeight = [int][Math]::Max(188, [Math]::Round(188 * $scale))
-                $listHeight = [int][Math]::Max(220, [Math]::Round(220 * $scale))
-                $layoutInfo.Layout.RowStyles[0].Height = [single]$infoHeight
-                $layoutInfo.Layout.RowStyles[1].Height = [single]$listHeight
-            } else {
-                $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
-            }
+            $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
+        }
+    }
+
+    if ($script:LocalHostContentLayout) {
+        $hostPanelHeight = [int][Math]::Max(210, [Math]::Round(210 * $scale))
+        $script:LocalHostContentLayout.RowStyles[0].Height = [single]$hostPanelHeight
+    }
+
+    foreach ($hostLabel in @($script:LocalHostComputerLabel, $script:LocalHostOsLabel, $script:LocalHostRunModeLabel)) {
+        if ($hostLabel) {
+            $hostLabel.Font = $script:UiFont
         }
     }
 
     Apply-DataGridResponsiveLayout $script:SlaveGrid -WithButtons
     Apply-DataGridResponsiveLayout $script:ReportsGrid -HeaderBase 46
+    Apply-DataGridResponsiveLayout $script:LocalHostTargetPreview
 
     Update-FlowToolbarButtonSizes $Form
 }
@@ -436,6 +494,15 @@ function Update-FlowToolbarResponsiveWidths {
         $role = [string]$ctrl.Tag
         if ($role -eq "flow-toolbar-wrap") {
             $ctrl.Width = $available
+            $font = if ($ctrl.Font) { $ctrl.Font } else { [System.Drawing.SystemFonts]::DefaultFont }
+            $proposedSize = New-Object System.Drawing.Size -ArgumentList $available, [int]::MaxValue
+            $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak
+            $textSize = [System.Windows.Forms.TextRenderer]::MeasureText($ctrl.Text, $font, $proposedSize, $flags)
+            $minHeight = 40
+            if ([string]$ctrl.AccessibleDescription -match '^\d+$') {
+                $minHeight = [int]$ctrl.AccessibleDescription
+            }
+            $ctrl.Height = [int][Math]::Max($minHeight, $textSize.Height + 8)
         } elseif ($role -eq "flow-toolbar-combo") {
             $ctrl.Width = [Math]::Min([Math]::Max(260, $available - 140), 520)
         } elseif ($role -eq "flow-toolbar-label") {
