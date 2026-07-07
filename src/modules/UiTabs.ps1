@@ -781,10 +781,11 @@ function Build-LocalHostTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 70)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 76)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 185)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
+    $script:LocalHostToolbarLayout = $container
 
     $toolbar = New-FlowToolbar
     Register-FlowToolbarResponsive $toolbar
@@ -959,21 +960,22 @@ function Add-ProfileEditorSectionTab {
     $tab.Controls.Add($panel)
 
     $y = 16
+    $rowStep = Get-ProfileEditorRowStep $panel
     $headers = @(
-        @{ Text = "State"; X = 12; W = 75 },
-        @{ Text = "Parameter"; X = 96; W = 210 },
-        @{ Text = "Help"; X = 310; W = 40 },
-        @{ Text = "Value"; X = 350; W = 220 },
-        @{ Text = "Vdbench"; X = 590; W = 120 },
-        @{ Text = "Line"; X = 720; W = 120 }
+        @{ Text = "State"; X = 12; W = 55 },
+        @{ Text = "Parameter"; X = 76; W = 210 },
+        @{ Text = "Help"; X = 290; W = 40 },
+        @{ Text = "Value"; X = 330; W = 220 },
+        @{ Text = "Vdbench"; X = 570; W = 120 },
+        @{ Text = "Line"; X = 700; W = 120 }
     )
     foreach ($header in $headers) {
-        $h = New-Label $header.Text $header.X $y $header.W
+        $h = New-Label $header.Text $header.X $y $header.W 26
         $h.Font = New-Object System.Drawing.Font -ArgumentList $h.Font, ([System.Drawing.FontStyle]::Bold)
         $h.Enabled = -not $ReadOnly
         $panel.Controls.Add($h)
     }
-    $y += 30
+    $y += ($rowStep - 4)
     $lastGroup = ""
     $defs = @($script:Catalog | Where-Object { [string]$_.Section -eq $Section } | Sort-Object {
         [int](Get-PropertyValue $_ "SortOrder" 9999)
@@ -992,12 +994,12 @@ function Add-ProfileEditorSectionTab {
             $groupLabel.ForeColor = [System.Drawing.Color]::DarkSlateGray
             $groupLabel.Enabled = -not $ReadOnly
             $panel.Controls.Add($groupLabel)
-            $y += 24
+            $y += ($rowStep - 10)
             $lastGroup = $group
         }
         $targetDerived = [bool](Get-PropertyValue $def "TargetDerived" $false)
         Add-ParameterRow $panel $def $y -ReadOnly:$ReadOnly -TargetDerived:$targetDerived
-        $y += 32
+        $y += $rowStep
     }
     $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
 }
@@ -1015,7 +1017,7 @@ function Add-ParameterRow {
     $rowReadOnly = $ReadOnly -or $TargetDerived
 
     $enabled = New-Object System.Windows.Forms.CheckBox
-    $enabled.Text = "Enabled"
+    $enabled.Text = ""
     if ($TargetDerived) {
         $enabled.Checked = $true
         $enabled.Enabled = $false
@@ -1023,15 +1025,15 @@ function Add-ParameterRow {
         $enabled.Checked = [bool]$param.Enabled
         $enabled.Enabled = -not $ReadOnly
     }
-    $enabled.Location = New-Object System.Drawing.Point -ArgumentList 12, $Y
-    $enabled.Size = New-Object System.Drawing.Size -ArgumentList 78, 24
+    $enabled.Location = New-Object System.Drawing.Point -ArgumentList 24, ($Y + 2)
+    $enabled.Size = New-Object System.Drawing.Size -ArgumentList 20, 24
     $Panel.Controls.Add($enabled)
 
-    $label = New-Label ([string]$Definition.Label) 96 $Y 210
+    $label = New-Label ([string]$Definition.Label) 76 $Y 210 26
     $label.Enabled = -not $rowReadOnly
     $Panel.Controls.Add($label)
 
-    $helpButton = New-Button "?" 310 ($Y - 1) 28 24
+    $helpButton = New-Button "?" 290 ($Y + 1) 28 24
     $helpButton.Enabled = -not $rowReadOnly
     $helpButton.Tag = $Definition
     $helpButton.Add_Click({
@@ -1052,9 +1054,9 @@ function Add-ParameterRow {
         foreach ($option in @($Definition.Options)) {
             $items += [string]$option
         }
-        $valueControl = New-ComboBox $items $displayValue 350 $Y 220
+        $valueControl = New-ComboBox $items $displayValue 330 $Y 220
     } else {
-        $valueControl = New-TextBox $displayValue 350 $Y 220
+        $valueControl = New-TextBox $displayValue 330 $Y 220
     }
     $valueControl.Enabled = -not $rowReadOnly
     if ($TargetDerived) {
@@ -1063,11 +1065,11 @@ function Add-ParameterRow {
     }
     $Panel.Controls.Add($valueControl)
 
-    $vdName = New-Label ([string]$Definition.VdbenchName) 590 $Y 120
+    $vdName = New-Label ([string]$Definition.VdbenchName) 570 $Y 120 26
     $vdName.ForeColor = [System.Drawing.Color]::DimGray
     $Panel.Controls.Add($vdName)
 
-    $line = New-Label ([string]$Definition.Line) 720 $Y 120
+    $line = New-Label ([string]$Definition.Line) 700 $Y 120 26
     $line.ForeColor = [System.Drawing.Color]::DimGray
     $Panel.Controls.Add($line)
 
@@ -1394,10 +1396,7 @@ function Build-ProfileTab {
     $script:ProfileSaveButton.Add_Click({ Save-CurrentProfile })
     Add-FlowToolbarItem $toolbar $script:ProfileSaveButton
 
-    $nameLabel = New-Label "Name" 0 6 44 24
-    $nameLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 8, 0, 0
-    $nameLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $toolbar.Controls.Add($nameLabel)
+    Add-FlowToolbarLabel $toolbar "Name" 50 | Out-Null
 
     $script:ProfileNameBox = New-TextBox "" 0 0 280 24
     $script:ProfileNameBox.Tag = "flow-toolbar-combo"
@@ -1433,17 +1432,18 @@ function Build-PreviewTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 2
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
+    $script:PreviewToolbarLayout = $container
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $refreshButton = New-Button "Refresh" 10 8 85 28
     $refreshButton.Add_Click({ Refresh-ConfigPreview })
-    $toolbar.Controls.Add($refreshButton)
+    Add-FlowToolbarItem $toolbar $refreshButton
 
     $copyButton = New-Button "Copy config" 104 8 100 28
     $copyButton.Add_Click({
@@ -1454,7 +1454,7 @@ function Build-PreviewTab {
             Show-Warning ("Copy failed: " + $_.Exception.Message)
         }
     })
-    $toolbar.Controls.Add($copyButton)
+    Add-FlowToolbarItem $toolbar $copyButton
 
     $script:ConfigPreviewBox = New-Object System.Windows.Forms.TextBox
     $script:ConfigPreviewBox.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1496,34 +1496,11 @@ function Build-RunTab {
     Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
-    $startButton = New-Button "Start" 0 0 80 28
-    $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
-    Add-FlowToolbarItem $toolbar $startButton
-
-    $stopButton = New-Button "Stop/Kill" 0 0 90 28
-    $stopButton.Add_Click({ Stop-VdbenchRun })
-    Add-FlowToolbarItem $toolbar $stopButton
-
-    $reloadButton = New-Button "Set Profiles" 0 0 95 28
-    $reloadButton.Add_Click({ Reload-RunProfile })
-    Add-FlowToolbarItem $toolbar $reloadButton
-
-    $deleteButton = New-Button "Delete" 0 0 75 28
-    $deleteButton.Add_Click({ Delete-SelectedProfile })
-    Add-FlowToolbarItem $toolbar $deleteButton
-
-    $folderButton = New-Button "Profiles" 0 0 80 28
-    $folderButton.Add_Click({ Open-ProfileFolder })
-    Add-FlowToolbarItem $toolbar $folderButton -FlowBreak
-
-    $profileLabel = New-Label "Run profile" 0 6 72 24
-    $profileLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 6, 0, 0
-    $profileLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $toolbar.Controls.Add($profileLabel)
+    Add-FlowToolbarLabel $toolbar "Run profile" 78 | Out-Null
 
     $script:RunProfileSelector = New-ComboBox @() "" 0 0 300 24
     $script:RunProfileSelector.Tag = "flow-toolbar-combo"
-    $script:RunProfileSelector.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 0, 0
+    $script:RunProfileSelector.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 4, 8, 0
     Set-FlowToolbarControlHeight $script:RunProfileSelector
     $script:RunProfileSelector.Add_SelectedIndexChanged({
         if ($script:SuppressRunProfileSelectorEvents) {
@@ -1536,6 +1513,26 @@ function Build-RunTab {
         } "Run profile selection"
     })
     $toolbar.Controls.Add($script:RunProfileSelector)
+
+    $setProfileButton = New-Button "Set Profile" 0 0 95 28
+    $setProfileButton.Add_Click({ Reload-RunProfile })
+    Add-FlowToolbarItem $toolbar $setProfileButton
+
+    $startButton = New-Button "Start" 0 0 80 28
+    $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
+    Add-FlowToolbarItem $toolbar $startButton
+
+    $stopButton = New-Button "Stop/Kill" 0 0 90 28
+    $stopButton.Add_Click({ Stop-VdbenchRun })
+    Add-FlowToolbarItem $toolbar $stopButton
+
+    $deleteButton = New-Button "Delete" 0 0 75 28
+    $deleteButton.Add_Click({ Delete-SelectedProfile })
+    Add-FlowToolbarItem $toolbar $deleteButton
+
+    $folderButton = New-Button "Profiles" 0 0 80 28
+    $folderButton.Add_Click({ Open-ProfileFolder })
+    Add-FlowToolbarItem $toolbar $folderButton
 
     $script:RunStatusLabel = New-Label "Idle" 0 6 400 24
     $script:RunStatusLabel.AutoSize = $true
@@ -1552,7 +1549,7 @@ function Build-RunTab {
     $summaryLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $summaryLayout.RowCount = 2
     $summaryLayout.ColumnCount = 1
-    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 22)) | Out-Null
+    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 26)) | Out-Null
     $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $summaryPanel.Controls.Add($summaryLayout)
 
@@ -1730,22 +1727,23 @@ function Build-ReportsTab {
     $container.Dock = [System.Windows.Forms.DockStyle]::Fill
     $container.RowCount = 3
     $container.ColumnCount = 1
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 45)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 55)) | Out-Null
     $tab.Controls.Add($container)
+    $script:ReportsToolbarLayout = $container
 
-    $toolbar = New-Object System.Windows.Forms.Panel
-    $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $toolbar = New-FlowToolbar
+    Register-FlowToolbarResponsive $toolbar
     $container.Controls.Add($toolbar, 0, 0)
 
     $refreshButton = New-Button "Refresh" 10 8 80 28
     $refreshButton.Add_Click({ Refresh-Reports })
-    $toolbar.Controls.Add($refreshButton)
+    Add-FlowToolbarItem $toolbar $refreshButton
 
     $openButton = New-Button "Open folder" 100 8 100 28
     $openButton.Add_Click({ Open-SelectedReportFolder })
-    $toolbar.Controls.Add($openButton)
+    Add-FlowToolbarItem $toolbar $openButton
 
     $script:ReportsGrid = New-Object System.Windows.Forms.DataGridView
     $script:ReportsGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1758,6 +1756,13 @@ function Build-ReportsTab {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
         $col.HeaderText = $name
+        if ($name -eq "StartedAt") {
+            $col.MinimumWidth = 140
+            $col.FillWeight = 120
+        }
+        if ($name -eq "RunDir") {
+            $col.FillWeight = 160
+        }
         $script:ReportsGrid.Columns.Add($col) | Out-Null
     }
     $script:ReportsGrid.Add_SelectionChanged({
@@ -1794,18 +1799,18 @@ function Build-MainForm {
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
     $layout.RowCount = 2
     $layout.ColumnCount = 1
-    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 46)) | Out-Null
+    $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 52)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $form.Controls.Add($layout)
     $script:MainFormLayout = $layout
 
     $header = New-Object System.Windows.Forms.TableLayoutPanel
     $header.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 6, 8, 4
+    $header.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     $header.ColumnCount = 3
     $header.RowCount = 1
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
-    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 300)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 110)) | Out-Null
+    $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 330)) | Out-Null
     $header.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $header.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
 

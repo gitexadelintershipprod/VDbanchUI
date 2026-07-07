@@ -570,7 +570,8 @@ function Build-SlaveGrid {
         $col.ReadOnly = @("Targets", "Readiness", "CheckedAt", "PingStatus", "PingAt") -contains $name
         if ($name -eq "Targets") { $col.FillWeight = 70 }
         if ($name -eq "Readiness") { $col.FillWeight = 55 }
-        if ($name -eq "CheckedAt") { $col.FillWeight = 75 }
+        if ($name -eq "CheckedAt") { $col.FillWeight = 95; $col.MinimumWidth = 145 }
+        if ($name -eq "PingAt") { $col.FillWeight = 95; $col.MinimumWidth = 145 }
         if ($name -eq "Notes") { $col.FillWeight = 60 }
         $grid.Columns.Add($col) | Out-Null
     }

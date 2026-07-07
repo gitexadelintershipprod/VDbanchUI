@@ -207,7 +207,7 @@ function Get-DataGridRowHeight {
     if ($Control) {
         $scale = Get-UiScaleFactor $Control
     }
-    $base = if ($WithButtons) { [Math]::Max($BaseHeight, 40) } else { $BaseHeight }
+    $base = if ($WithButtons) { [Math]::Max($BaseHeight, 44) } else { $BaseHeight }
     return [int][Math]::Max($base, [Math]::Round($base * $scale))
 }
 
@@ -221,8 +221,9 @@ function Apply-DataGridResponsiveLayout {
     }
     $scale = Get-UiScaleFactor $Grid
     $rowHeight = Get-DataGridRowHeight -Control $Grid -WithButtons:([bool]$WithButtons)
-    $headerHeight = [int][Math]::Max(32, [Math]::Round(30 * $scale))
-    $pad = [int][Math]::Max(3, [Math]::Round(4 * $scale))
+    $headerBase = if ($WithButtons) { 42 } else { 36 }
+    $headerHeight = [int][Math]::Max($headerBase, [Math]::Round($headerBase * $scale))
+    $pad = [int][Math]::Max(4, [Math]::Round(6 * $scale))
     $padding = New-Object System.Windows.Forms.Padding -ArgumentList $pad, $pad, $pad, $pad
     $gridFont = if ($script:UiFont) { $script:UiFont } else { $Grid.Font }
 
@@ -285,18 +286,19 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:MainFormLayout) {
-        $headerHeight = [int][Math]::Max(46, [Math]::Round(46 * $scale))
+        $headerHeight = [int][Math]::Max(52, [Math]::Round(52 * $scale))
         $script:MainFormLayout.RowStyles[0].Height = [single]$headerHeight
     }
 
     if ($script:RunModeCombo) {
-        $comboHeight = [int][Math]::Max(24, [Math]::Round(24 * $scale))
+        $comboHeight = [int][Math]::Max(26, [Math]::Round(26 * $scale))
         $script:RunModeCombo.Height = $comboHeight
     }
 
     if ($script:MainHeaderLayout) {
-        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(100, [Math]::Round(98 * $scale))
-        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(300, [Math]::Round(300 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[0].Width = [single][Math]::Max(110, [Math]::Round(108 * $scale))
+        $script:MainHeaderLayout.ColumnStyles[1].Width = [single][Math]::Max(330, [Math]::Round(330 * $scale))
+        $script:MainHeaderLayout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 8, 6
     }
 
     if ($script:MasterSlaveToolbarLayout) {
@@ -312,13 +314,23 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:RunTabLayout) {
-        $runToolbarHeight = [int][Math]::Max(88, [Math]::Round(88 * $scale))
+        $runToolbarHeight = [int][Math]::Max(96, [Math]::Round(96 * $scale))
         $script:RunTabLayout.RowStyles[0].Height = [single]$runToolbarHeight
         if ($script:RunProfileSelector) {
             Set-FlowToolbarControlHeight $script:RunProfileSelector
         }
         if ($script:ProfileNameBox) {
             Set-FlowToolbarControlHeight $script:ProfileNameBox
+        }
+    }
+
+    foreach ($layoutInfo in @(
+            @{ Layout = $script:PreviewToolbarLayout; Height = 52 },
+            @{ Layout = $script:ReportsToolbarLayout; Height = 52 },
+            @{ Layout = $script:LocalHostToolbarLayout; Height = 76 }
+        )) {
+        if ($layoutInfo.Layout) {
+            $layoutInfo.Layout.RowStyles[0].Height = [single][Math]::Max($layoutInfo.Height, [Math]::Round($layoutInfo.Height * $scale))
         }
     }
 
@@ -388,6 +400,14 @@ function Update-FlowToolbarResponsiveWidths {
             $ctrl.Width = $available
         } elseif ($role -eq "flow-toolbar-combo") {
             $ctrl.Width = [Math]::Min([Math]::Max(260, $available - 140), 520)
+        } elseif ($role -eq "flow-toolbar-label") {
+            $font = if ($ctrl.Font) { $ctrl.Font } else { [System.Drawing.SystemFonts]::DefaultFont }
+            $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText($ctrl.Text, $font).Width
+            $minWidth = 52
+            if ($ctrl.AccessibleName -match '^\d+$') {
+                $minWidth = [int]$ctrl.AccessibleName
+            }
+            $ctrl.Width = [Math]::Max($minWidth, $textWidth + 10)
         } elseif ($role -eq "flow-toolbar-status") {
             $ctrl.Width = $available
         }
@@ -444,6 +464,28 @@ function Update-FlowToolbarButtonSizes {
             Update-FlowToolbarButtonSizes $child
         }
     }
+}
+
+function Add-FlowToolbarLabel {
+    param(
+        [System.Windows.Forms.FlowLayoutPanel]$Toolbar,
+        [string]$Text,
+        [int]$MinWidth = 52
+    )
+    $label = New-Label $Text 0 0 $MinWidth 24
+    $label.Tag = "flow-toolbar-label"
+    $label.AccessibleName = [string]$MinWidth
+    $label.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 6, 0, 0
+    $label.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $Toolbar.Controls.Add($label) | Out-Null
+    Update-FlowToolbarResponsiveWidths $Toolbar
+    return $label
+}
+
+function Get-ProfileEditorRowStep {
+    param([System.Windows.Forms.Control]$Control = $null)
+    $scale = Get-UiScaleFactor $Control
+    return [int][Math]::Max(36, [Math]::Round(36 * $scale))
 }
 
 function Add-FlowToolbarItem {

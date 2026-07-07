@@ -789,8 +789,12 @@ function Resize-RunTabSummaryArea {
         (New-Object System.Drawing.Size($width, [int]::MaxValue)),
         $flags
     )
-    $contentHeight = [Math]::Max($measured.Height + 8, 44)
-    $rowHeight = 22 + 8 + $contentHeight + 8
+    $contentHeight = [Math]::Max($measured.Height + 12, 52)
+    $lineCount = @(($text -split [Environment]::NewLine)).Count
+    if ($lineCount -gt 1) {
+        $contentHeight += (($lineCount - 1) * 4)
+    }
+    $rowHeight = 26 + 12 + $contentHeight + 12
     $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
     $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
 }
