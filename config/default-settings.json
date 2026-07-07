@@ -13,6 +13,6 @@
   "SlaveShell": "ssh",
   "RunMode": "Single local run",
   "CommentDisabledParameters": true,
-  "RequirePreviewBeforeRun": true,
+  "RequirePreviewBeforeRun": false,
   "LogLevel": "DEBUG"
 }
