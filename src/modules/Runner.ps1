@@ -447,12 +447,6 @@ function Start-VdbenchRunCore {
         Show-Warning ("Run cannot start until these issues are fixed:" + [Environment]::NewLine + [Environment]::NewLine + ($blockers -join [Environment]::NewLine))
         return
     }
-    $mustReviewConfig = [bool](Get-PropertyValue $script:Settings "RequirePreviewBeforeRun" $false)
-    if ($mustReviewConfig) {
-        if (-not (Show-ConfigPreviewConfirmation $built)) {
-            return
-        }
-    }
 
     $masterBat = [string](Get-PropertyValue $script:Settings "MasterVdbenchBat" "")
     if ([string]::IsNullOrWhiteSpace($masterBat) -or -not (Test-Path -LiteralPath $masterBat)) {

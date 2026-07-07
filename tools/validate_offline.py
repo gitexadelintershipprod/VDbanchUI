@@ -515,6 +515,10 @@ $script:LocalHostInfoBox = $null
 $script:LocalHostTargetGrid = $null
 $script:RefreshingLocalTargets = $false
 $script:RunModeIndicator = $null
+$script:MainFormLayout = $null
+$script:UiFont = $null
+$script:UiTabFont = $null
+$script:UiMonoFont = $null
 $script:AppToolTip = $null
 $script:RunFinishedNotified = $false
 $script:MainTabToolTipText = ""
@@ -2248,6 +2252,7 @@ def main() -> int:
     assert "function Update-RunModeIndicator" in config_module
 
     runner_module = (MODULE_ROOT / "Runner.ps1").read_text(encoding="utf-8")
+    assert "Show-ConfigPreviewConfirmation" not in runner_module
     assert "function Stop-ProcessTree" in (MODULE_ROOT / "ProcessRunner.ps1").read_text(encoding="utf-8")
     assert "Stop-ProcessTree -Process" in runner_module
     assert "capturedRunId" in runner_module
@@ -2259,6 +2264,9 @@ def main() -> int:
     assert "Test-MetricHeaderLine" in metrics_module
 
     ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
+    assert "AutoScaleMode]::None" in ui_tabs_module
+    assert "Apply-MainFormResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "Require preview confirmation before run" not in ui_tabs_module
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
     assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module
     ui_slave_module = (MODULE_ROOT / "UiSlaveGrid.ps1").read_text(encoding="utf-8")
@@ -2521,6 +2529,9 @@ def main() -> int:
     assert '"{HostFlag}"' in state_module_full and "stockChecker" in state_module_full, (
         "Migrate-LegacySettings must advance a bare empty ReadinessCheckerArguments "
         "to {HostFlag}, guarded by ReadinessChecker still pointing at the stock script"
+    )
+    assert "RequirePreviewBeforeRun" in state_module_full, (
+        "Migrate-LegacySettings must disable legacy RequirePreviewBeforeRun=true settings"
     )
     assert settings.get("ReadinessCheckerArguments") == "{HostFlag}", (
         "default-settings.json should ship ReadinessCheckerArguments={HostFlag}: the "

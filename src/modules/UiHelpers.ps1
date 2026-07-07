@@ -180,6 +180,90 @@ function Set-ControlToolTip {
     $script:AppToolTip.SetToolTip($Control, $Text)
 }
 
+function Get-UiScaleFactor {
+    param([System.Windows.Forms.Control]$Control = $null)
+    try {
+        if ($Control) {
+            return [single]([Math]::Max(1.0, $Control.DeviceDpi / 96.0))
+        }
+        $graphics = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+        try {
+            return [single]([Math]::Max(1.0, $graphics.DpiX / 96.0))
+        } finally {
+            $graphics.Dispose()
+        }
+    } catch {
+        return 1.0
+    }
+}
+
+function Apply-MainFormResponsiveLayout {
+    param([System.Windows.Forms.Form]$Form)
+    if ($null -eq $Form) {
+        return
+    }
+    $scale = Get-UiScaleFactor $Form
+    if ($scale -gt 2.25) {
+        $scale = 2.25
+    }
+
+    $uiFontSize = [Math]::Round(9.0 * $scale, 1)
+    $monoFontSize = [Math]::Round(10.0 * $scale, 1)
+    $script:UiFont = New-Object System.Drawing.Font -ArgumentList "Segoe UI", $uiFontSize
+    $script:UiTabFont = New-Object System.Drawing.Font -ArgumentList "Segoe UI", ([Math]::Round(9.5 * $scale, 1)), ([System.Drawing.FontStyle]::Regular)
+    $script:UiMonoFont = New-Object System.Drawing.Font -ArgumentList "Consolas", $monoFontSize
+    $Form.Font = $script:UiFont
+
+    if ($script:MainTabControl) {
+        $tabWidth = [int][Math]::Max(108, [Math]::Round(118 * $scale))
+        $tabHeight = [int][Math]::Max(30, [Math]::Round(30 * $scale))
+        $script:MainTabControl.ItemSize = New-Object System.Drawing.Size -ArgumentList $tabWidth, $tabHeight
+        $script:MainTabControl.Font = $script:UiTabFont
+        $script:MainTabControl.Padding = New-Object System.Drawing.Point -ArgumentList ([int][Math]::Round(8 * $scale)), ([int][Math]::Round(4 * $scale))
+    }
+
+    if ($script:RunModeIndicator) {
+        $script:RunModeIndicator.Font = New-Object System.Drawing.Font -ArgumentList $script:UiFont, ([System.Drawing.FontStyle]::Bold)
+    }
+
+    foreach ($monoBox in @($script:ConfigPreviewBox, $script:RunLogBox, $script:ReportDetailBox, $script:SettingsStatusBox, $script:LocalHostInfoBox)) {
+        if ($monoBox) {
+            $monoBox.Font = $script:UiMonoFont
+        }
+    }
+
+    if ($script:RunSummaryBox) {
+        $summarySize = [Math]::Round(9.0 * $scale, 1)
+        $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", $summarySize
+    }
+
+    if ($script:MainFormLayout) {
+        $headerHeight = [int][Math]::Max(36, [Math]::Round(38 * $scale))
+        $script:MainFormLayout.RowStyles[0].Height = [single]$headerHeight
+    }
+}
+
+function Initialize-MainFormWindowBounds {
+    param([System.Windows.Forms.Form]$Form)
+    if ($null -eq $Form) {
+        return
+    }
+    $area = [System.Windows.Forms.Screen]::FromControl($Form).WorkingArea
+    if ($null -eq $area -or $area.Width -lt 200) {
+        $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    }
+    $scale = Get-UiScaleFactor $Form
+    $initialWidth = [int][Math]::Min(1320, [Math]::Max(960, [Math]::Round($area.Width * 0.9)))
+    $initialHeight = [int][Math]::Min(900, [Math]::Max(680, [Math]::Round($area.Height * 0.9)))
+    $minWidth = [int][Math]::Min(1100, [Math]::Max(820, [Math]::Round($area.Width * 0.72)))
+    $minHeight = [int][Math]::Min(700, [Math]::Max(620, [Math]::Round($area.Height * 0.65)))
+    $Form.MinimumSize = New-Object System.Drawing.Size -ArgumentList $minWidth, $minHeight
+    $Form.Size = New-Object System.Drawing.Size -ArgumentList $initialWidth, $initialHeight
+    if ($Form.Left -lt $area.Left -or $Form.Top -lt $area.Top) {
+        $Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    }
+}
+
 function New-FlowToolbar {
     $toolbar = New-Object System.Windows.Forms.FlowLayoutPanel
     $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
