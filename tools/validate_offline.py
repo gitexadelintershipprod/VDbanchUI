@@ -2643,7 +2643,9 @@ def main() -> int:
     assert "function Browse-LocalHostTargets" in ui_tabs_module
     assert "function Update-LocalHostTargetPreview" in ui_tabs_module
     assert "LocalHostDiskCombo" not in ui_tabs_module
-    assert "HorizontalScroll.Enabled = $false" in ui_helpers_module
+    assert "AutoScroll = $false" in ui_helpers_module
+    assert "SetFlowBreak($prev, $true)" in ui_helpers_module
+    assert "Add-FlowToolbarItem $toolbar $validateButton -FlowBreak" in ui_tabs_module
     assert "LocalHostTargetPreview -HeaderBase 46" in ui_helpers_module
     assert "ProfileToolbarLayout.RowStyles[1].Height" in ui_helpers_module
     assert "function New-ProfileDropdown" in ui_helpers_module

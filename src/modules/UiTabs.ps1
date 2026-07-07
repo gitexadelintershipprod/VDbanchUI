@@ -802,7 +802,7 @@ function Build-LocalHostTab {
         Validate-SettingsPaths
         Refresh-LocalHostTab
     })
-    Add-FlowToolbarItem $toolbar $validateButton
+    Add-FlowToolbarItem $toolbar $validateButton -FlowBreak
 
     $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the target list after Browse." 0 0 400 48
     $note.AutoSize = $false

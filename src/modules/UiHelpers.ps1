@@ -493,6 +493,11 @@ function Update-FlowToolbarResponsiveWidths {
     foreach ($ctrl in @($Toolbar.Controls)) {
         $role = [string]$ctrl.Tag
         if ($role -eq "flow-toolbar-wrap") {
+            $index = $Toolbar.Controls.GetChildIndex($ctrl)
+            if ($index -gt 0) {
+                $prev = $Toolbar.Controls[$index - 1]
+                $Toolbar.SetFlowBreak($prev, $true)
+            }
             $ctrl.Width = $available
             $font = if ($ctrl.Font) { $ctrl.Font } else { [System.Drawing.SystemFonts]::DefaultFont }
             $proposedSize = [System.Drawing.Size]::new($available, 10000)
@@ -724,9 +729,7 @@ function New-FlowToolbar {
     $toolbar.Dock = [System.Windows.Forms.DockStyle]::Fill
     $toolbar.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
     $toolbar.WrapContents = $true
-    $toolbar.AutoScroll = $true
-    $toolbar.HorizontalScroll.Enabled = $false
-    $toolbar.HorizontalScroll.Visible = $false
+    $toolbar.AutoScroll = $false
     $toolbar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6, 5, 6, 5
     return $toolbar
 }
