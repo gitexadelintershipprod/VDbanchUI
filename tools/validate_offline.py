@@ -570,6 +570,7 @@ Invoke-AppSelfTest
     _run_ssh_alias_default_regression_check(pwsh)
     _run_linux_filesystem_filter_regression_check(pwsh)
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
+    _run_raw_profile_fixed_defaults_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
     return True
@@ -783,6 +784,83 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         print(
             "filesystem profile fixed-defaults regression check: "
             "legacy files/shared/fileio/bypassOsCache normalize on profile load"
+        )
+
+
+def _run_raw_profile_fixed_defaults_regression_check(pwsh: str) -> None:
+    """Legacy raw profiles with storage.openflags normalize on load."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-raw-fixed-defaults-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-raw-fixed-defaults-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
+$script:Settings = $null
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:Catalog = @()
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+. (Join-Path $script:ModuleRoot "State.ps1")
+$script:Catalog = @(Read-JsonFile $script:CatalogPath @())
+
+$legacy = [pscustomobject]@{{
+    Name = "Legacy-Raw"
+    Parameters = @(
+        [pscustomobject]@{{ Key = "run.iorate"; Enabled = $true; Value = "1000" }}
+        [pscustomobject]@{{ Key = "storage.openflags"; Enabled = $true; Value = "o_direct" }}
+        [pscustomobject]@{{ Key = "workload.iorate"; Enabled = $true; Value = "500" }}
+        [pscustomobject]@{{ Key = "storage.threads"; Enabled = $true; Value = "8" }}
+    )
+    AdvancedActive = ""
+    AdvancedDisabled = ""
+}}
+Ensure-ProfileCatalogKeys $legacy
+
+$results = [pscustomobject]@{{
+    IorateValue = (Get-ProfileParamValue $legacy "run.iorate" "")
+    BypassValue = (Get-ProfileParamValue $legacy "storage.bypassOsCache" "")
+    BypassEnabled = (Get-ProfileParamEnabled $legacy "storage.bypassOsCache")
+    LegacyOpenflagsEnabled = (Get-ProfileParamEnabled $legacy "storage.openflags")
+    WorkloadIorateEnabled = (Get-ProfileParamEnabled $legacy "workload.iorate")
+    StorageThreadsEnabled = (Get-ProfileParamEnabled $legacy "storage.threads")
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                app_root=str(ROOT),
+                tmp_dir=tmp_dir.replace("\\", "/"),
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("raw profile fixed-defaults harness failed to run")
+
+        parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
+        assert parsed.get("IorateValue") == "max", parsed
+        assert parsed.get("BypassValue") == "yes", parsed
+        assert parsed.get("BypassEnabled") is True, parsed
+        assert parsed.get("LegacyOpenflagsEnabled") is False, parsed
+        assert parsed.get("WorkloadIorateEnabled") is False, parsed
+        assert parsed.get("StorageThreadsEnabled") is False, parsed
+        print(
+            "raw profile fixed-defaults regression check: "
+            "legacy iorate/openflags/threads normalize on profile load"
         )
 
 
@@ -2347,6 +2425,14 @@ def main() -> int:
     catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
     state_module = (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
     assert "function Apply-FilesystemProfileFixedDefaults" in state_module
+    assert "function Apply-RawProfileFixedDefaults" in state_module
+    assert "function Test-ProfileRawBypassOsCacheEnabled" in state_module
+    assert '"Key": "storage.bypassOsCache"' in catalog_text
+    assert '"Group": "SD advanced"' in catalog_text
+    assert '"Group": "WD advanced"' in catalog_text
+    assert '"EditorHidden": true' in catalog_text
+    assert "Add-SdOpenflagsForOsType" in config_module
+    assert "Apply-RawProfileFixedDefaults" in config_module
     assert '"Key": "fsd.files"' in catalog_text and '"EditorHidden": true' in catalog_text
     assert '"Default": "(random,shared)"' in catalog_text
     assert "Apply-FilesystemProfileFixedDefaults" in config_module
