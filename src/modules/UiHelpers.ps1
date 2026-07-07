@@ -238,9 +238,39 @@ function Apply-MainFormResponsiveLayout {
     }
 
     if ($script:MainFormLayout) {
-        $headerHeight = [int][Math]::Max(36, [Math]::Round(38 * $scale))
+        $headerHeight = [int][Math]::Max(46, [Math]::Round(46 * $scale))
         $script:MainFormLayout.RowStyles[0].Height = [single]$headerHeight
     }
+
+    if ($script:RunModeCombo) {
+        $comboHeight = [int][Math]::Max(24, [Math]::Round(24 * $scale))
+        $script:RunModeCombo.Height = $comboHeight
+    }
+
+    if ($script:MasterSlaveToolbarLayout) {
+        $toolbarHeight = [int][Math]::Max(76, [Math]::Round(76 * $scale))
+        $script:MasterSlaveToolbarLayout.RowStyles[0].Height = [single]$toolbarHeight
+    }
+
+    if ($script:ProfileToolbarLayout) {
+        $profileToolbarHeight = [int][Math]::Max(82, [Math]::Round(82 * $scale))
+        $script:ProfileToolbarLayout.RowStyles[0].Height = [single]$profileToolbarHeight
+        $profileBannerHeight = [int][Math]::Max(30, [Math]::Round(30 * $scale))
+        $script:ProfileToolbarLayout.RowStyles[1].Height = [single]$profileBannerHeight
+    }
+
+    if ($script:RunTabLayout) {
+        $runToolbarHeight = [int][Math]::Max(88, [Math]::Round(88 * $scale))
+        $script:RunTabLayout.RowStyles[0].Height = [single]$runToolbarHeight
+        if ($script:RunProfileSelector) {
+            Set-FlowToolbarControlHeight $script:RunProfileSelector
+        }
+        if ($script:ProfileNameBox) {
+            Set-FlowToolbarControlHeight $script:ProfileNameBox
+        }
+    }
+
+    Update-FlowToolbarButtonSizes $Form
 }
 
 function Initialize-MainFormWindowBounds {
@@ -261,6 +291,117 @@ function Initialize-MainFormWindowBounds {
     $Form.Size = New-Object System.Drawing.Size -ArgumentList $initialWidth, $initialHeight
     if ($Form.Left -lt $area.Left -or $Form.Top -lt $area.Top) {
         $Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    }
+}
+
+function Set-ToolbarButtonSize {
+    param(
+        [System.Windows.Forms.Button]$Button,
+        [int]$MinWidth = 68,
+        [int]$BaseHeight = 28
+    )
+    if ($null -eq $Button) {
+        return
+    }
+    $font = $Button.Font
+    if ($null -eq $font) {
+        $font = [System.Drawing.SystemFonts]::DefaultFont
+    }
+    $scale = 1.0
+    if ($Button.TopLevelControl) {
+        $scale = Get-UiScaleFactor $Button.TopLevelControl
+    }
+    $height = [int][Math]::Max($BaseHeight, [Math]::Round($BaseHeight * $scale))
+    $textWidth = [System.Windows.Forms.TextRenderer]::MeasureText($Button.Text, $font).Width
+    $width = [int][Math]::Max($MinWidth, $textWidth + 24)
+    $Button.Size = New-Object System.Drawing.Size -ArgumentList $width, $height
+    if ($Button.Margin -eq [System.Windows.Forms.Padding]::Empty) {
+        $Button.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 2, 8, 2
+    }
+}
+
+function Update-FlowToolbarResponsiveWidths {
+    param([System.Windows.Forms.FlowLayoutPanel]$Toolbar)
+    if ($null -eq $Toolbar) {
+        return
+    }
+    $available = [Math]::Max(280, $Toolbar.ClientSize.Width - 12)
+    foreach ($ctrl in @($Toolbar.Controls)) {
+        $role = [string]$ctrl.Tag
+        if ($role -eq "flow-toolbar-wrap") {
+            $ctrl.Width = $available
+        } elseif ($role -eq "flow-toolbar-combo") {
+            $ctrl.Width = [Math]::Min([Math]::Max(260, $available - 140), 520)
+        } elseif ($role -eq "flow-toolbar-status") {
+            $ctrl.Width = $available
+        }
+    }
+}
+
+function Set-FlowToolbarControlHeight {
+    param(
+        [System.Windows.Forms.Control]$Control,
+        [int]$BaseHeight = 24
+    )
+    if ($null -eq $Control) {
+        return
+    }
+    $scale = 1.0
+    if ($Control.TopLevelControl) {
+        $scale = Get-UiScaleFactor $Control.TopLevelControl
+    }
+    $Control.Height = [int][Math]::Max($BaseHeight, [Math]::Round($BaseHeight * $scale))
+}
+
+function Register-FlowToolbarResponsive {
+    param([System.Windows.Forms.FlowLayoutPanel]$Toolbar)
+    if ($null -eq $Toolbar) {
+        return
+    }
+    if ([string]$Toolbar.Tag -eq "flow-toolbar-responsive") {
+        return
+    }
+    $Toolbar.Tag = "flow-toolbar-responsive"
+    $Toolbar.Add_Resize({
+        param($sender, $eventArgs)
+        Update-FlowToolbarResponsiveWidths $sender
+    })
+}
+
+function Update-FlowToolbarButtonSizes {
+    param([System.Windows.Forms.Control]$Root)
+    if ($null -eq $Root) {
+        return
+    }
+    foreach ($child in @($Root.Controls)) {
+        if ($child -is [System.Windows.Forms.FlowLayoutPanel]) {
+            foreach ($item in @($child.Controls)) {
+                if ($item -is [System.Windows.Forms.Button]) {
+                    Set-ToolbarButtonSize $item
+                }
+            }
+            if ([string]$child.Tag -eq "flow-toolbar-responsive") {
+                Update-FlowToolbarResponsiveWidths $child
+            }
+        }
+        if ($child.Controls.Count -gt 0) {
+            Update-FlowToolbarButtonSizes $child
+        }
+    }
+}
+
+function Add-FlowToolbarItem {
+    param(
+        [System.Windows.Forms.FlowLayoutPanel]$Toolbar,
+        [System.Windows.Forms.Control]$Control,
+        [switch]$FlowBreak
+    )
+    if ($Control -is [System.Windows.Forms.Button]) {
+        Set-ToolbarButtonSize $Control
+    }
+    $Toolbar.Controls.Add($Control) | Out-Null
+    if ($FlowBreak) {
+        $Toolbar.SetFlowBreak($Control, $true)
     }
 }
 
