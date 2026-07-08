@@ -484,24 +484,23 @@
   {
     "Key": "workload.seekpct",
     "Section": "WD",
-    "Label": "Random seek percentage",
+    "Label": "LUN access",
     "VdbenchName": "seekpct",
     "Line": "workload",
     "Type": "dropdown",
-    "Default": "100",
+    "Default": "random",
     "Options": [
-      "0",
-      "50",
-      "100"
+      "random",
+      "sequential"
     ],
     "AppliesTo": "raw",
     "Required": true,
-    "Help": "Randomness of access pattern. 100 is random, 0 is sequential.",
-    "Example": "100",
+    "Help": "How the workload addresses the LUN: fully random or fully sequential.",
+    "Example": "random",
     "SortOrder": 30,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Percentage of random access operations.\nOptions: 0 or seq (100% sequential), 100 or random (100% random), or any intermediate value (e.g., 50).",
-    "HelpKa": "Random (შემთხვევითი) წვდომის პროცენტული წილი.\nვარიანტები: 0 ან seq (100% მიმდევრობითი/Sequential), 100 ან random (100% შემთხვევითი), ან ნებისმიერი შუალედური რიცხვი (მაგ. 50)."
+    "HelpEn": "How I/O addresses are chosen on the LUN.\nOptions:\n  random — access the LUN randomly\n  sequential — access the LUN sequentially",
+    "HelpKa": "სამიზნე LUN-ზე I/O მისამართების არჩევის მეთოდი.\nვარიანტები:\n  random — LUN-ს ირჩევს ალაგ-ალაგ\n  sequential — LUN-ს ირჩევს თანმიმდევრობით"
   },
   {
     "Key": "workload.rhpct",

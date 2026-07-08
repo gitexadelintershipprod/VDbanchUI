@@ -85,7 +85,7 @@ function Invoke-AppSelfTest {
             "wd=wd1,sd=sd1",
             "xfersize=4k",
             "rdpct=70",
-            "seekpct=100"
+            "seekpct=random"
         ) "raw workload line"
         Assert-SelfTestContainsAll $raw.Text @(
             "rd=rd1,wd=wd1",

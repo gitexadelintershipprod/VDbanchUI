@@ -2,7 +2,7 @@
 
 The application creates default JSON profiles on first launch:
 
-- `Default-Raw-Random-Read` — raw/block 4k random read (`rdpct=100`, `seekpct=100`, `iorate=max`)
+- `Default-Raw-Random-Read` — raw/block 4k random read (`rdpct=100`, `seekpct=random`, `iorate=max`)
 - `Default-Filesystem-Random-Read` — filesystem read workload (`format=no`)
 - `Default-Filesystem-Format` — create/populate test files (`format=yes`, default file size `12g`)
 - `Default-Distributed-WP` — acceptance Workload Profile: 100% random, 32k, 70% read / 30% write

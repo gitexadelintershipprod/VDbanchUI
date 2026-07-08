@@ -69,6 +69,30 @@ function Ensure-ProfileCatalogKeys {
     Apply-RawProfileFixedDefaults $Profile
 }
 
+function Normalize-WorkloadSeekpctProfileValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return "random"
+    }
+    switch ($Value.Trim().ToLowerInvariant()) {
+        "random" { return "random" }
+        "sequential" { return "sequential" }
+        "seq" { return "sequential" }
+        "0" { return "sequential" }
+        "100" { return "random" }
+        default {
+            $parsed = 0.0
+            if ([double]::TryParse($Value, [ref]$parsed)) {
+                if ($parsed -ge 50) {
+                    return "random"
+                }
+                return "sequential"
+            }
+            return $Value
+        }
+    }
+}
+
 function Apply-RawProfileFixedDefaults {
     param([object]$Profile)
     if ($null -eq $Profile) {
@@ -92,6 +116,10 @@ function Apply-RawProfileFixedDefaults {
     Set-ProfileParamEnabled $Profile "run.iorate" $true
     Set-ProfileParamValue $Profile "common.rate" "max"
     Set-ProfileParamEnabled $Profile "common.rate" $true
+    $seekpct = Get-ProfileParamValue $Profile "workload.seekpct" ""
+    if (-not [string]::IsNullOrWhiteSpace($seekpct)) {
+        Set-ProfileParamValue $Profile "workload.seekpct" (Normalize-WorkloadSeekpctProfileValue $seekpct)
+    }
 }
 
 function Apply-FilesystemProfileFixedDefaults {
@@ -831,7 +859,7 @@ function Ensure-DefaultProfiles {
     if (-not [System.IO.File]::Exists($rawReadPath)) {
         $profileObject = New-DefaultProfile "Default-Raw-Random-Read" "Raw/block"
         Set-ProfileParamValue $profileObject "workload.rdpct" "100"
-        Set-ProfileParamValue $profileObject "workload.seekpct" "100"
+        Set-ProfileParamValue $profileObject "workload.seekpct" "random"
         Set-ProfileParamValue $profileObject "workload.xfersize" "4k"
         Apply-RawProfileFixedDefaults $profileObject
         Write-JsonFile $rawReadPath $profileObject
