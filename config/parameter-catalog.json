@@ -236,7 +236,7 @@
     "Help": "Name of the raw/block storage definition (sd=).",
     "Example": "sd1",
     "SortOrder": 10,
-    "Group": "Storage definition (SD)"
+    "Group": "SD definition (SD)"
   },
   {
     "Key": "storage.lun",
@@ -253,7 +253,7 @@
     "Example": "\\\\.\\PhysicalDrive1",
     "SortOrder": 20,
     "TargetDerived": true,
-    "Group": "Storage definition (SD)"
+    "Group": "SD definition (SD)"
   },
   {
     "Key": "storage.size",
@@ -269,7 +269,7 @@
     "Help": "Size of the raw disk or file to use. Optional unless Vdbench should create a disk file for you.",
     "Example": "10g",
     "SortOrder": 30,
-    "Group": "Storage definition (SD)"
+    "Group": "SD definition (SD)"
   },
   {
     "Key": "storage.align",
@@ -437,7 +437,7 @@
     "Help": "Name of the raw/block workload definition (wd=).",
     "Example": "wd1",
     "SortOrder": 10,
-    "Group": "Workload definition (WD)"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.rdpct",
@@ -445,21 +445,15 @@
     "Label": "Read percentage",
     "VdbenchName": "rdpct",
     "Line": "workload",
-    "Type": "dropdown",
+    "Type": "text",
     "Default": "70",
-    "Options": [
-      "0",
-      "30",
-      "50",
-      "70",
-      "100"
-    ],
+    "Options": [],
     "AppliesTo": "raw",
     "Required": true,
     "Help": "Percentage of I/O operations that are reads.",
     "Example": "70",
     "SortOrder": 20,
-    "Group": "Workload definition (WD)"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.seekpct",
@@ -479,7 +473,7 @@
     "Help": "Randomness of access pattern. 100 is random, 0 is sequential.",
     "Example": "100",
     "SortOrder": 30,
-    "Group": "Workload definition (WD)"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.rhpct",
@@ -495,7 +489,7 @@
     "Help": "Read hit percentage for cache testing.",
     "Example": "0",
     "SortOrder": 90,
-    "Group": "WD advanced"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.whpct",
@@ -511,7 +505,7 @@
     "Help": "Write hit percentage for cache testing.",
     "Example": "0",
     "SortOrder": 100,
-    "Group": "WD advanced"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.skew",
@@ -526,8 +520,8 @@
     "Required": false,
     "Help": "Percentage of total workload assigned to this WD.",
     "Example": "50",
-    "SortOrder": 80,
-    "Group": "Workload I/O"
+    "SortOrder": 60,
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.stride",
@@ -542,8 +536,8 @@
     "Required": false,
     "Help": "Skip-sequential I/O range (min,max).",
     "Example": "8k,128k",
-    "SortOrder": 60,
-    "Group": "Workload I/O"
+    "SortOrder": 70,
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.range",
@@ -558,8 +552,8 @@
     "Required": false,
     "Help": "Limit seek range within the SD for this workload.",
     "Example": "0,50g",
-    "SortOrder": 70,
-    "Group": "Workload I/O"
+    "SortOrder": 80,
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.threads",
@@ -575,7 +569,7 @@
     "Help": "Concurrent threads for this workload (wd=,threads=).",
     "Example": "16",
     "SortOrder": 50,
-    "Group": "Workload I/O"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.xfersize",
@@ -600,7 +594,7 @@
     "Help": "Data transfer size (wd=,xfersize=).",
     "Example": "4k",
     "SortOrder": 40,
-    "Group": "Workload I/O"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.priority",
@@ -616,7 +610,7 @@
     "Help": "I/O priority for this workload.",
     "Example": "0",
     "SortOrder": 110,
-    "Group": "WD advanced"
+    "Group": "Raw/block workload (WD)"
   },
   {
     "Key": "workload.iorate",

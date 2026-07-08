@@ -2448,6 +2448,8 @@ def main() -> int:
     assert "========================================" in ui_helpers_text
     catalog_by_key = {item["Key"]: item for item in catalog}
     assert catalog_by_key["fwd.rdpct"]["Type"] == "text", "fwd.rdpct must be a text field"
+    assert catalog_by_key["workload.rdpct"]["Type"] == "text", "workload.rdpct must be a text field"
+    assert "iorate) is fixed at max" in ui_tabs_module
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "Require preview confirmation before run" not in ui_tabs_module
     assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
@@ -2521,8 +2523,12 @@ def main() -> int:
     assert "function Apply-RawProfileFixedDefaults" in state_module
     assert "function Test-ProfileRawBypassOsCacheEnabled" in state_module
     assert '"Key": "storage.bypassOsCache"' in catalog_text
+    assert '"Group": "SD definition (SD)"' in catalog_text
+    assert '"Group": "SD layout"' in catalog_text
     assert '"Group": "SD advanced"' in catalog_text
-    assert '"Group": "WD advanced"' in catalog_text
+    assert '"Group": "Raw/block workload (WD)"' in catalog_text
+    assert '"Group": "WD advanced"' not in catalog_text
+    assert '"Group": "Workload I/O"' not in catalog_text
     assert '"EditorHidden": true' in catalog_text
     assert "Add-SdOpenflagsForOsType" in config_module
     assert "Apply-RawProfileFixedDefaults" in config_module

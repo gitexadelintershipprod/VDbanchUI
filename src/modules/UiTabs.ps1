@@ -1038,6 +1038,12 @@ function Add-ProfileEditorSectionTab {
         $noteLabel.Font = $groupFont
         $noteLabel.Enabled = -not $ReadOnly
         $panel.Controls.Add($noteLabel)
+    } elseif ($Section -eq "General" -and $script:ProfileEditorTestKind -eq "Raw/block") {
+        $noteLabel = New-Label "Raw/block I/O rate (iorate) is fixed at max." 76 $y 820 26
+        $noteLabel.ForeColor = [System.Drawing.Color]::DimGray
+        $noteLabel.Font = $groupFont
+        $noteLabel.Enabled = -not $ReadOnly
+        $panel.Controls.Add($noteLabel)
     }
     $script:ProfileParamTabs.TabPages.Add($tab) | Out-Null
 }
