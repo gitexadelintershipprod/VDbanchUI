@@ -38,6 +38,30 @@ function Add-SdOpenflagsForOsType {
     [void]$Parts.Add(("openflags={0}" -f (Get-VdbenchOpenflagsForOsType $OsType)))
 }
 
+function Get-WorkloadSeekpctConfigValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    switch ($Value.Trim().ToLowerInvariant()) {
+        "random" { return "random" }
+        "sequential" { return "seq" }
+        "seq" { return "seq" }
+        "0" { return "seq" }
+        "100" { return "random" }
+        default {
+            $parsed = 0.0
+            if ([double]::TryParse($Value, [ref]$parsed)) {
+                if ($parsed -ge 50) {
+                    return "random"
+                }
+                return "seq"
+            }
+            return $Value
+        }
+    }
+}
+
 function Add-EnabledParameter {
     param(
         [System.Collections.Generic.List[string]]$Parts,
@@ -59,6 +83,8 @@ function Add-EnabledParameter {
         if ([string]::IsNullOrWhiteSpace($value) -or $value -eq "random") {
             $value = "(random,shared)"
         }
+    } elseif ($key -eq "workload.seekpct") {
+        $value = Get-WorkloadSeekpctConfigValue $value
     }
     if ([string]::IsNullOrWhiteSpace($value)) {
         return
@@ -133,7 +159,7 @@ function Test-ParameterValueValid {
     $key = [string]$Definition.Key
     $numericKeys = @(
         "run.elapsed", "run.warmup", "run.interval",
-        "storage.threads", "workload.threads", "workload.rdpct", "workload.seekpct", "workload.skew",
+        "storage.threads", "workload.threads", "workload.rdpct", "workload.skew",
         "workload.rhpct", "workload.whpct", "workload.priority", "workload.iorate",
         "common.threads",
         "fsd.depth", "fsd.width", "fsd.files", "fwd.threads", "fwd.rdpct", "fwd.skew", "fwd.stopafter"

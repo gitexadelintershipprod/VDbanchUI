@@ -124,6 +124,21 @@ def openflags_for_os_type(os_type: str) -> str:
 SKIP_FSD_PARAM_KEYS = {"fsd.openflags", "fwd.openflags", "fsd.bypassOsCache"}
 
 
+def workload_seekpct_config_value(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if text in {"random", "100"}:
+        return "random"
+    if text in {"sequential", "seq", "0"}:
+        return "seq"
+    try:
+        parsed = float(text)
+    except ValueError:
+        return value
+    return "random" if parsed >= 50 else "seq"
+
+
 def add_params(parts: list[str], disabled: list[str], catalog: list[dict], profile: dict, line: str, test_kind: str):
     for definition in catalog:
         if definition["Line"] != line or not applies(definition, test_kind):
@@ -139,6 +154,8 @@ def add_params(parts: list[str], disabled: list[str], catalog: list[dict], profi
         elif key == "fwd.fileio":
             if not value.strip() or value == "random":
                 value = "(random,shared)"
+        elif key == "workload.seekpct":
+            value = workload_seekpct_config_value(value)
         if not value.strip():
             continue
         name = definition["VdbenchName"]
@@ -934,6 +951,7 @@ $legacy = [pscustomobject]@{{
         [pscustomobject]@{{ Key = "storage.openflags"; Enabled = $true; Value = "o_direct" }}
         [pscustomobject]@{{ Key = "workload.iorate"; Enabled = $true; Value = "500" }}
         [pscustomobject]@{{ Key = "storage.threads"; Enabled = $true; Value = "8" }}
+        [pscustomobject]@{{ Key = "workload.seekpct"; Enabled = $true; Value = "100" }}
     )
     AdvancedActive = ""
     AdvancedDisabled = ""
@@ -947,6 +965,7 @@ $results = [pscustomobject]@{{
     LegacyOpenflagsEnabled = (Get-ProfileParamEnabled $legacy "storage.openflags")
     WorkloadIorateEnabled = (Get-ProfileParamEnabled $legacy "workload.iorate")
     StorageThreadsEnabled = (Get-ProfileParamEnabled $legacy "storage.threads")
+    SeekpctValue = (Get-ProfileParamValue $legacy "workload.seekpct" "")
 }}
 $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
 """.format(
@@ -973,9 +992,10 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         assert parsed.get("LegacyOpenflagsEnabled") is False, parsed
         assert parsed.get("WorkloadIorateEnabled") is False, parsed
         assert parsed.get("StorageThreadsEnabled") is False, parsed
+        assert parsed.get("SeekpctValue") == "random", parsed
         print(
             "raw profile fixed-defaults regression check: "
-            "legacy iorate/openflags/threads normalize on profile load"
+            "legacy iorate/openflags/threads/seekpct normalize on profile load"
         )
 
 
@@ -2490,6 +2510,11 @@ def main() -> int:
     catalog_by_key = {item["Key"]: item for item in catalog}
     assert catalog_by_key["fwd.rdpct"]["Type"] == "text", "fwd.rdpct must be a text field"
     assert catalog_by_key["workload.rdpct"]["Type"] == "text", "workload.rdpct must be a text field"
+    seekpct_def = catalog_by_key["workload.seekpct"]
+    assert seekpct_def["Type"] == "dropdown", "workload.seekpct must be a dropdown"
+    assert list(seekpct_def.get("Options") or []) == ["random", "sequential"], (
+        "workload.seekpct options must be random/sequential like filesystem fileselect"
+    )
     assert "iorate) is fixed at max" in ui_tabs_module
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "Require preview confirmation before run" not in ui_tabs_module
@@ -2928,7 +2953,7 @@ def main() -> int:
     assert "wd=wd1,sd=sd1" in raw_config
     assert "xfersize=4k" in raw_config
     assert "rdpct=70" in raw_config
-    assert "seekpct=100" in raw_config
+    assert "seekpct=random" in raw_config
     assert "rd=rd1,wd=wd1" in raw_config
     assert "elapsed=300" in raw_config
     assert "warmup=30" in raw_config
