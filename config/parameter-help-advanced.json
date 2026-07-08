@@ -1,12 +1,12 @@
 {
   "AdvancedActive": {
     "Label": "Active manual Vdbench lines",
-    "HelpEn": "Additional configuration lines you enter manually. They are written into the generated config as-is and are active during the run.",
-    "HelpKa": "მომხმარებლის მიერ ხელით შეყვანილი, დამატებითი კონფიგურაციის ხაზები, რომლებიც ტესტში აქტიურია."
+    "HelpEn": "Manually injected Vdbench configuration lines that are active and executed in the test.",
+    "HelpKa": "ხელით გაწერილი Vdbench-ის კონფიგურაციის დამატებითი ხაზები, რომლებიც ტესტში აქტიურია და ეშვება."
   },
   "AdvancedDisabled": {
     "Label": "Disabled/commented manual lines",
-    "HelpEn": "Configuration lines that appear in the profile but are commented out or disabled in the generated config.",
-    "HelpKa": "ის პარამეტრები, რომლებიც კონფიგურაციაში წერია, მაგრამ დროებით გამორთულია ან დაკომენტარებულია."
+    "HelpEn": "Commented-out (disabled) lines that are ignored by the program during the run.",
+    "HelpKa": "დაკომენტარებული (გათიშული) ხაზები, რომლებსაც პროგრამა იგნორირებას უკეთებს გაშვებისას."
   }
 }
