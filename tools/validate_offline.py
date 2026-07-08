@@ -374,6 +374,34 @@ FS_VISIBLE_HELP_KEYS = {
     "fwd.stopafter",
 }
 
+RAW_VISIBLE_HELP_KEYS = {
+    "run.name",
+    "run.elapsed",
+    "run.warmup",
+    "run.interval",
+    "storage.name",
+    "storage.lun",
+    "storage.size",
+    "storage.align",
+    "storage.offset",
+    "storage.range",
+    "storage.bypassOsCache",
+    "storage.compratio",
+    "storage.dedupratio",
+    "storage.dedupunit",
+    "workload.name",
+    "workload.rdpct",
+    "workload.seekpct",
+    "workload.xfersize",
+    "workload.threads",
+    "workload.skew",
+    "workload.stride",
+    "workload.range",
+    "workload.rhpct",
+    "workload.whpct",
+    "workload.priority",
+}
+
 
 def validate_filesystem_parameter_help(catalog: list[dict]):
     by_key = {item["Key"]: item for item in catalog}
@@ -382,6 +410,18 @@ def validate_filesystem_parameter_help(catalog: list[dict]):
     for key in sorted(FS_VISIBLE_HELP_KEYS):
         item = by_key[key]
         assert not item.get("EditorHidden"), f"filesystem help key is hidden in UI: {key}"
+        for field in ("HelpEn", "HelpKa"):
+            value = str(item.get(field) or "").strip()
+            assert value, f"catalog item {key} missing non-empty {field}"
+
+
+def validate_raw_parameter_help(catalog: list[dict]):
+    by_key = {item["Key"]: item for item in catalog}
+    missing_keys = sorted(RAW_VISIBLE_HELP_KEYS - set(by_key))
+    assert not missing_keys, f"raw help keys missing from catalog: {missing_keys}"
+    for key in sorted(RAW_VISIBLE_HELP_KEYS):
+        item = by_key[key]
+        assert not item.get("EditorHidden"), f"raw help key is hidden in UI: {key}"
         for field in ("HelpEn", "HelpKa"):
             value = str(item.get(field) or "").strip()
             assert value, f"catalog item {key} missing non-empty {field}"
@@ -2392,6 +2432,7 @@ def main() -> int:
 
     validate_catalog(catalog)
     validate_filesystem_parameter_help(catalog)
+    validate_raw_parameter_help(catalog)
     validate_advanced_parameter_help()
     validate_modules()
     validate_no_array_wrap_property_access()

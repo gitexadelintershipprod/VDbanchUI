@@ -76,8 +76,8 @@
     "Example": "rd1",
     "SortOrder": 10,
     "Group": "Run definition (RD)",
-    "HelpEn": "Unique name for the run profile. This becomes the rd= identifier in the generated Vdbench config.",
-    "HelpKa": "გაშვების პროფილის უნიკალური სახელი."
+    "HelpEn": "Unique name for the Run Definition (RD). This becomes the rd= identifier in the generated Vdbench config.",
+    "HelpKa": "ტესტის გაშვების (Run Definition) უნიკალური სახელი."
   },
   {
     "Key": "run.iorate",
@@ -98,7 +98,9 @@
     "Help": "Fixed at max for all raw/block profiles.",
     "Example": "max",
     "SortOrder": 56,
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Number of I/O operations per second. Fixed at max for all raw/block profiles in this UI.\nOptions: max (maximum possible performance), or a specific capped number (e.g., 5000).",
+    "HelpKa": "I/O ოპერაციების სიხშირე (IOPS) წამში. ამ UI-ში ყოველთვის max-ზეა ფიქსირებული.\nვარიანტები: max (მაქსიმალური შესაძლებელი წარმადობის გატესტვა), ან კონკრეტული ლიმიტირებული რიცხვი (მაგ. 5000)."
   },
   {
     "Key": "run.elapsed",
@@ -115,8 +117,8 @@
     "Example": "300",
     "SortOrder": 30,
     "Group": "Run definition (RD)",
-    "HelpEn": "Main test duration in seconds. Vdbench counts and reports performance during this measured period (after warmup).",
-    "HelpKa": "ტესტის ძირითადი ხანგრძლივობა წამებში."
+    "HelpEn": "Total duration of the test.\nOptions: seconds (e.g., 300), minutes (e.g., 10m), hours (e.g., 2h).",
+    "HelpKa": "ტესტის ძირითადი ხანგრძლივობა.\nვარიანტები: წამები (მაგ. 300), წუთები (მაგ. 10m), საათები (მაგ. 2h)."
   },
   {
     "Key": "run.warmup",
@@ -133,8 +135,8 @@
     "Example": "30",
     "SortOrder": 40,
     "Group": "Run definition (RD)",
-    "HelpEn": "Warmup period in seconds. The workload runs during this time but statistics are not recorded, so the system can stabilize before measured results begin.",
-    "HelpKa": "გახურების დრო წამებში. ამ დროის განმავლობაში ტესტი მიმდინარეობს, მაგრამ სტატისტიკა არ იწერება, რათა სისტემა დასტაბილურდეს."
+    "HelpEn": "Warmup time in seconds. Performance data gathered during this time is excluded from the final statistics.\nOptions: any numeric value in seconds (e.g., 30, 60).",
+    "HelpKa": "ტესტის გახურების დრო წამებში. ამ პერიოდში დაფიქსირებული შედეგები არ შედის საბოლოო სტატისტიკაში.\nვარიანტები: ნებისმიერი რიცხვითი მნიშვნელობა წამებში (მაგ. 30, 60)."
   },
   {
     "Key": "run.interval",
@@ -151,8 +153,8 @@
     "Example": "1",
     "SortOrder": 50,
     "Group": "Run definition (RD)",
-    "HelpEn": "Interval in seconds between statistics updates and reporting during the run.",
-    "HelpKa": "სტატისტიკის განახლებისა და რეპორტინგის ინტერვალი წამებში."
+    "HelpEn": "Reporting interval in seconds for updating statistics in the output.\nOptions: any numeric value in seconds (e.g., 1, 5, 10).",
+    "HelpKa": "სტატისტიკის განახლებისა და რეპორტში ჩაწერის ინტერვალი წამებში.\nვარიანტები: ნებისმიერი რიცხვითი მნიშვნელობა წამებში (მაგ. 1, 5, 10)."
   },
   {
     "Key": "run.format",
@@ -236,7 +238,9 @@
     "Help": "Name of the raw/block storage definition (sd=).",
     "Example": "sd1",
     "SortOrder": 10,
-    "Group": "SD definition (SD)"
+    "Group": "SD definition (SD)",
+    "HelpEn": "Unique name for the Storage Definition (SD). This becomes the sd= identifier in the generated config.",
+    "HelpKa": "მონაცემთა საცავის (Storage Definition) უნიკალური სახელი."
   },
   {
     "Key": "storage.lun",
@@ -253,7 +257,9 @@
     "Example": "\\\\.\\PhysicalDrive1",
     "SortOrder": 20,
     "TargetDerived": true,
-    "Group": "SD definition (SD)"
+    "Group": "SD definition (SD)",
+    "HelpEn": "Target path for the physical (Raw) or logical disk being tested. Usually set from target selection on Local Host or Master / Slave.\nOptions: for Linux (e.g., /dev/sdb, /dev/mapper/mpatha), for Windows (e.g., \\\\.\\PhysicalDrive1).",
+    "HelpKa": "სამიზნე ფიზიკური (Raw) ან ლოგიკური დისკის მისამართი.\nვარიანტები: Linux-ისთვის (მაგ. /dev/sdb, /dev/mapper/mpatha), Windows-ისთვის (მაგ. \\\\.\\PhysicalDrive1)."
   },
   {
     "Key": "storage.size",
@@ -269,7 +275,9 @@
     "Help": "Size of the raw disk or file to use. Optional unless Vdbench should create a disk file for you.",
     "Example": "10g",
     "SortOrder": 30,
-    "Group": "SD definition (SD)"
+    "Group": "SD definition (SD)",
+    "HelpEn": "Limits the total storage capacity to be used for testing (for example, use only part of a larger disk).\nOptions: size in megabytes (m), gigabytes (g), terabytes (t), or percentage (e.g., 50%).",
+    "HelpKa": "გამოსაყენებელი დისკის მოცულობის ლიმიტი (მაგ. თუ დისკი 1TB-ია და გსურთ მხოლოდ ნაწილის გამოყენება).\nვარიანტები: მოცულობა მეგაბაიტებში (m), გიგაბაიტებში (g), ტერაბაიტებში (t), ან პროცენტულად (მაგ. 50%)."
   },
   {
     "Key": "storage.align",
@@ -285,7 +293,9 @@
     "Help": "Generate logical byte addresses in align boundaries.",
     "Example": "4k",
     "SortOrder": 40,
-    "Group": "SD layout"
+    "Group": "SD layout",
+    "HelpEn": "Data alignment for I/O operations.\nOptions: 4k, 8k, 1m, etc.",
+    "HelpKa": "I/O ოპერაციების ბლოკური გასწორება (Alignment).\nვარიანტები: 4k, 8k, 1m და ა.შ."
   },
   {
     "Key": "storage.offset",
@@ -301,7 +311,9 @@
     "Help": "Start offset inside the lun.",
     "Example": "1g",
     "SortOrder": 50,
-    "Group": "SD layout"
+    "Group": "SD layout",
+    "HelpEn": "Starting offset on the disk where I/O operations will begin.\nOptions: size (e.g., 1m, 10g).",
+    "HelpKa": "დისკზე ტესტირების დაწყების საწყისი წერტილი (გადახრა დასაწყისიდან).\nვარიანტები: ზომა (მაგ. 1m, 10g)."
   },
   {
     "Key": "storage.range",
@@ -317,7 +329,9 @@
     "Help": "Limit seek range within this SD.",
     "Example": "0,100g",
     "SortOrder": 60,
-    "Group": "SD layout"
+    "Group": "SD layout",
+    "HelpEn": "Specific range of the disk to restrict I/O operations.\nOptions: percentage range (e.g., (0,50) to test the first half of the disk).",
+    "HelpKa": "დისკის კონკრეტული მონაკვეთი/დიაპაზონი, სადაც უნდა შესრულდეს ოპერაციები.\nვარიანტები: პროცენტული დიაპაზონი (მაგ. (0,50) დატესტავს დისკის პირველ ნახევარს)."
   },
   {
     "Key": "storage.bypassOsCache",
@@ -336,7 +350,9 @@
     "Help": "When enabled, each generated sd= line gets openflags=directio on Windows and openflags=o_direct on Linux slaves.",
     "Example": "yes",
     "SortOrder": 70,
-    "Group": "SD layout"
+    "Group": "SD layout",
+    "HelpEn": "Bypass the operating system cache (direct I/O) so operations go to disk instead of cache.\nWhen yes, generated sd= lines include openflags=directio on Windows and openflags=o_direct on Linux.\nOptions:\n  yes\n  no",
+    "HelpKa": "ოპერაციული სისტემის ქეშის გვერდის ავლის პარამეტრი.\nyes-ისას config-ში იწერება openflags=directio (Windows) ან openflags=o_direct (Linux).\nვარიანტები:\n  yes\n  no"
   },
   {
     "Key": "storage.openflags",
@@ -373,7 +389,9 @@
     "Help": "Requested compressibility ratio for generated data.",
     "Example": "2",
     "SortOrder": 80,
-    "Group": "SD advanced"
+    "Group": "SD advanced",
+    "HelpEn": "Data compression ratio.\nOptions: 1 (uncompressible data), 2 or higher (compressible data, e.g., 2 means 2:1 ratio).",
+    "HelpKa": "მონაცემთა კომპრესიის (შეკუმშვის) კოეფიციენტი.\nვარიანტები: 1 (არ იკუმშება), 2 და მეტი (იკუმშება პროპორციით, მაგ. 2 ნიშნავს 2:1-ზე)."
   },
   {
     "Key": "storage.dedupratio",
@@ -389,7 +407,9 @@
     "Help": "Requested duplicate data ratio for deduplication-aware testing.",
     "Example": "2",
     "SortOrder": 90,
-    "Group": "SD advanced"
+    "Group": "SD advanced",
+    "HelpEn": "Data deduplication ratio.\nOptions: 1 (no deduplication, all blocks unique), 2 or higher (ratio of repeating data, e.g., 2 means 2:1 ratio).",
+    "HelpKa": "მონაცემთა დედუპლიკაციის კოეფიციენტი.\nვარიანტები: 1 (ყველა ბლოკი უნიკალურია), 2 და მეტი (განმეორებადი მონაცემები, მაგ. 2 ნიშნავს 2:1-ზე)."
   },
   {
     "Key": "storage.dedupunit",
@@ -405,7 +425,9 @@
     "Help": "Granularity for dedup data generation.",
     "Example": "4k",
     "SortOrder": 100,
-    "Group": "SD advanced"
+    "Group": "SD advanced",
+    "HelpEn": "Deduplication unit size (must be equal to or a multiple of xfersize).\nOptions: 4k, 8k, 32k, etc.",
+    "HelpKa": "დედუპლიკაციის საბაზისო ბლოკის ზომა (უნდა იყოს xfersize-ის იდენტური ან მისი ჯერადი).\nვარიანტები: 4k, 8k, 32k და ა.შ."
   },
   {
     "Key": "storage.threads",
@@ -437,7 +459,9 @@
     "Help": "Name of the raw/block workload definition (wd=).",
     "Example": "wd1",
     "SortOrder": 10,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Unique name for the Workload Definition (WD). This becomes the wd= identifier in the generated config.",
+    "HelpKa": "დატვირთვის პროფილის (Workload Definition) უნიკალური სახელი."
   },
   {
     "Key": "workload.rdpct",
@@ -453,7 +477,9 @@
     "Help": "Percentage of I/O operations that are reads.",
     "Example": "70",
     "SortOrder": 20,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Percentage of read operations.\nOptions: 0 to 100 (100 = 100% read, 0 = 100% write, 70 = 70% read / 30% write).",
+    "HelpKa": "წაკითხვის (Read) ოპერაციების პროცენტული წილი.\nვარიანტები: 0-დან 100-მდე (100 = სრული წაკითხვა, 0 = სრული ჩაწერა, 70 = 70% წაკითხვა / 30% ჩაწერა)."
   },
   {
     "Key": "workload.seekpct",
@@ -473,7 +499,9 @@
     "Help": "Randomness of access pattern. 100 is random, 0 is sequential.",
     "Example": "100",
     "SortOrder": 30,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Percentage of random access operations.\nOptions: 0 or seq (100% sequential), 100 or random (100% random), or any intermediate value (e.g., 50).",
+    "HelpKa": "Random (შემთხვევითი) წვდომის პროცენტული წილი.\nვარიანტები: 0 ან seq (100% მიმდევრობითი/Sequential), 100 ან random (100% შემთხვევითი), ან ნებისმიერი შუალედური რიცხვი (მაგ. 50)."
   },
   {
     "Key": "workload.rhpct",
@@ -489,7 +517,9 @@
     "Help": "Read hit percentage for cache testing.",
     "Example": "0",
     "SortOrder": 90,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Simulation of read cache hit percentage.\nOptions: 0 to 100.",
+    "HelpKa": "წაკითხვის ოპერაციების ქეშში მოხვედრის (Read Hit) პროცენტული სიმულაცია.\nვარიანტები: 0-დან 100-მდე."
   },
   {
     "Key": "workload.whpct",
@@ -505,7 +535,9 @@
     "Help": "Write hit percentage for cache testing.",
     "Example": "0",
     "SortOrder": 100,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Simulation of write cache hit percentage.\nOptions: 0 to 100.",
+    "HelpKa": "ჩაწერის ოპერაციების ქეშში მოხვედრის (Write Hit) პროცენტული სიმულაცია.\nვარიანტები: 0-დან 100-მდე."
   },
   {
     "Key": "workload.skew",
@@ -521,7 +553,9 @@
     "Help": "Percentage of total workload assigned to this WD.",
     "Example": "50",
     "SortOrder": 60,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Percentage of the total I/O rate allocated to this specific workload (used when running multiple WDs).\nOptions: 1 to 100 percent.",
+    "HelpKa": "საერთო I/O წარმადობის რა პროცენტი უნდა მიემართოს ამ კონკრეტულ Workload-ზე (გამოიყენება მულტი-WD ტესტირებისას).\nვარიანტები: 1-დან 100-მდე პროცენტი."
   },
   {
     "Key": "workload.stride",
@@ -537,7 +571,9 @@
     "Help": "Skip-sequential I/O range (min,max).",
     "Example": "8k,128k",
     "SortOrder": 70,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Stride size for sequential I/O. Controls the space to skip on the disk after each I/O operation.\nOptions: size (e.g., 4k, 1m).",
+    "HelpKa": "გამოტოვებული ბიჯის ზომა Sequential ტესტირებისას. აკონტროლებს რა მანძილი უნდა გამოტოვოს დისკზე ყოველი I/O ოპერაციის შემდეგ.\nვარიანტები: ზომა (მაგ. 4k, 1m)."
   },
   {
     "Key": "workload.range",
@@ -553,7 +589,9 @@
     "Help": "Limit seek range within the SD for this workload.",
     "Example": "0,50g",
     "SortOrder": 80,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Restricts this specific workload to a designated section of the LUN.\nOptions: percentage range (e.g., (50,100) to use the second half of the disk).",
+    "HelpKa": "LUN-ის კონკრეტული მონაკვეთის ლიმიტირება ამ Workload-ისთვის.\nვარიანტები: პროცენტული დიაპაზონი (მაგ. (50,100) გამოიყენებს დისკის მეორე ნახევარს)."
   },
   {
     "Key": "workload.threads",
@@ -569,7 +607,9 @@
     "Help": "Concurrent threads for this workload (wd=,threads=).",
     "Example": "16",
     "SortOrder": 50,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "Number of concurrent threads / Queue Depth (OIO).\nOptions: 1, 8, 16, 32, 64, etc.",
+    "HelpKa": "პარალელური სამუშაო ნაკადების / რიგის სიღრმის (Queue Depth) რაოდენობა.\nვარიანტები: 1, 8, 16, 32, 64 და ა.შ."
   },
   {
     "Key": "workload.xfersize",
@@ -594,7 +634,9 @@
     "Help": "Data transfer size (wd=,xfersize=).",
     "Example": "4k",
     "SortOrder": 40,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "I/O transfer block size.\nOptions: fixed size (e.g., 4k, 8k, 1m) or a mixed ratio (e.g., (4k,50,8k,50) means 50% 4k and 50% 8k).",
+    "HelpKa": "I/O ტრანსფერის ბლოკის ზომა.\nვარიანტები: ფიქსირებული ზომა (მაგ. 4k, 8k, 1m) ან კომბინირებული/შერეული (მაგ. (4k,50,8k,50) ნიშნავს 50% 4k-ს და 50% 8k-ს)."
   },
   {
     "Key": "workload.priority",
@@ -610,7 +652,9 @@
     "Help": "I/O priority for this workload.",
     "Example": "0",
     "SortOrder": 110,
-    "Group": "Raw/block workload (WD)"
+    "Group": "Raw/block workload (WD)",
+    "HelpEn": "I/O operation priority level.\nOptions: 1, 2, 3, etc. (usually, a higher number indicates lower priority).",
+    "HelpKa": "I/O ოპერაციების პრიორიტეტი სისტემის დონეზე.\nვარიანტები: 1, 2, 3 და ა.შ. (ჩვეულებრივ, მაღალი რიცხვი ნიშნავს დაბალ პრიორიტეტს)."
   },
   {
     "Key": "workload.iorate",
