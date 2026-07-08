@@ -461,6 +461,20 @@ def validate_no_array_wrap_property_access():
     )
 
 
+def validate_no_unicode_dash_in_powershell_sources():
+    """Ban em/en dashes in .ps1 sources; Windows CI can mis-decode them and break parsing."""
+    violations = []
+    for path in sorted(MODULE_ROOT.glob("*.ps1")) + sorted((ROOT / "src").glob("*.ps1")) + sorted((ROOT / "tools").glob("*.ps1")):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if "\u2014" in line or "\u2013" in line:
+                violations.append(f"{path.relative_to(ROOT)}:{lineno}: contains Unicode dash")
+    assert not violations, (
+        "Unicode dash characters found in PowerShell sources (use ASCII '-' instead):\n"
+        + "\n".join(violations)
+    )
+
+
 def validate_golden_fixtures():
     for name, expected in GOLDEN_FIXTURES.items():
         path = FIXTURE_ROOT / name
@@ -2381,6 +2395,7 @@ def main() -> int:
     validate_advanced_parameter_help()
     validate_modules()
     validate_no_array_wrap_property_access()
+    validate_no_unicode_dash_in_powershell_sources()
     validate_golden_fixtures()
     powershell_checks_ran = run_powershell_checks()
 

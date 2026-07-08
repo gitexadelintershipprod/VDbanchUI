@@ -293,7 +293,7 @@ function Get-ParameterHelpMessage {
         [void]$lines.Add("")
     }
     if (-not [string]::IsNullOrWhiteSpace($helpKa)) {
-        [void]$lines.Add("ქართული")
+        [void]$lines.Add("GEORGIAN")
         [void]$lines.Add($helpKa)
         [void]$lines.Add("")
     }

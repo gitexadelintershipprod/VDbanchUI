@@ -882,7 +882,7 @@ function Show-ParameterHelp {
     $title = "Parameter help"
     $key = [string](Get-PropertyValue $Definition "Key" "")
     if (-not [string]::IsNullOrWhiteSpace($key)) {
-        $title = ("Parameter help — {0}" -f $key)
+        $title = ("Parameter help - {0}" -f $key)
     }
     Show-ScrollableHelpDialog (Get-ParameterHelpMessage $Definition) $title
 }
@@ -911,7 +911,7 @@ function Show-AdvancedFieldHelp {
         Example = ""
         Options = @()
     })
-    Show-ScrollableHelpDialog $message ("Parameter help — {0}" -f $FieldKey)
+    Show-ScrollableHelpDialog $message ("Parameter help - {0}" -f $FieldKey)
 }
 
 function New-ProfileHelpButton {
