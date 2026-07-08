@@ -213,7 +213,13 @@ function Show-ScrollableHelpDialog {
     }
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $Title
-    $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    $owner = $null
+    if ($null -ne $script:Form -and -not $script:Form.IsDisposed) {
+        $owner = $script:Form
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+    } else {
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    }
     $form.MinimizeBox = $false
     $form.MaximizeBox = $true
     $form.ShowInTaskbar = $false
@@ -247,10 +253,11 @@ function Show-ScrollableHelpDialog {
     $buttonPanel.Controls.Add($okButton)
     $form.Controls.Add($buttonPanel)
     $form.AcceptButton = $okButton
-    if ($null -ne $script:MainForm) {
-        $form.Owner = $script:MainForm
+    if ($null -ne $owner) {
+        [void]$form.ShowDialog($owner)
+    } else {
+        [void]$form.ShowDialog()
     }
-    [void]$form.ShowDialog()
     $form.Dispose()
 }
 

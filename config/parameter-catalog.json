@@ -917,15 +917,9 @@
     "Label": "Read percentage",
     "VdbenchName": "rdpct",
     "Line": "fwd",
-    "Type": "dropdown",
+    "Type": "text",
     "Default": "",
-    "Options": [
-      "0",
-      "30",
-      "50",
-      "70",
-      "100"
-    ],
+    "Options": [],
     "AppliesTo": "fs",
     "Required": false,
     "Help": "For read/write operations: mix reads and writes against the same file.",
