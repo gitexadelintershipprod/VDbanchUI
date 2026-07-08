@@ -75,7 +75,9 @@
     "Help": "Name of the Vdbench run definition. This becomes the rd= value.",
     "Example": "rd1",
     "SortOrder": 10,
-    "Group": "Run definition (RD)"
+    "Group": "Run definition (RD)",
+    "HelpEn": "Unique name for the run profile. This becomes the rd= identifier in the generated Vdbench config.",
+    "HelpKa": "გაშვების პროფილის უნიკალური სახელი."
   },
   {
     "Key": "run.iorate",
@@ -112,7 +114,9 @@
     "Help": "How long the measured part of the run should execute.",
     "Example": "300",
     "SortOrder": 30,
-    "Group": "Run definition (RD)"
+    "Group": "Run definition (RD)",
+    "HelpEn": "Main test duration in seconds. Vdbench counts and reports performance during this measured period (after warmup).",
+    "HelpKa": "ტესტის ძირითადი ხანგრძლივობა წამებში."
   },
   {
     "Key": "run.warmup",
@@ -128,7 +132,9 @@
     "Help": "Warmup period before measured results are counted.",
     "Example": "30",
     "SortOrder": 40,
-    "Group": "Run definition (RD)"
+    "Group": "Run definition (RD)",
+    "HelpEn": "Warmup period in seconds. The workload runs during this time but statistics are not recorded, so the system can stabilize before measured results begin.",
+    "HelpKa": "გახურების დრო წამებში. ამ დროის განმავლობაში ტესტი მიმდინარეობს, მაგრამ სტატისტიკა არ იწერება, რათა სისტემა დასტაბილურდეს."
   },
   {
     "Key": "run.interval",
@@ -144,7 +150,9 @@
     "Help": "Result reporting interval in seconds.",
     "Example": "1",
     "SortOrder": 50,
-    "Group": "Run definition (RD)"
+    "Group": "Run definition (RD)",
+    "HelpEn": "Interval in seconds between statistics updates and reporting during the run.",
+    "HelpKa": "სტატისტიკის განახლებისა და რეპორტინგის ინტერვალი წამებში."
   },
   {
     "Key": "run.format",
@@ -168,6 +176,29 @@
     "Help": "Pre-format directory/file structure before the run. Review destructive options carefully.",
     "Example": "no",
     "SortOrder": 55,
+    "Group": "Filesystem options",
+    "HelpEn": "Controls how Vdbench treats test files before the run starts.\nOptions:\n  no — use existing files\n  yes — delete and recreate files from scratch\n  restart — resume interrupted file creation\n  only — create files only; do not run the workload\n  clean — delete existing files only\n  once — create files on the first run only\n  directories — create directory tree only, without files",
+    "HelpKa": "განსაზღვრავს, თუ როგორ უნდა მოექცეს პროგრამა სატესტო ფაილებს ტესტის დაწყებამდე.\nვარიანტები:\n  no — გამოიყენებს უკვე არსებულ ფაილებს\n  yes — წაშლის და ხელახლა შექმნის ფაილებს ნულიდან\n  restart — გააგრძელებს გაწყვეტილი ფაილების შექმნის პროცესს\n  only — მხოლოდ შექმნის ფაილებს და ტესტს არ გაუშვებს\n  clean — მხოლოდ წაშლის არსებულ ფაილებს\n  once — შექმნის ფაილებს მხოლოდ პირველი გაშვებისას\n  directories — შექმნის მხოლოდ საქაღალდეებს ფაილების გარეშე"
+  },
+  {
+    "Key": "run.createAnchors",
+    "Section": "General",
+    "Label": "Create anchors",
+    "VdbenchName": "create_anchors",
+    "Line": "global",
+    "Type": "dropdown",
+    "Default": "yes",
+    "Options": [
+      "yes",
+      "no"
+    ],
+    "AppliesTo": "fs",
+    "Required": false,
+    "Help": "Automatically create anchor directories before the run if they do not exist.",
+    "HelpEn": "When enabled, Vdbench automatically creates the root anchor directories before the run if they do not exist.\nOptions:\n  yes — emit create_anchors=yes in config\n  no — emit create_anchors=no in config",
+    "HelpKa": "ავტომატურად ქმნის ძირეულ სატესტო საქაღალდეებს ტესტის დაწყებამდე, თუ ისინი არ არსებობს.\nვარიანტები:\n  yes\n  no",
+    "Example": "yes",
+    "SortOrder": 57,
     "Group": "Filesystem options"
   },
   {
@@ -617,7 +648,9 @@
     "Help": "Name of the filesystem definition (fsd=).",
     "Example": "fsd1",
     "SortOrder": 10,
-    "Group": "Filesystem definition (FSD)"
+    "Group": "Filesystem definition (FSD)",
+    "HelpEn": "Unique name for the filesystem definition. This becomes the fsd= identifier in the generated config.",
+    "HelpKa": "ფაილური სისტემის პროფილის უნიკალური სახელი."
   },
   {
     "Key": "fsd.anchor",
@@ -634,7 +667,9 @@
     "Example": "C:\\vdbench\\fs_test",
     "SortOrder": 20,
     "TargetDerived": true,
-    "Group": "Filesystem definition (FSD)"
+    "Group": "Filesystem definition (FSD)",
+    "HelpEn": "Root directory path (anchor) where the test file tree is created. Usually set from target selection on Local Host or Master / Slave.",
+    "HelpKa": "ძირეული საქაღალდის გზა (დირექტორია), სადაც შეიქმნება სატესტო ფაილები და იერარქია."
   },
   {
     "Key": "fsd.depth",
@@ -650,7 +685,9 @@
     "Help": "Directory tree depth under the anchor.",
     "Example": "2",
     "SortOrder": 30,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "HelpEn": "Depth of the directory tree under the anchor. For example, 1 means only one level of subdirectories.",
+    "HelpKa": "საქაღალდეების იერარქიის სიღრმე. მაგალითად, 1 ნიშნავს მხოლოდ ერთი დონის საქაღალდეებს."
   },
   {
     "Key": "fsd.width",
@@ -666,7 +703,9 @@
     "Help": "Number of directories at each level.",
     "Example": "4",
     "SortOrder": 40,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "HelpEn": "Number of subdirectories created at each depth level.",
+    "HelpKa": "თითოეულ დონეზე შესაქმნელი საქაღალდეების რაოდენობა."
   },
   {
     "Key": "fsd.files",
@@ -699,7 +738,9 @@
     "Help": "Size of each test file (fsd=,size=). For distributions use Advanced manual lines (sizes=).",
     "Example": "1m",
     "SortOrder": 60,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "HelpEn": "Size of each test file (for example 1m, 10g). The UI fixes files=1 per directory; use Advanced manual lines for sizes= distributions if needed.",
+    "HelpKa": "თითოეული სატესტო ფაილის ზომა (მაგალითად 1m, 10g)."
   },
   {
     "Key": "fsd.bypassOsCache",
@@ -718,7 +759,9 @@
     "Help": "When enabled, each generated fsd= line gets openflags=directio on Windows slaves and openflags=o_direct on Linux slaves.",
     "Example": "yes",
     "SortOrder": 65,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "HelpEn": "Bypass the operating system cache (direct I/O) so operations go to disk instead of cache.\nWhen yes, generated fsd= lines include openflags=directio on Windows and openflags=o_direct on Linux.\nOptions:\n  yes\n  no",
+    "HelpKa": "ოპერაციული სისტემის ქეშის უგულებელყოფა (Direct I/O), რათა ოპერაციები პირდაპირ დისკზე შესრულდეს.\nვარიანტები:\n  yes\n  no"
   },
   {
     "Key": "fsd.distribution",
@@ -737,7 +780,9 @@
     "Help": "bottom creates files only in leaf directories; all creates files in every directory.",
     "Example": "bottom",
     "SortOrder": 70,
-    "Group": "FSD tree layout"
+    "Group": "FSD tree layout",
+    "HelpEn": "Where files are placed in the directory tree.\nOptions:\n  bottom — files only in leaf directories\n  all — files distributed in every directory level",
+    "HelpKa": "განსაზღვრავს იერარქიაში სად უნდა განთავსდეს ფაილები.\nვარიანტები:\n  bottom — ფაილები შეიქმნება მხოლოდ ბოლო დონის საქაღალდეებში\n  all — ფაილები გადანაწილდება ყველა დონის საქაღალდეში"
   },
   {
     "Key": "fsd.totalsize",
@@ -753,7 +798,9 @@
     "Help": "Stop creating files after this total byte count.",
     "Example": "10g",
     "SortOrder": 80,
-    "Group": "FSD advanced"
+    "Group": "FSD advanced",
+    "HelpEn": "Total data volume to create across the filesystem definition before stopping file creation.",
+    "HelpKa": "ფაილური სისტემის ჯამური მოცულობა, რომელიც უნდა შეიქმნას."
   },
   {
     "Key": "fsd.workingsetsize",
@@ -769,7 +816,9 @@
     "Help": "Use only a subset of the total files (workingsetsize / wss=).",
     "Example": "1g",
     "SortOrder": 90,
-    "Group": "FSD advanced"
+    "Group": "FSD advanced",
+    "HelpEn": "Working set size (wss=): the subset of data that the workload actively uses during the test.",
+    "HelpKa": "სამუშაო სივრცის ზომა, ანუ მონაცემების ის მოცულობა, რომელზეც უშუალოდ იტრიალებს დატვირთვა ტესტის დროს."
   },
   {
     "Key": "fsd.openflags",
@@ -827,7 +876,9 @@
     "Help": "Name of the filesystem workload definition (fwd=).",
     "Example": "fwd1",
     "SortOrder": 10,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Name of the filesystem workload definition (fwd=).",
+    "HelpKa": "ფაილური დატვირთვის პროფილის სახელი."
   },
   {
     "Key": "fwd.operation",
@@ -856,7 +907,9 @@
     "Help": "Filesystem operation to execute.",
     "Example": "read",
     "SortOrder": 20,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Primary filesystem operation for this workload.\nCommon options:\n  read — read data\n  write — write data\n  mkdir — create directory\n  rmdir — remove directory\n  create — create file\n  delete — delete file",
+    "HelpKa": "შესასრულებელი ძირითადი ოპერაციის ტიპი.\nვარიანტები:\n  read — წაკითხვა\n  write — ჩაწერა\n  mkdir — საქაღალდის შექმნა\n  rmdir — საქაღალდის წაშლა\n  create — ფაილის შექმნა\n  delete — ფაილის წაშლა"
   },
   {
     "Key": "fwd.rdpct",
@@ -878,7 +931,9 @@
     "Help": "For read/write operations: mix reads and writes against the same file.",
     "Example": "30",
     "SortOrder": 30,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Percentage of read operations in the workload when mixing reads and writes (for example 100 means read-only).",
+    "HelpKa": "წაკითხვის ოპერაციების პროცენტული წილი მთლიან დატვირთვაში (მაგალითად 100 ნიშნავს სრულად წაკითხვას)."
   },
   {
     "Key": "fwd.fileio",
@@ -918,7 +973,9 @@
     "Help": "How files or directories are selected.",
     "Example": "random",
     "SortOrder": 50,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "How target files are chosen from the directory tree.\nOptions:\n  random — pick files randomly\n  sequential — pick files in order",
+    "HelpKa": "სამიზნე ფაილების არჩევის მეთოდი საერთო დირექტორიიდან.\nვარიანტები:\n  random — ფაილებს ირჩევს ალაგ-ალაგ\n  sequential — ფაილებს ირჩევს თანმიმდევრობით"
   },
   {
     "Key": "fwd.xfersize",
@@ -943,7 +1000,9 @@
     "Help": "Data transfer size for read/write (fwd=,xfersize=).",
     "Example": "4k",
     "SortOrder": 60,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Transfer block size for each I/O operation (for example 4k, 32k).",
+    "HelpKa": "მონაცემთა გადაცემის ანუ ბლოკის ზომა თითოეული ოპერაციისთვის (მაგალითად 4k, 32k)."
   },
   {
     "Key": "fwd.threads",
@@ -959,7 +1018,9 @@
     "Help": "Concurrent threads for this workload. Need at least one file per thread.",
     "Example": "8",
     "SortOrder": 70,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Number of parallel threads executing this workload. You need at least one file per thread.",
+    "HelpKa": "პარალელური ნაკადების რაოდენობა, რომლებიც ერთდროულად ასრულებენ დატვირთვას."
   },
   {
     "Key": "fwd.skew",
@@ -975,7 +1036,9 @@
     "Help": "Percentage of total workload for this FWD.",
     "Example": "50",
     "SortOrder": 80,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Percentage of total workload assigned to this FWD when multiple workloads run together.",
+    "HelpKa": "საერთო დატვირთვის რა პროცენტი უნდა მოხმარდეს ამ კონკრეტულ პროფილს (გამოიყენება რამდენიმე დატვირთვის ერთდროულად გაშვებისას)."
   },
   {
     "Key": "fwd.stopafter",
@@ -991,7 +1054,9 @@
     "Help": "For random I/O: stop and close file after this many operations.",
     "Example": "1000",
     "SortOrder": 90,
-    "Group": "Filesystem workload (FWD)"
+    "Group": "Filesystem workload (FWD)",
+    "HelpEn": "Stop condition for the workload, for example after a specific amount of data has been processed.",
+    "HelpKa": "პირობა ტესტის შესაწყვეტად, მაგალითად, მას შემდეგ რაც დამუშავდება კონკრეტული მოცულობის მონაცემი."
   },
   {
     "Key": "fwd.openflags",

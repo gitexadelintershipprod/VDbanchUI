@@ -1,0 +1,12 @@
+{
+  "AdvancedActive": {
+    "Label": "Active manual Vdbench lines",
+    "HelpEn": "Additional configuration lines you enter manually. They are written into the generated config as-is and are active during the run.",
+    "HelpKa": "მომხმარებლის მიერ ხელით შეყვანილი, დამატებითი კონფიგურაციის ხაზები, რომლებიც ტესტში აქტიურია."
+  },
+  "AdvancedDisabled": {
+    "Label": "Disabled/commented manual lines",
+    "HelpEn": "Configuration lines that appear in the profile but are commented out or disabled in the generated config.",
+    "HelpKa": "ის პარამეტრები, რომლებიც კონფიგურაციაში წერია, მაგრამ დროებით გამორთულია ან დაკომენტარებულია."
+  }
+}
