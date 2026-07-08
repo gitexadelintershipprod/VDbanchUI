@@ -2435,12 +2435,17 @@ def main() -> int:
     assert "Apply-DataGridResponsiveLayout" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Show-ScrollableHelpDialog" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Get-ParameterHelpMessage" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Format-ParameterHelpTextBlock" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
+    assert "function Test-ParameterHelpHasEmbeddedOptions" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert "function Show-AdvancedFieldHelp" in ui_tabs_module
     assert "fwdrate) is fixed at max" in ui_tabs_module
     ui_helpers_text = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
     assert not re.search(r"\$script:MainForm\b", ui_helpers_text), (
         "Show-ScrollableHelpDialog must use $script:Form, not $script:MainForm"
     )
+    assert "$textBox.TabStop = $false" in ui_helpers_text
+    assert "$form.ActiveControl = $okButton" in ui_helpers_text
+    assert "========================================" in ui_helpers_text
     catalog_by_key = {item["Key"]: item for item in catalog}
     assert catalog_by_key["fwd.rdpct"]["Type"] == "text", "fwd.rdpct must be a text field"
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
