@@ -202,6 +202,87 @@ function Show-Info {
     [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 }
 
+function Format-ParameterHelpTextBlock {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return @()
+    }
+    $normalized = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+    $normalized = $normalized -replace '[\u2014\u2013]', ' - '
+    $output = New-Object System.Collections.Generic.List[string]
+    $blankPending = $false
+    foreach ($rawLine in ($normalized -split "`n")) {
+        $line = $rawLine.TrimEnd()
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            $blankPending = $true
+            continue
+        }
+        if ($blankPending -and $output.Count -gt 0) {
+            [void]$output.Add("")
+            $blankPending = $false
+        }
+        if ($line -match '^(?i)(options|allowed values)\s*:?\s*$' -or $line -match '^\u10D5\u10D0\u10E0\u10D8\u10D0\u10DC\u10D7\u10D4\u10D1\u10D8\s*:?\s*$') {
+            if ($output.Count -gt 0) {
+                [void]$output.Add("")
+            }
+            $header = $line.Trim().TrimEnd(':').Trim()
+            [void]$output.Add(($header + ":"))
+            continue
+        }
+        if ($line -match '^\s*(\S+)\s+-\s+(.+)$') {
+            [void]$output.Add(("  - {0}: {1}" -f $Matches[1], $Matches[2]))
+            continue
+        }
+        if ($line -match '^\s{1,}(\S+)(\s+.+)?$') {
+            $trimmed = $line.Trim()
+            if ($trimmed -notmatch ':') {
+                [void]$output.Add(("  - {0}" -f $trimmed))
+                continue
+            }
+        }
+        [void]$output.Add($line.Trim())
+        $blankPending = $false
+    }
+    return @($output)
+}
+
+function Add-ParameterHelpSection {
+    param(
+        [System.Collections.Generic.List[string]]$Lines,
+        [string]$Heading,
+        [string]$Body
+    )
+    if ([string]::IsNullOrWhiteSpace($Body)) {
+        return
+    }
+    $bodyLines = @(Format-ParameterHelpTextBlock $Body)
+    if ($bodyLines.Count -eq 0) {
+        return
+    }
+    if ($Lines.Count -gt 0) {
+        [void]$Lines.Add("")
+    }
+    [void]$Lines.Add($Heading)
+    [void]$Lines.Add("----------------------------------------")
+    foreach ($line in $bodyLines) {
+        [void]$Lines.Add($line)
+    }
+}
+
+function Test-ParameterHelpHasEmbeddedOptions {
+    param(
+        [string]$HelpEn,
+        [string]$HelpKa
+    )
+    if ($HelpEn -match '(?i)\boptions\s*:') {
+        return $true
+    }
+    if ($HelpKa -match '\u10D5\u10D0\u10E0\u10D8\u10D0\u10DC\u10D7\u10D4\u10D1\u10D8\s*:') {
+        return $true
+    }
+    return $false
+}
+
 function Show-ScrollableHelpDialog {
     param(
         [string]$Message,
@@ -223,17 +304,32 @@ function Show-ScrollableHelpDialog {
     $form.MinimizeBox = $false
     $form.MaximizeBox = $true
     $form.ShowInTaskbar = $false
-    $form.Size = New-Object System.Drawing.Size -ArgumentList 680, 520
-    $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 520, 360
+    $scale = Get-UiScaleFactor $owner
+    $dialogWidth = [int][Math]::Round(900 * $scale)
+    $dialogHeight = [int][Math]::Round(700 * $scale)
+    if ($null -ne $owner) {
+        $dialogWidth = [int][Math]::Min($dialogWidth, [Math]::Max(760, [Math]::Round($owner.ClientSize.Width * 0.78)))
+        $dialogHeight = [int][Math]::Min($dialogHeight, [Math]::Max(580, [Math]::Round($owner.ClientSize.Height * 0.78)))
+    }
+    $form.Size = [System.Drawing.Size]::new($dialogWidth, $dialogHeight)
+    $form.MinimumSize = [System.Drawing.Size]::new([int][Math]::Round(640 * $scale), [int][Math]::Round(480 * $scale))
 
     $textBox = New-Object System.Windows.Forms.TextBox
     $textBox.Multiline = $true
     $textBox.ReadOnly = $true
+    $textBox.TabStop = $false
+    $textBox.ShortcutsEnabled = $true
+    $textBox.HideSelection = $false
     $textBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
     $textBox.WordWrap = $true
     $textBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $textBox.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 10
     $textBox.Text = $Message
+    $textBox.Add_GotFocus({
+        param($sender, $eventArgs)
+        $sender.SelectionStart = 0
+        $sender.SelectionLength = 0
+    })
     $form.Controls.Add($textBox)
 
     $buttonPanel = New-Object System.Windows.Forms.Panel
@@ -253,6 +349,7 @@ function Show-ScrollableHelpDialog {
     $buttonPanel.Controls.Add($okButton)
     $form.Controls.Add($buttonPanel)
     $form.AcceptButton = $okButton
+    $form.ActiveControl = $okButton
     if ($null -ne $owner) {
         [void]$form.ShowDialog($owner)
     } else {
@@ -279,43 +376,59 @@ function Get-ParameterHelpMessage {
     $example = [string](Get-PropertyValue $Definition "Example" "")
     $options = @(Get-PropertyValue $Definition "Options" @())
     $lines = New-Object System.Collections.Generic.List[string]
+
+    [void]$lines.Add("========================================")
     if (-not [string]::IsNullOrWhiteSpace($label)) {
         [void]$lines.Add($label)
+        [void]$lines.Add("")
     }
     if (-not [string]::IsNullOrWhiteSpace($key)) {
-        [void]$lines.Add(("Key: {0}" -f $key))
+        [void]$lines.Add(("Key:              {0}" -f $key))
     }
     if (-not [string]::IsNullOrWhiteSpace($vdbenchName)) {
-        [void]$lines.Add(("Vdbench: {0}" -f $vdbenchName))
+        [void]$lines.Add(("Vdbench name:     {0}" -f $vdbenchName))
     }
     if (-not [string]::IsNullOrWhiteSpace($group)) {
-        [void]$lines.Add(("Section: {0} > {1}" -f $section, $group))
+        [void]$lines.Add(("Profile location: {0} > {1}" -f $section, $group))
     } elseif (-not [string]::IsNullOrWhiteSpace($section)) {
-        [void]$lines.Add(("Section: {0}" -f $section))
+        [void]$lines.Add(("Profile location: {0}" -f $section))
     }
-    [void]$lines.Add("")
-    if (-not [string]::IsNullOrWhiteSpace($helpEn)) {
-        [void]$lines.Add("ENGLISH")
-        [void]$lines.Add($helpEn)
-        [void]$lines.Add("")
-    }
-    if (-not [string]::IsNullOrWhiteSpace($helpKa)) {
-        [void]$lines.Add("GEORGIAN")
-        [void]$lines.Add($helpKa)
-        [void]$lines.Add("")
-    }
-    if ($options.Count -gt 0) {
-        [void]$lines.Add("Options:")
-        foreach ($option in $options) {
-            [void]$lines.Add(("  {0}" -f [string]$option))
+    [void]$lines.Add("========================================")
+
+    Add-ParameterHelpSection $lines "ENGLISH" $helpEn
+    Add-ParameterHelpSection $lines "GEORGIAN" $helpKa
+
+    if (-not (Test-ParameterHelpHasEmbeddedOptions $helpEn $helpKa) -and $options.Count -gt 0) {
+        if ($lines.Count -gt 0) {
+            [void]$lines.Add("")
         }
-        [void]$lines.Add("")
+        [void]$lines.Add("Allowed values:")
+        [void]$lines.Add("----------------------------------------")
+        foreach ($option in $options) {
+            [void]$lines.Add(("  - {0}" -f [string]$option))
+        }
     }
+
     if (-not [string]::IsNullOrWhiteSpace($example)) {
-        [void]$lines.Add(("Example: {0}" -f $example))
+        if ($lines.Count -gt 0) {
+            [void]$lines.Add("")
+        }
+        [void]$lines.Add("Example:")
+        [void]$lines.Add("----------------------------------------")
+        if (-not [string]::IsNullOrWhiteSpace($vdbenchName)) {
+            [void]$lines.Add(("  {0}={1}" -f $vdbenchName, $example))
+        } else {
+            [void]$lines.Add(("  {0}" -f $example))
+        }
+    }
+
+    if ($lines.Count -gt 0) {
         [void]$lines.Add("")
     }
-    [void]$lines.Add("Disable behavior: clearing Enabled keeps the value in the profile but comments it out in generated config.")
+    [void]$lines.Add("Note:")
+    [void]$lines.Add("----------------------------------------")
+    [void]$lines.Add("Clearing the Enabled checkbox keeps the value in the profile but comments it out in the generated config.")
+
     return ($lines -join [Environment]::NewLine)
 }
 
