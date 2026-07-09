@@ -734,7 +734,8 @@ $script:Slaves = @()
 $script:LocalHostTargets = @()
 $script:SlaveGrid = $null
 $script:LocalHostCleanInFlight = $false
-foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1")) {{
+$script:RunModeCombo = $null
+foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1","ConfigGeneration.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
 function Get-SlaveRowState {{
@@ -759,25 +760,40 @@ function Assert-True {{
 
 $testFile = Join-Path "{tmp_dir}" "cleanup-test.dat"
 $anchorDir = Join-Path "{tmp_dir}" "cleanup-anchor"
+$mountLikeDir = Join-Path "{tmp_dir}" "stresstest"
 New-Item -ItemType Directory -Force -Path $anchorDir | Out-Null
+New-Item -ItemType Directory -Force -Path $mountLikeDir | Out-Null
 Set-Content -LiteralPath (Join-Path $anchorDir "child.txt") -Value "x" -NoNewline
+Set-Content -LiteralPath (Join-Path $mountLikeDir "run-data.txt") -Value "y" -NoNewline
 Set-Content -LiteralPath $testFile -Value "" -NoNewline
 
 $targets = @(
     (New-TargetSelection -Kind "Test file" -Target $testFile -Selected $true),
     (New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true),
+    (New-TargetSelection -Kind "Filesystem" -Target $mountLikeDir -Selected $true),
     (New-TargetSelection -Kind "Raw disk" -Target "/dev/sdb" -Selected $true)
 )
-Assert-True (Test-TargetSupportsCleanup $targets[0]) "test file supports cleanup"
-Assert-True (-not (Test-TargetSupportsCleanup $targets[2])) "raw disk skipped"
-$linuxScript = Get-TargetCleanupRemoteScript -Path $testFile -Kind "Test file" -OsType "Linux"
-Assert-True ($linuxScript -like "*rm -f*") "linux test-file script uses rm -f"
+Assert-True (-not (Test-TargetSupportsCleanup $targets[0])) "test file does not support cleanup"
+Assert-True (Test-TargetSupportsCleanup $targets[1]) "filesystem supports cleanup"
+Assert-True (-not (Test-TargetSupportsCleanup $targets[3])) "raw disk skipped"
+$linuxScript = Get-TargetCleanupRemoteScript -Path $mountLikeDir -Kind "Filesystem" -OsType "Linux"
+Assert-True ($linuxScript -like "*'/*") "linux filesystem script deletes contents only"
+Assert-True ($linuxScript -like "*..?*") "linux filesystem script includes hidden entries"
+$winScript = Get-TargetCleanupRemoteScript -Path "D:\\fs_test" -Kind "Filesystem" -OsType "Windows"
+Assert-True ($winScript -like "*Get-ChildItem*") "windows filesystem script deletes contents only"
 
+$script:LocalHostTargets = @($targets)
 $result = Invoke-CleanupTargets -Owner (New-LocalHostCleanupOwner) -Targets $targets
-Assert-True (-not (Test-Path -LiteralPath $testFile)) "test file deleted"
-Assert-True (-not (Test-Path -LiteralPath $anchorDir)) "anchor directory deleted"
-Assert-True ($result.Cleaned.Count -ge 2) "cleaned count"
-Assert-True ($result.Skipped.Count -ge 1) "raw disk skipped in result"
+Assert-True (Test-Path -LiteralPath $testFile) "test file left intact"
+Assert-True (Test-Path -LiteralPath $anchorDir) "anchor directory kept"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $anchorDir "child.txt"))) "anchor contents deleted"
+Assert-True (Test-Path -LiteralPath $mountLikeDir) "mount-like anchor kept"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $mountLikeDir "run-data.txt"))) "mount-like contents deleted"
+Assert-True ($result.Cleaned.Count -eq 2) "two filesystem anchors cleaned"
+Assert-True ($result.Skipped.Count -ge 2) "non-filesystem targets skipped in result"
+Assert-True (-not (Test-CleanupUiEnabled)) "cleanup UI disabled until filesystem run targets exist"
+$script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
+Assert-True (Test-CleanupUiEnabled) "cleanup UI enabled for filesystem run targets"
 
 $script:StartBackgroundUiWorkCalls = 0
 function Start-BackgroundUiWork {{
@@ -800,7 +816,7 @@ $cleanRow = [pscustomobject]@{{
 $cleanRow.Cells["Host"].Value = "10.0.0.9"
 $cleanRow.Cells["OsType"].Value = "Linux"
 $cleanRow.Tag = @{{
-    Targets = @((New-TargetSelection -Kind "Test file" -Target "/tmp/vdbench-clean-guard.dat" -Selected $true))
+    Targets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
     CleanInFlight = $false
 }}
 $script:SlaveGrid = [pscustomobject]@{{

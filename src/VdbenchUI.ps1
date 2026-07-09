@@ -79,6 +79,7 @@ $script:LocalHostTargetPreview = $null
 $script:LocalHostContentLayout = $null
 $script:RefreshingLocalTargets = $false
 $script:LocalHostCleanInFlight = $false
+$script:LocalHostCleanButton = $null
 $script:RunModeLabel = $null
 $script:RunModeIndicator = $null
 $script:MainFormLayout = $null
