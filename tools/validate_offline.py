@@ -735,6 +735,8 @@ $script:LocalHostTargets = @()
 $script:SlaveGrid = $null
 $script:LocalHostCleanInFlight = $false
 $script:RunModeCombo = $null
+$script:CleanupUiEnabledCache = $false
+$script:CleanupUiStateInitialized = $false
 foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1","ConfigGeneration.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
@@ -794,6 +796,24 @@ Assert-True ($result.Skipped.Count -ge 2) "non-filesystem targets skipped in res
 Assert-True (-not (Test-CleanupUiEnabled)) "cleanup UI disabled until filesystem run targets exist"
 $script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
 Assert-True (Test-CleanupUiEnabled) "cleanup UI enabled for filesystem run targets"
+
+$runnerContextPath = Join-Path "{tmp_dir}" "cleanup-session-context.json"
+$runnerResultPath = Join-Path "{tmp_dir}" "cleanup-session-result.json"
+$runnerPayload = Export-CleanupSessionContext `
+    -Owner (New-LocalHostCleanupOwner) `
+    -Targets @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true)) `
+    -ModuleRoot $script:ModuleRoot `
+    -ResultPath $runnerResultPath `
+    -Label "session-test"
+$runnerPayload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $runnerContextPath -Encoding UTF8
+Invoke-CleanupSessionRunner -ContextPath $runnerContextPath
+Assert-True (Test-Path -LiteralPath $runnerResultPath) "cleanup session runner writes result json"
+$runnerResult = Import-CleanupResultFromJson $runnerResultPath
+Assert-True ($runnerResult.Cleaned.Count -ge 1) "cleanup session runner cleaned target"
+$wrapper = Get-CleanupWindowWrapperCommand ". 'test.ps1'" "10.0.0.1"
+Assert-True ($wrapper -like "*press Enter to close*") "cleanup window wrapper pauses for review"
+
+$script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
 
 $script:StartBackgroundUiWorkCalls = 0
 function Start-BackgroundUiWork {{
