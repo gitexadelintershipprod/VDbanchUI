@@ -802,7 +802,11 @@ function Build-LocalHostTab {
         Validate-SettingsPaths
         Refresh-LocalHostTab
     })
-    Add-FlowToolbarItem $toolbar $validateButton -FlowBreak
+    Add-FlowToolbarItem $toolbar $validateButton
+
+    $cleanButton = New-Button "Clean" 338 8 80 28
+    $cleanButton.Add_Click({ Start-LocalHostTargetClean })
+    Add-FlowToolbarItem $toolbar $cleanButton -FlowBreak
 
     $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the target list after Browse." 0 0 400 48
     $note.AutoSize = $false
