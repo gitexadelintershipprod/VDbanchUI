@@ -468,7 +468,7 @@ function Complete-SlaveTargetCleanBackgroundWork {
         $row = $script:SlaveGrid.Rows[$Context.RowIndex]
         if ($null -ne $row -and -not $row.IsNewRow) {
             $state = Get-SlaveRowState $row
-            $state.CleanInFlight = $false
+            $state["CleanInFlight"] = $false
         }
     }
     if ($null -ne $ErrorMessage) {
@@ -505,10 +505,10 @@ function Start-SlaveTargetClean {
         return
     }
     $state = Get-SlaveRowState $Row
-    if ([bool]$state.CleanInFlight) {
+    if ([bool](Get-PropertyValue $state "CleanInFlight" $false)) {
         return
     }
-    $state.CleanInFlight = $true
+    $state["CleanInFlight"] = $true
     $context = @{
         RowIndex = $Row.Index
         HostName = [string]$Row.Cells["Host"].Value

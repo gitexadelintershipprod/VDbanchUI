@@ -6,7 +6,13 @@ function Get-SlaveRowState {
     # calls members duck-typed regardless of the declared parameter type.
     param($Row)
     if ($null -eq $Row) {
-        return @{ Targets = @(); ReadinessOutput = "" }
+        return @{
+            Targets = @()
+            ReadinessOutput = ""
+            ReadinessCheckedAt = ""
+            PingCheckedAt = ""
+            CleanInFlight = $false
+        }
     }
     if ($null -eq $Row.Tag -or $Row.Tag -isnot [hashtable]) {
         $targets = @()
@@ -18,7 +24,13 @@ function Get-SlaveRowState {
             ReadinessOutput = ""
             ReadinessCheckedAt = ""
             PingCheckedAt = ""
+            CleanInFlight = $false
         }
+    }
+    # Rows created before Clean existed (or Tag rebuilt without this key) must
+    # still expose CleanInFlight under Set-StrictMode -Version 2.0.
+    if (-not $Row.Tag.ContainsKey("CleanInFlight")) {
+        $Row.Tag["CleanInFlight"] = $false
     }
     return $Row.Tag
 }
