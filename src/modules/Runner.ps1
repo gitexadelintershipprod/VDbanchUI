@@ -326,6 +326,29 @@ function Complete-VdbenchProcessExited {
     if ($null -eq $script:RunResultSummary) {
         $script:RunResultSummary = New-EmptyRunResultSummary
     }
+    # Prefer a full re-parse of stdout so phase metrics stay consistent, then
+    # enrich with per-slave rows from skew.html in the run output folder.
+    if (-not [string]::IsNullOrWhiteSpace($StdoutPath) -and (Test-Path -LiteralPath $StdoutPath)) {
+        $script:RunResultSummary = Get-RunResultSummaryFromFile $StdoutPath
+    }
+    $runDir = ""
+    if (-not [string]::IsNullOrWhiteSpace($StdoutPath)) {
+        try {
+            $runDir = [System.IO.Path]::GetDirectoryName($StdoutPath)
+        } catch {
+            $runDir = ""
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($runDir) -and -not [string]::IsNullOrWhiteSpace($RunId)) {
+        $metaPath = Join-Path $script:RunStateRoot ($RunId + ".json")
+        if (Test-Path -LiteralPath $metaPath) {
+            $meta = Read-JsonFile $metaPath ([pscustomobject]@{})
+            $runDir = [string](Get-PropertyValue $meta "RunDir" "")
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($runDir)) {
+        [void](Update-RunResultSummaryFromRunDir $script:RunResultSummary $runDir)
+    }
     $script:RunResultSummary.Status = $status
     if ($status -eq "Completed") {
         $script:RunResultSummary.Success = $true

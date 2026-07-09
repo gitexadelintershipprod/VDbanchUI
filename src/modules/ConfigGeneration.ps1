@@ -843,7 +843,7 @@ function Resize-RunTabSummaryArea {
         $font = $box.Font
         $width = $box.ClientSize.Width
         if ($width -lt 160) {
-            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) * 0.74))
+            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) * 0.80))
         }
         $lineCount = @(($text -split "`r?`n")).Count
         if ($lineCount -lt 1) {
