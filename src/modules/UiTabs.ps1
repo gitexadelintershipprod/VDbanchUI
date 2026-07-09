@@ -1612,8 +1612,8 @@ function Build-RunTab {
     $summarySplit.Dock = [System.Windows.Forms.DockStyle]::Fill
     $summarySplit.RowCount = 1
     $summarySplit.ColumnCount = 2
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 38)) | Out-Null
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 62)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 26)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 74)) | Out-Null
     $summaryPanel.Controls.Add($summarySplit)
     $script:RunSummarySplit = $summarySplit
 
@@ -1660,9 +1660,9 @@ function Build-RunTab {
     $script:RunResultSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunResultSummaryBox.Multiline = $true
     $script:RunResultSummaryBox.ReadOnly = $true
-    $script:RunResultSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-    $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
-    $script:RunResultSummaryBox.WordWrap = $true
+    $script:RunResultSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
+    $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 8.25
+    $script:RunResultSummaryBox.WordWrap = $false
     $script:RunResultSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     $script:RunResultSummaryBox.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
     $script:RunResultSummaryBox.Add_TextChanged({ Resize-RunTabSummaryArea })

@@ -272,12 +272,26 @@ function Invoke-AppSelfTest {
             throw "Self-test failed: workload duration missing"
         }
         $formatted = Format-RunResultSummaryText $resultSummary
-        Assert-SelfTestContains $formatted "FORMAT" "formatted run result format section"
-        Assert-SelfTestContains $formatted "WORKLOAD" "formatted run result workload section"
-        Assert-SelfTestContains $formatted "SLAVES" "formatted run result slaves section"
-        Assert-SelfTestContains $formatted "SUMMARY" "formatted run result summary section"
+        Assert-SelfTestContains $formatted "FORMAT" "formatted run result format cell"
+        Assert-SelfTestContains $formatted "WORKLOAD" "formatted run result workload cell"
+        Assert-SelfTestContains $formatted "avg=" "formatted run result avg metrics"
         Assert-SelfTestContains $formatted "Linux-01-0" "formatted run result slave name"
         Assert-SelfTestContains $formatted "Windows-01-0" "formatted run result windows slave"
+        Assert-SelfTestContains $formatted "|" "formatted run result table borders"
+
+        # Max must never display below avg when interval capture missed peaks.
+        $maxBelowAvgText = @(
+            "15:38:32.002 Starting RD=rd1; elapsed=30 warmup=3; fwdrate=max. For loops: None",
+            "15:38:33.018            1 1168.0  0.959   1.9 0.58  70.7  826.0  1.027  342.0  0.796 25.81 10.69  36.50   32768",
+            "15:39:00.017           28 1882.0  0.780   1.6 1.12  69.3 1707.0  0.794  756.0  0.749 53.34 23.62  76.97   32768",
+            "15:39:05.028     avg_4-33 2363.3  0.862   1.6 1.04  69.9 1561.7  0.892  671.0  0.790 48.80 20.97  73.85   32767"
+        ) -join [Environment]::NewLine
+        $maxBelowAvgSummary = Get-RunResultSummaryFromText $maxBelowAvgText
+        $parsedAvg = [double]$maxBelowAvgSummary.WorkloadAvgIops.Replace(",", "")
+        $parsedMax = [double]$maxBelowAvgSummary.WorkloadMaxIops.Replace(",", "")
+        if ($parsedMax -lt $parsedAvg) {
+            throw ("Self-test failed: workload max ({0}) below avg ({1})." -f $parsedMax, $parsedAvg)
+        }
 
         $psiPs1 = Get-VdbenchProcessStartInfo (Join-Path $script:AppRoot "tools\FakeVdbench.ps1") "C:\tmp\profile.parm" "C:\tmp\out folder" $script:AppRoot
         Assert-SelfTestEquals $psiPs1.FileName "powershell.exe" "ps1 runner executable"

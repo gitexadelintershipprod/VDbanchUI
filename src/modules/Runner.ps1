@@ -76,8 +76,8 @@ function Add-MetricPointFromLine {
     if (-not $script:RunChart) {
         return
     }
-    if ($Line -match 'Starting RD=' -and $phase -ne $previousPhase) {
-        # New phase: clear points so format and workload never share one continuous plot.
+    # Chart shows workload only - never plot format intervals.
+    if ($Line -match 'Starting RD=' -and $phase -eq "workload" -and $phase -ne $previousPhase) {
         foreach ($series in $script:RunChart.Series) {
             $series.Points.Clear()
         }
@@ -85,10 +85,13 @@ function Add-MetricPointFromLine {
         try {
             $area = $script:RunChart.ChartAreas["RunMetrics"]
             if ($null -ne $area) {
-                $area.AxisX.Title = ("Interval ({0})" -f $(if ([string]::IsNullOrWhiteSpace($phase)) { "run" } else { $phase }))
+                $area.AxisX.Title = "Interval (workload)"
             }
         } catch {
         }
+    }
+    if ($phase -eq "format") {
+        return
     }
     $metrics = Get-MetricValuesFromLine $Line $phase
     if ($null -eq $metrics) {
@@ -105,11 +108,6 @@ function Add-MetricPointFromLine {
         $iopsSeries = "Workload IOPS"
         $mbpsSeries = "Workload MB/s"
         $latSeries = "Workload Latency"
-        if ($phase -eq "format") {
-            $iopsSeries = "Format IOPS"
-            $mbpsSeries = "Format MB/s"
-            $latSeries = "Format Latency"
-        }
         if ($null -eq $script:RunChart.Series[$iopsSeries]) {
             $iopsSeries = "IOPS"
             $mbpsSeries = "MB/s"
@@ -139,7 +137,7 @@ function New-RunChart {
     $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
     $area.Name = "RunMetrics"
     $area.BackColor = [System.Drawing.Color]::WhiteSmoke
-    $area.AxisX.Title = "Interval (per phase)"
+    $area.AxisX.Title = "Interval (workload)"
     $area.AxisY.Title = "IOPS / MB/s"
     $area.AxisY2.Title = "Latency (ms)"
     $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::True
@@ -165,9 +163,6 @@ function New-RunChart {
         @{ Name = "Workload IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue; Width = 2 },
         @{ Name = "Workload MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen; Width = 2 },
         @{ Name = "Workload Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick; Width = 2 },
-        @{ Name = "Format IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::CornflowerBlue; Width = 1 },
-        @{ Name = "Format MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::MediumSeaGreen; Width = 1 },
-        @{ Name = "Format Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::IndianRed; Width = 1 },
         @{ Name = "IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue; Width = 2 },
         @{ Name = "MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen; Width = 2 },
         @{ Name = "Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick; Width = 2 }

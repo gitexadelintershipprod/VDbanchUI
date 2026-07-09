@@ -843,26 +843,33 @@ function Resize-RunTabSummaryArea {
         $font = $box.Font
         $width = $box.ClientSize.Width
         if ($width -lt 160) {
-            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) / 2))
+            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) * 0.74))
         }
-        $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
-        $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
-            $text,
-            $font,
-            (New-Object System.Drawing.Size($width, [int]::MaxValue)),
-            $flags
-        )
-        $contentHeight = [Math]::Max($measured.Height + 16, 52)
-        $lineCount = @(($text -split [Environment]::NewLine)).Count
-        if ($lineCount -gt 1) {
-            $contentHeight += (($lineCount - 1) * 2)
+        $lineCount = @(($text -split "`r?`n")).Count
+        if ($lineCount -lt 1) {
+            $lineCount = 1
         }
+        # Prefer line-count sizing for monospace tables (WordWrap off on results).
+        $lineHeight = [Math]::Max(12, [int][Math]::Ceiling($font.GetHeight()))
+        $contentHeight = ($lineCount * $lineHeight) + 16
+        if ([bool]$box.WordWrap) {
+            $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
+            $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
+                $text,
+                $font,
+                (New-Object System.Drawing.Size($width, [int]::MaxValue)),
+                $flags
+            )
+            $contentHeight = [Math]::Max($contentHeight, $measured.Height + 16)
+        }
+        $contentHeight = [Math]::Max($contentHeight, 52)
         if ($contentHeight -gt $maxContentHeight) {
             $maxContentHeight = $contentHeight
         }
     }
     $rowHeight = 22 + 12 + $maxContentHeight + 16
-    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 160), 280)
+    # Grow with host count so the compact results table stays visible without scrolling.
+    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 170), 420)
     $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
 }
 
