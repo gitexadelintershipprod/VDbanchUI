@@ -426,16 +426,15 @@ function New-LocalHostCleanupOwner {
     }
 }
 
-function Update-LocalHostCleanButtonState {
-    if ($null -eq $script:LocalHostCleanButton) {
-        return
-    }
-    $enabled = Test-CleanupUiEnabled
-    $script:LocalHostCleanButton.Enabled = $enabled
-    if ($enabled) {
-        $script:LocalHostCleanButton.ForeColor = [System.Drawing.SystemColors]::ControlText
-    } else {
-        $script:LocalHostCleanButton.ForeColor = [System.Drawing.Color]::DimGray
+function New-SlaveCleanupOwnerFromRow {
+    param($Row)
+    Capture-Settings
+    return [pscustomobject]@{
+        Host = [string]$Row.Cells["Host"].Value
+        OsType = [string]$Row.Cells["OsType"].Value
+        User = [string]$Row.Cells["User"].Value
+        SshAlias = [string]$Row.Cells["SshAlias"].Value
+        PrivateKey = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
     }
 }
 
@@ -443,30 +442,35 @@ function Update-CleanupUiState {
     $resolved = Resolve-RunTestKind
     $script:CleanupUiEnabledCache = ([string]$resolved.TestKind -eq "Filesystem")
     $script:CleanupUiStateInitialized = $true
-    Update-LocalHostCleanButtonState
     if ($null -ne $script:SlaveGrid) {
         $script:SlaveGrid.Invalidate()
     }
 }
 
-function Invoke-LocalHostTargetCleanBackgroundWork {
+function Invoke-SlaveTargetCleanBackgroundWork {
     param([hashtable]$Context)
     if ([bool](Get-PropertyValue $Context "ShowCleanupWindow" $false)) {
         return Invoke-CleanupTargetsInVisibleWindow `
             -Owner $Context.Owner `
             -Targets $Context.Targets `
-            -Label "Local Host"
+            -Label ([string](Get-PropertyValue $Context "HostName" "slave"))
     }
     Invoke-CleanupTargets -Owner $Context.Owner -Targets $Context.Targets
 }
 
-function Complete-LocalHostTargetCleanBackgroundWork {
+function Complete-SlaveTargetCleanBackgroundWork {
     param(
         $Result,
         $ErrorMessage,
         $Context
     )
-    $script:LocalHostCleanInFlight = $false
+    if ($null -ne $script:SlaveGrid -and $Context.RowIndex -ge 0 -and $Context.RowIndex -lt $script:SlaveGrid.Rows.Count) {
+        $row = $script:SlaveGrid.Rows[$Context.RowIndex]
+        if ($null -ne $row -and -not $row.IsNewRow) {
+            $state = Get-SlaveRowState $row
+            $state.CleanInFlight = $false
+        }
+    }
     if ($null -ne $ErrorMessage) {
         Show-Warning $ErrorMessage
         return
@@ -479,33 +483,43 @@ function Complete-LocalHostTargetCleanBackgroundWork {
     $skipped = @(Get-PropertyValue $Result "Skipped" @())
     $showedWindow = [bool](Get-PropertyValue $Context "ShowCleanupWindow" $false)
     if (-not $showedWindow -and $errors.Count -gt 0) {
-        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($errors -join [Environment]::NewLine)))
+        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
     }
-    Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f $cleaned.Count, $skipped.Count, $errors.Count)
+    Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, $cleaned.Count, $skipped.Count, $errors.Count)
 }
 
-function Start-LocalHostTargetClean {
+function Test-SlaveRowCleanEnabled {
+    param($Row)
     if (-not (Test-CleanupUiEnabled)) {
+        return $false
+    }
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return $false
+    }
+    return (@(Get-CleanupEligibleTargets (Get-SlaveRowTargets $Row)).Count -gt 0)
+}
+
+function Start-SlaveTargetClean {
+    param($Row)
+    if (-not (Test-SlaveRowCleanEnabled $Row)) {
         return
     }
-    if ($script:LocalHostCleanInFlight) {
+    $state = Get-SlaveRowState $Row
+    if ([bool]$state.CleanInFlight) {
         return
     }
-    Capture-LocalHostTargets
-    $selected = @(Get-CleanupEligibleTargets @(Get-LocalHostTargetStore))
-    if ($selected.Count -eq 0) {
-        Show-Warning "No selected filesystem targets to clean on Local Host."
-        return
-    }
-    $script:LocalHostCleanInFlight = $true
+    $state.CleanInFlight = $true
     $context = @{
-        Owner = New-LocalHostCleanupOwner
-        Targets = @(Get-LocalHostTargetStore)
+        RowIndex = $Row.Index
+        HostName = [string]$Row.Cells["Host"].Value
+        Owner = New-SlaveCleanupOwnerFromRow $Row
+        Targets = @(Get-SlaveRowTargets $Row)
         ShowCleanupWindow = $true
     }
+    Write-DebugLog ("Clean started for host={0} row={1}" -f $context.HostName, $context.RowIndex)
     Start-BackgroundUiWork `
-        -Owner $script:LocalHostTab `
+        -Owner $script:SlaveGrid `
         -Context $context `
-        -CommandName "Invoke-LocalHostTargetCleanBackgroundWork" `
-        -OnCompleteCommandName "Complete-LocalHostTargetCleanBackgroundWork"
+        -CommandName "Invoke-SlaveTargetCleanBackgroundWork" `
+        -OnCompleteCommandName "Complete-SlaveTargetCleanBackgroundWork"
 }

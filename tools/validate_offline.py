@@ -732,12 +732,23 @@ $script:SettingsPath = Join-Path $script:DataRoot "settings.json"
 $script:Slaves = @()
 $script:LocalHostTargets = @()
 $script:SlaveGrid = $null
-$script:LocalHostCleanInFlight = $false
 $script:RunModeCombo = $null
 $script:CleanupUiEnabledCache = $false
 $script:CleanupUiStateInitialized = $false
 foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1","ConfigGeneration.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
+}}
+function Get-SlaveRowState {{
+    param($Row)
+    if ($null -eq $Row.Tag -or $Row.Tag -isnot [hashtable]) {{
+        $Row.Tag = @{{ Targets = @(); CleanInFlight = $false }}
+    }}
+    return $Row.Tag
+}}
+function Get-SlaveRowTargets {{
+    param($Row)
+    $state = Get-SlaveRowState $Row
+    return @(Normalize-TargetEntries $state.Targets)
 }}
 . (Join-Path $script:ModuleRoot "TargetCleanup.ps1")
 
@@ -807,30 +818,45 @@ $wrapper = Get-CleanupWindowWrapperCommand ". 'test.ps1'" "10.0.0.1"
 Assert-True ($wrapper -like "*press Enter to close*") "cleanup window wrapper pauses for review"
 
 $script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
-$script:LocalHostCleanInFlight = $false
 $script:StartBackgroundUiWorkCalls = 0
 function Start-BackgroundUiWork {{
     param($Owner, [scriptblock]$OnComplete = $null, [string]$OnCompleteCommandName = "", [hashtable]$Context = @{{}}, [scriptblock]$Work = $null, [string]$CommandName = "")
     $script:StartBackgroundUiWorkCalls++
-    if ($CommandName -eq "Invoke-LocalHostTargetCleanBackgroundWork") {{
-        $script:LocalHostCleanInFlight = $true
-    }}
 }}
-$script:LocalHostTab = [pscustomobject]@{{}}
-function Show-Warning {{ param([string]$Message) }}
-function Capture-LocalHostTargets {{ }}
-function Get-LocalHostTargetStore {{ return @($script:LocalHostTargets) }}
-Start-LocalHostTargetClean
+function New-MockCellCollection {{
+    $cells = @{{}}
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","CleanRun")) {{
+        $cells[$col] = [pscustomobject]@{{ Value = "" }}
+    }}
+    return $cells
+}}
+$cleanRow = [pscustomobject]@{{
+    Tag = $null
+    IsNewRow = $false
+    Index = 0
+    Cells = (New-MockCellCollection)
+}}
+$cleanRow.Cells["Host"].Value = "10.0.0.9"
+$cleanRow.Cells["OsType"].Value = "Linux"
+$cleanRow.Tag = @{{
+    Targets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
+    CleanInFlight = $false
+}}
+$script:SlaveGrid = [pscustomobject]@{{
+    Rows = @($cleanRow)
+    InvalidateRow = {{ param($RowIndex) }}
+}}
+Start-SlaveTargetClean -Row $cleanRow
 $firstCalls = $script:StartBackgroundUiWorkCalls
-Start-LocalHostTargetClean
-Assert-True ($firstCalls -eq 1) "repeat local clean click ignored while in flight"
-Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat local clean click ignored while in flight (count)"
+Start-SlaveTargetClean -Row $cleanRow
+Assert-True ($firstCalls -eq 1) "repeat clean click ignored while in flight"
+Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat clean click ignored while in flight (count)"
 
 if ($errors.Count -gt 0) {{
     foreach ($e in $errors) {{ Write-Host "ASSERT FAILED: $e" }}
     exit 1
 }}
-Write-Host "target cleanup regression check: scripts, local delete, and local repeat-click guard verified"
+Write-Host "target cleanup regression check: scripts, local delete, and repeat-click guard verified"
 """.format(
                 app_root=str(ROOT),
                 tmp_dir=tmp_dir.replace("\\", "/"),
@@ -2711,11 +2737,11 @@ def main() -> int:
     assert "function Invoke-SlavePingBackgroundWork" in ui_slave_module
     assert "function Invoke-SlaveReadinessBackgroundWork" in ui_slave_module
     assert '@{ Name = "ReadinessRun"; Text = "Readiness" }' in ui_slave_module
-    assert '@{ Name = "CleanRun"; Text = "Clean" }' not in ui_slave_module
+    assert '@{ Name = "CleanRun"; Text = "Clean" }' in ui_slave_module
     assert 'Cells["Notes"]' not in ui_slave_module
-    assert 'New-Button "Clean"' in ui_tabs_module
-    assert "function Start-LocalHostTargetClean" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
-    assert "function Start-SlaveTargetClean" not in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert 'New-Button "Clean"' not in ui_tabs_module
+    assert "function Start-LocalHostTargetClean" not in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert "function Start-SlaveTargetClean" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
     assert 'New-Button "Config only"' in ui_tabs_module
     assert "Invoke-UiSafe { New-ConfigOnlyRun }" in ui_tabs_module
     assert "$timer.Tag" not in ui_slave_module
@@ -3088,8 +3114,9 @@ def main() -> int:
     assert "LocalHostDiskCombo" not in ui_tabs_module
     assert "AutoScroll = $false" in ui_helpers_module
     assert "SetFlowBreak($prev, $true)" in ui_helpers_module
-    assert 'New-Button "Clean"' in ui_tabs_module
-    assert "Add-FlowToolbarItem $toolbar $cleanButton -FlowBreak" in ui_tabs_module
+    assert 'New-Button "Clean"' not in ui_tabs_module
+    assert "Add-FlowToolbarItem $toolbar $cleanButton -FlowBreak" not in ui_tabs_module
+    assert "Add-FlowToolbarItem $toolbar $validateButton -FlowBreak" in ui_tabs_module
     assert "LocalHostTargetPreview -HeaderBase 46" in ui_helpers_module
     assert "ProfileToolbarLayout.RowStyles[1].Height" in ui_helpers_module
     assert "function New-ProfileDropdown" in ui_helpers_module
