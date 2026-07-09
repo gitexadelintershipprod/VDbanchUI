@@ -490,22 +490,29 @@ function Complete-SlaveTargetCleanBackgroundWork {
 
 function Test-SlaveRowCleanEnabled {
     param($Row)
-    if (-not (Test-CleanupUiEnabled)) {
-        return $false
-    }
     if ($null -eq $Row -or $Row.IsNewRow) {
         return $false
     }
+    # Per-row only: Clean must work for this slave's selected filesystem
+    # anchors even when no slaves are Enabled/Ready for the current run yet
+    # (global Test-CleanupUiEnabled / Resolve-RunTestKind would otherwise
+    # silently disable every Clean button).
     return (@(Get-CleanupEligibleTargets (Get-SlaveRowTargets $Row)).Count -gt 0)
 }
 
 function Start-SlaveTargetClean {
     param($Row)
-    if (-not (Test-SlaveRowCleanEnabled $Row)) {
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return
+    }
+    $eligible = @(Get-CleanupEligibleTargets (Get-SlaveRowTargets $Row))
+    if ($eligible.Count -eq 0) {
+        Show-Warning "No selected filesystem targets to clean on this host. Browse and tick Use on a filesystem anchor first."
         return
     }
     $state = Get-SlaveRowState $Row
     if ([bool](Get-PropertyValue $state "CleanInFlight" $false)) {
+        Show-Warning "Clean is already running for this host."
         return
     }
     $state["CleanInFlight"] = $true
@@ -516,10 +523,16 @@ function Start-SlaveTargetClean {
         Targets = @(Get-SlaveRowTargets $Row)
         ShowCleanupWindow = $true
     }
-    Write-DebugLog ("Clean started for host={0} row={1}" -f $context.HostName, $context.RowIndex)
-    Start-BackgroundUiWork `
-        -Owner $script:SlaveGrid `
-        -Context $context `
-        -CommandName "Invoke-SlaveTargetCleanBackgroundWork" `
-        -OnCompleteCommandName "Complete-SlaveTargetCleanBackgroundWork"
+    Write-AppLog ("Clean started for host={0} row={1} targets={2}" -f $context.HostName, $context.RowIndex, $eligible.Count) "INFO"
+    try {
+        Start-BackgroundUiWork `
+            -Owner $script:SlaveGrid `
+            -Context $context `
+            -CommandName "Invoke-SlaveTargetCleanBackgroundWork" `
+            -OnCompleteCommandName "Complete-SlaveTargetCleanBackgroundWork"
+    } catch {
+        $state["CleanInFlight"] = $false
+        Write-AppLog ("Clean failed to start for host={0}: {1}" -f $context.HostName, $_.Exception.Message) "ERROR" $_.Exception
+        Show-Warning ("Clean failed to start: " + $_.Exception.Message)
+    }
 }

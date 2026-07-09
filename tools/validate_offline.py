@@ -849,11 +849,78 @@ $script:SlaveGrid = [pscustomobject]@{{
     Rows = @($cleanRow)
     InvalidateRow = {{ param($RowIndex) }}
 }}
+$script:ShowWarningCalls = @()
+function Show-Warning {{
+    param([string]$Message, [string]$Title = "Vdbench UI")
+    $script:ShowWarningCalls += $Message
+}}
+# Force global cleanup gate OFF via the same cache Update-CleanupUiState uses —
+# Clean must still work per-row even when the app-wide gate is false.
+$script:LocalHostTargets = @()
+$script:AppState = @{{
+    RunMode = "MasterSlave"
+    LocalHost = @{{ OsType = "Windows"; Targets = @() }}
+    Slaves = @()
+}}
+$script:CleanupUiStateInitialized = $true
+$script:CleanupUiEnabledCache = $false
+Assert-True (-not (Test-CleanupUiEnabled)) "global cleanup gate is off without ready slaves"
+Assert-True (Test-SlaveRowCleanEnabled -Row $cleanRow) "per-row Clean enabled ignores global gate when row has FS targets"
 Start-SlaveTargetClean -Row $cleanRow
 $firstCalls = $script:StartBackgroundUiWorkCalls
+Assert-True ($firstCalls -eq 1) "Clean starts even when global CleanupUiEnabled is false"
 Start-SlaveTargetClean -Row $cleanRow
-Assert-True ($firstCalls -eq 1) "repeat clean click ignored while in flight"
 Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat clean click ignored while in flight (count)"
+Assert-True ($script:ShowWarningCalls.Count -eq 1) "repeat clean click warns instead of silent no-op"
+Assert-True ($script:ShowWarningCalls[0] -like "*already running*") "repeat clean warning mentions already running"
+
+# Empty selection must warn instead of silently no-op.
+$emptyRow = [pscustomobject]@{{
+    Tag = $null
+    IsNewRow = $false
+    Index = 2
+    Cells = (New-MockCellCollection)
+}}
+$emptyRow.Cells["Host"].Value = "10.0.0.7"
+$emptyRow.Cells["OsType"].Value = "Linux"
+$emptyRow.Tag = @{{
+    Targets = @()
+    CleanInFlight = $false
+}}
+$script:SlaveGrid = [pscustomobject]@{{
+    Rows = @($emptyRow)
+    InvalidateRow = {{ param($RowIndex) }}
+}}
+$script:StartBackgroundUiWorkCalls = 0
+$script:ShowWarningCalls = @()
+Start-SlaveTargetClean -Row $emptyRow
+Assert-True ($script:StartBackgroundUiWorkCalls -eq 0) "empty Clean does not start background work"
+Assert-True ($script:ShowWarningCalls.Count -eq 1) "empty Clean shows a warning"
+Assert-True ($script:ShowWarningCalls[0] -like "*No selected filesystem targets*") "empty Clean warning mentions filesystem targets"
+
+# In-flight Clean must warn instead of silently no-op.
+$busyRow = [pscustomobject]@{{
+    Tag = $null
+    IsNewRow = $false
+    Index = 3
+    Cells = (New-MockCellCollection)
+}}
+$busyRow.Cells["Host"].Value = "10.0.0.6"
+$busyRow.Cells["OsType"].Value = "Linux"
+$busyRow.Tag = @{{
+    Targets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
+    CleanInFlight = $true
+}}
+$script:SlaveGrid = [pscustomobject]@{{
+    Rows = @($busyRow)
+    InvalidateRow = {{ param($RowIndex) }}
+}}
+$script:StartBackgroundUiWorkCalls = 0
+$script:ShowWarningCalls = @()
+Start-SlaveTargetClean -Row $busyRow
+Assert-True ($script:StartBackgroundUiWorkCalls -eq 0) "in-flight Clean does not start again"
+Assert-True ($script:ShowWarningCalls.Count -eq 1) "in-flight Clean shows a warning"
+Assert-True ($script:ShowWarningCalls[0] -like "*already running*") "in-flight Clean warning mentions progress"
 
 # Legacy row Tag without CleanInFlight must not throw under StrictMode.
 $legacyRow = [pscustomobject]@{{
@@ -2774,10 +2841,18 @@ def main() -> int:
     )
     assert 'ContainsKey("CleanInFlight")' in ui_slave_module
     assert 'Get-PropertyValue $state "CleanInFlight" $false' in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    cleanup_module = (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert "if (-not (Test-CleanupUiEnabled))" not in cleanup_module.split("function Test-SlaveRowCleanEnabled", 1)[1].split("function Start-SlaveTargetClean", 1)[0], (
+        "Test-SlaveRowCleanEnabled must not gate on global Test-CleanupUiEnabled; "
+        "Clean is per-row and must work before any slave is Enabled/Ready"
+    )
+    assert "No selected filesystem targets to clean on this host" in cleanup_module
+    assert 'Start-SlaveTargetClean -Row $row' in ui_slave_module
+    assert 'if (Test-SlaveRowCleanEnabled $row)' not in ui_slave_module.split('"CleanRun"', 1)[1].split('"Browse"', 1)[0]
     assert 'Cells["Notes"]' not in ui_slave_module
     assert 'New-Button "Clean"' not in ui_tabs_module
-    assert "function Start-LocalHostTargetClean" not in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
-    assert "function Start-SlaveTargetClean" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert "function Start-LocalHostTargetClean" not in cleanup_module
+    assert "function Start-SlaveTargetClean" in cleanup_module
     assert 'New-Button "Config only"' in ui_tabs_module
     assert "Invoke-UiSafe { New-ConfigOnlyRun }" in ui_tabs_module
     assert "$timer.Tag" not in ui_slave_module

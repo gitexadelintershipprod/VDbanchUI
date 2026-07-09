@@ -713,9 +713,9 @@ function Build-SlaveGrid {
         }
         switch ($columnName) {
             "CleanRun" {
-                if (Test-SlaveRowCleanEnabled $row) {
-                    Start-SlaveTargetClean -Row $row
-                }
+                # Always enter Start-SlaveTargetClean so missing targets / in-flight
+                # state surface a warning instead of a silent no-op.
+                Start-SlaveTargetClean -Row $row
             }
             "Browse" {
                 Browse-SlaveTargetsForRow $row
