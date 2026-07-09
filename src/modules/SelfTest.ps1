@@ -272,12 +272,12 @@ function Invoke-AppSelfTest {
             throw "Self-test failed: workload duration missing"
         }
         $formatted = Format-RunResultSummaryText $resultSummary
-        Assert-SelfTestContains $formatted "FORMAT" "formatted run result format cell"
-        Assert-SelfTestContains $formatted "WORKLOAD" "formatted run result workload cell"
-        Assert-SelfTestContains $formatted "avg=" "formatted run result avg metrics"
+        Assert-SelfTestContains $formatted "FORMAT" "formatted run result format line"
+        Assert-SelfTestContains $formatted "WORKLOAD" "formatted run result workload line"
+        Assert-SelfTestContains $formatted "Avg IOPS" "formatted run result host header"
         Assert-SelfTestContains $formatted "Linux-01-0" "formatted run result slave name"
         Assert-SelfTestContains $formatted "Windows-01-0" "formatted run result windows slave"
-        Assert-SelfTestContains $formatted "|" "formatted run result table borders"
+        Assert-SelfTestContains $formatted "10.50.11.174" "formatted run result linux host ip"
 
         # Max must never display below avg when interval capture missed peaks.
         $maxBelowAvgText = @(
@@ -292,6 +292,24 @@ function Invoke-AppSelfTest {
         if ($parsedMax -lt $parsedAvg) {
             throw ("Self-test failed: workload max ({0}) below avg ({1})." -f $parsedMax, $parsedAvg)
         }
+
+        # Per-host metrics come from skew.html Slave: rate table.
+        $skewSample = @"
+<pre>
+Slave: rate 1024**2 i/o pct time resp resp max stddev depth
+Linux-01-0 1181.5 36.92 32768 70.1 0.812 0.900 0.700 2.1 0.8 1.0
+Windows-01-0 1051.2 32.85 32768 69.8 0.910 1.000 0.800 3.2 0.9 1.0
+Total 2232.7 69.77 32768 69.9 0.862 0.950 0.750 3.2 0.85 2.0
+</pre>
+"@
+        [void](Update-RunResultSummaryFromSkewText $resultSummary $skewSample)
+        Assert-SelfTestEquals $resultSummary.Slaves["Linux-01-0"].AvgIops "1,181.5" "skew linux avg iops"
+        if ([math]::Abs(([double]$resultSummary.Slaves["Windows-01-0"].AvgMbps.Replace(",", "")) - 32.85) -gt 0.01) {
+            throw ("Self-test failed: skew windows mbps. Expected ~32.85, got '{0}'." -f $resultSummary.Slaves["Windows-01-0"].AvgMbps)
+        }
+        $formattedWithHosts = Format-RunResultSummaryText $resultSummary
+        Assert-SelfTestContains $formattedWithHosts "1,181.5" "formatted host avg iops"
+        Assert-SelfTestContains $formattedWithHosts "32.85" "formatted host mbps"
 
         $psiPs1 = Get-VdbenchProcessStartInfo (Join-Path $script:AppRoot "tools\FakeVdbench.ps1") "C:\tmp\profile.parm" "C:\tmp\out folder" $script:AppRoot
         Assert-SelfTestEquals $psiPs1.FileName "powershell.exe" "ps1 runner executable"

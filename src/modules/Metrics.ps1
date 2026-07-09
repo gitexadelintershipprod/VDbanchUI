@@ -264,6 +264,7 @@ function New-EmptyRunResultSummary {
         LastInterval = ""
         CompletedMessage = ""
         AnchorCount = 0
+        RunDir = ""
         Slaves = @{}
         HasData = $false
     }
@@ -285,9 +286,156 @@ function Ensure-RunResultSlaveEntry {
             Name = $Name
             Host = ""
             Anchor = ""
+            AvgIops = ""
+            MaxIops = ""
+            AvgMbps = ""
+            AvgLatency = ""
+            ReadPct = ""
+            ObservedMaxIops = 0.0
             Notes = New-Object System.Collections.Generic.List[string]
         }
     }
+}
+
+function Find-RunResultSlaveKey {
+    param(
+        $Summary,
+        [string]$Name
+    )
+    if ($null -eq $Summary -or $null -eq $Summary.Slaves -or [string]::IsNullOrWhiteSpace($Name)) {
+        return ""
+    }
+    if ($Summary.Slaves.ContainsKey($Name)) {
+        return $Name
+    }
+    foreach ($key in @($Summary.Slaves.Keys)) {
+        if ([string]$key -eq $Name) {
+            return [string]$key
+        }
+        if ([string]$key.StartsWith($Name + "-", [System.StringComparison]::OrdinalIgnoreCase)) {
+            return [string]$key
+        }
+        if ($Name.StartsWith([string]$key + "-", [System.StringComparison]::OrdinalIgnoreCase)) {
+            return [string]$key
+        }
+    }
+    return ""
+}
+
+function Set-RunResultSlaveMetrics {
+    param(
+        $Summary,
+        [string]$Name,
+        [double]$Iops,
+        [double]$Mbps,
+        [double]$Latency,
+        $ReadPct = $null
+    )
+    if ($null -eq $Summary -or [string]::IsNullOrWhiteSpace($Name)) {
+        return
+    }
+    $key = Find-RunResultSlaveKey $Summary $Name
+    if ([string]::IsNullOrWhiteSpace($key)) {
+        Ensure-RunResultSlaveEntry $Summary $Name
+        $key = $Name
+    }
+    $slave = $Summary.Slaves[$key]
+    if ($Iops -gt 0) {
+        $slave.AvgIops = ("{0:n1}" -f $Iops)
+        if ($Iops -gt [double]$slave.ObservedMaxIops) {
+            $slave.ObservedMaxIops = $Iops
+            $slave.MaxIops = ("{0:n1}" -f $Iops)
+        } elseif ([string]::IsNullOrWhiteSpace([string]$slave.MaxIops)) {
+            $slave.MaxIops = ("{0:n1}" -f $Iops)
+        } else {
+            $existingMax = 0.0
+            [void][double]::TryParse(([string]$slave.MaxIops).Replace(",", ""), [ref]$existingMax)
+            $maxVal = [Math]::Max($existingMax, $Iops)
+            $slave.ObservedMaxIops = $maxVal
+            $slave.MaxIops = ("{0:n1}" -f $maxVal)
+        }
+    }
+    if ($Mbps -gt 0) {
+        $slave.AvgMbps = ("{0:n2}" -f $Mbps)
+    }
+    if ($Latency -gt 0) {
+        $slave.AvgLatency = ("{0:n3}" -f $Latency)
+    }
+    if ($null -ne $ReadPct) {
+        $slave.ReadPct = ("{0:n1}" -f [double]$ReadPct)
+    }
+    $Summary.HasData = $true
+}
+
+function Update-RunResultSummaryFromSkewText {
+    param(
+        $Summary,
+        [string]$Text
+    )
+    if ($null -eq $Summary -or [string]::IsNullOrWhiteSpace($Text)) {
+        return $Summary
+    }
+    # skew.html is HTML; strip tags so we can parse the Slave: rate table.
+    $plain = [System.Text.RegularExpressions.Regex]::Replace($Text, '(?is)<script.*?</script>', ' ')
+    $plain = [System.Text.RegularExpressions.Regex]::Replace($plain, '(?is)<style.*?</style>', ' ')
+    $plain = [System.Text.RegularExpressions.Regex]::Replace($plain, '(?i)<br\s*/?>', [Environment]::NewLine)
+    $plain = [System.Text.RegularExpressions.Regex]::Replace($plain, '(?i)</(p|div|tr|h\d)>', [Environment]::NewLine)
+    $plain = [System.Text.RegularExpressions.Regex]::Replace($plain, '<[^>]+>', ' ')
+    $plain = [System.Net.WebUtility]::HtmlDecode($plain)
+
+    $inSlaveSection = $false
+    foreach ($rawLine in ($plain -split "`r?`n")) {
+        $line = ([string]$rawLine).Trim()
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        if ($line -match '(?i)^Slave:\s*rate') {
+            $inSlaveSection = $true
+            continue
+        }
+        if ($inSlaveSection -and ($line -match '(?i)^(WD:|Host:|FSD:|FWD:|Calculated versus|Counts reported)')) {
+            break
+        }
+        if (-not $inSlaveSection) {
+            continue
+        }
+        if ($line -match '(?i)^Total\b') {
+            continue
+        }
+        # Example: localhost-0 87601.40 85.55 1024 100.00 0.020 ...
+        if ($line -match '^([A-Za-z0-9_.-]+)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)') {
+            $slaveName = $Matches[1]
+            if ($slaveName -match '^(avg|max|std)_' -or $slaveName -eq "Total") {
+                continue
+            }
+            $iops = [double]$Matches[2]
+            $mbps = [double]$Matches[3]
+            $readPct = [double]$Matches[5]
+            $latency = [double]$Matches[6]
+            Set-RunResultSlaveMetrics $Summary $slaveName $iops $mbps $latency $readPct
+        }
+    }
+    return $Summary
+}
+
+function Update-RunResultSummaryFromRunDir {
+    param(
+        $Summary,
+        [string]$RunDir
+    )
+    if ($null -eq $Summary -or [string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir)) {
+        return $Summary
+    }
+    $Summary.RunDir = $RunDir
+    $skewPath = Join-Path $RunDir "skew.html"
+    if (Test-Path -LiteralPath $skewPath) {
+        try {
+            $skewText = [System.IO.File]::ReadAllText($skewPath)
+            [void](Update-RunResultSummaryFromSkewText $Summary $skewText)
+        } catch {
+        }
+    }
+    return $Summary
 }
 
 function Update-RunResultSummaryFromLine {
@@ -485,63 +633,12 @@ function Get-RunResultSummaryFromFile {
     return $summary
 }
 
-function Format-SummaryTableRow {
-    param(
-        [string]$Col1,
-        [string]$Col2,
-        [string]$Col3,
-        [string]$Col4,
-        [string]$Col5,
-        [string]$Col6,
-        [string]$Col7
-    )
-    return ("{0,-10} {1,8} {2,10} {3,10} {4,10} {5,8} {6,8}" -f $Col1, $Col2, $Col3, $Col4, $Col5, $Col6, $Col7)
-}
-
-function Format-FixedCellText {
-    param(
-        [string]$Text,
-        [int]$Width
-    )
-    $value = [string]$Text
-    if ($null -eq $value) {
-        $value = ""
+function Format-DashIfEmpty {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return "-"
     }
-    if ($Width -le 0) {
-        return $value
-    }
-    if ($value.Length -gt $Width) {
-        if ($Width -le 1) {
-            return $value.Substring(0, $Width)
-        }
-        return ($value.Substring(0, $Width - 1) + ".")
-    }
-    return $value.PadRight($Width)
-}
-
-function Format-BoxedRow {
-    param(
-        [string[]]$Cells,
-        [int]$CellWidth
-    )
-    $parts = New-Object System.Collections.Generic.List[string]
-    foreach ($cell in @($Cells)) {
-        [void]$parts.Add((" {0} " -f (Format-FixedCellText $cell $CellWidth)))
-    }
-    return ("|{0}|" -f ($parts -join "|"))
-}
-
-function Format-BoxedSeparator {
-    param(
-        [int]$ColumnCount,
-        [int]$CellWidth
-    )
-    $seg = ("-" * ($CellWidth + 2))
-    $parts = New-Object System.Collections.Generic.List[string]
-    for ($i = 0; $i -lt $ColumnCount; $i++) {
-        [void]$parts.Add($seg)
-    }
-    return ("+{0}+" -f ($parts -join "+"))
+    return $Text
 }
 
 function Format-RunResultSummaryText {
@@ -578,36 +675,21 @@ function Format-RunResultSummaryText {
     $readPct = [string](Get-PropertyValue $Summary "WorkloadReadPct" "")
     $anchors = [int](Get-PropertyValue $Summary "AnchorCount" 0)
 
-    # Top: two wide cells - workload | format. Slave grid: 4 fixed columns.
-    $topCols = 2
-    $topWidth = 46
-    $slaveCols = 4
-    $slaveWidth = 22
-
     [void]$lines.Add("")
-    [void]$lines.Add((Format-BoxedSeparator $topCols $topWidth))
-    [void]$lines.Add((Format-BoxedRow @("WORKLOAD", "FORMAT") $topWidth))
-
-    $wlLine1 = "time={0}  avg={1} IOPS  max={2}" -f `
-        $(if ([string]::IsNullOrWhiteSpace($workloadTime)) { "-" } else { $workloadTime }), `
-        $(if ([string]::IsNullOrWhiteSpace($workloadIops)) { "-" } else { $workloadIops }), `
-        $(if ([string]::IsNullOrWhiteSpace($workloadMax)) { "-" } else { $workloadMax })
-    $fmtLine1 = "time={0}  avg={1} MB/s  maxIOPS={2}" -f `
-        $(if ([string]::IsNullOrWhiteSpace($formatTime)) { "-" } else { $formatTime }), `
-        $(if ([string]::IsNullOrWhiteSpace($formatMbps)) { "-" } else { $formatMbps }), `
-        $(if ([string]::IsNullOrWhiteSpace($formatMax)) { "-" } else { $formatMax })
-    [void]$lines.Add((Format-BoxedRow @($wlLine1, $fmtLine1) $topWidth))
-
-    $wlLine2 = "{0} MB/s  lat={1}ms  read={2}%  anchors={3}" -f `
-        $(if ([string]::IsNullOrWhiteSpace($workloadMbps)) { "-" } else { $workloadMbps }), `
-        $(if ([string]::IsNullOrWhiteSpace($workloadLat)) { "-" } else { $workloadLat }), `
-        $(if ([string]::IsNullOrWhiteSpace($readPct)) { "-" } else { $readPct }), `
-        $anchors
-    $fmtLine2 = "avgIOPS={0}  lat={1}ms" -f `
-        $(if ([string]::IsNullOrWhiteSpace($formatIops)) { "-" } else { $formatIops }), `
-        $(if ([string]::IsNullOrWhiteSpace($formatLat)) { "-" } else { $formatLat })
-    [void]$lines.Add((Format-BoxedRow @($wlLine2, $fmtLine2) $topWidth))
-    [void]$lines.Add((Format-BoxedSeparator $topCols $topWidth))
+    [void]$lines.Add(("WORKLOAD  time={0}  avg={1} IOPS  max={2}  {3} MB/s  lat={4}  read={5}%  anchors={6}" -f `
+        (Format-DashIfEmpty $workloadTime), `
+        (Format-DashIfEmpty $workloadIops), `
+        (Format-DashIfEmpty $workloadMax), `
+        (Format-DashIfEmpty $workloadMbps), `
+        (Format-DashIfEmpty $workloadLat), `
+        (Format-DashIfEmpty $readPct), `
+        $anchors))
+    [void]$lines.Add(("FORMAT    time={0}  avg={1} MB/s  maxIOPS={2}  avgIOPS={3}  lat={4}" -f `
+        (Format-DashIfEmpty $formatTime), `
+        (Format-DashIfEmpty $formatMbps), `
+        (Format-DashIfEmpty $formatMax), `
+        (Format-DashIfEmpty $formatIops), `
+        (Format-DashIfEmpty $formatLat)))
 
     $slaveMap = Get-PropertyValue $Summary "Slaves" @{}
     $slaveNames = @()
@@ -615,41 +697,33 @@ function Format-RunResultSummaryText {
         $slaveNames = @($slaveMap.Keys | Sort-Object)
     }
 
-    [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
+    [void]$lines.Add("")
+    [void]$lines.Add(("{0,-14} {1,-15} {2,-14} {3,9} {4,9} {5,7} {6,7} {7,6}" -f `
+        "Host", "IP", "Anchor", "Avg IOPS", "Max IOPS", "MB/s", "Lat ms", "Read%"))
+    [void]$lines.Add(("{0,-14} {1,-15} {2,-14} {3,9} {4,9} {5,7} {6,7} {7,6}" -f `
+        "----", "--", "------", "--------", "--------", "-----", "------", "-----"))
+
     if ($slaveNames.Count -eq 0) {
-        $emptyCells = @(" (no slaves yet)", "", "", "")
-        [void]$lines.Add((Format-BoxedRow $emptyCells $slaveWidth))
-        [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
+        [void]$lines.Add("(no hosts yet)")
     } else {
-        for ($i = 0; $i -lt $slaveNames.Count; $i += $slaveCols) {
-            $nameCells = New-Object System.Collections.Generic.List[string]
-            $hostCells = New-Object System.Collections.Generic.List[string]
-            $anchorCells = New-Object System.Collections.Generic.List[string]
-            for ($c = 0; $c -lt $slaveCols; $c++) {
-                $idx = $i + $c
-                if ($idx -lt $slaveNames.Count) {
-                    $name = [string]$slaveNames[$idx]
-                    $slave = $slaveMap[$name]
-                    $hostVal = [string](Get-PropertyValue $slave "Host" "")
-                    $anchorVal = [string](Get-PropertyValue $slave "Anchor" "")
-                    [void]$nameCells.Add([string](Get-PropertyValue $slave "Name" $name))
-                    [void]$hostCells.Add($(if ([string]::IsNullOrWhiteSpace($hostVal)) { "-" } else { $hostVal }))
-                    [void]$anchorCells.Add($(if ([string]::IsNullOrWhiteSpace($anchorVal)) { "-" } else { $anchorVal }))
-                } else {
-                    [void]$nameCells.Add("")
-                    [void]$hostCells.Add("")
-                    [void]$anchorCells.Add("")
-                }
-            }
-            [void]$lines.Add((Format-BoxedRow @($nameCells) $slaveWidth))
-            [void]$lines.Add((Format-BoxedRow @($hostCells) $slaveWidth))
-            [void]$lines.Add((Format-BoxedRow @($anchorCells) $slaveWidth))
-            [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
+        foreach ($name in $slaveNames) {
+            $slave = $slaveMap[$name]
+            $hostIp = [string](Get-PropertyValue $slave "Host" "")
+            $anchor = [string](Get-PropertyValue $slave "Anchor" "")
+            [void]$lines.Add(("{0,-14} {1,-15} {2,-14} {3,9} {4,9} {5,7} {6,7} {7,6}" -f `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "Name" $name))), `
+                (Format-DashIfEmpty $hostIp), `
+                (Format-DashIfEmpty $anchor), `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "AvgIops" ""))), `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "MaxIops" ""))), `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "AvgMbps" ""))), `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "AvgLatency" ""))), `
+                (Format-DashIfEmpty ([string](Get-PropertyValue $slave "ReadPct" "")))))
         }
     }
 
     if (-not [bool](Get-PropertyValue $Summary "HasData" $false)) {
-        [void]$lines.Add("Start a run to fill workload / format / slave cells.")
+        [void]$lines.Add("Start a run to fill results.")
     }
     return ($lines -join [Environment]::NewLine)
 }

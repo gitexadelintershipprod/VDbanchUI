@@ -1612,8 +1612,8 @@ function Build-RunTab {
     $summarySplit.Dock = [System.Windows.Forms.DockStyle]::Fill
     $summarySplit.RowCount = 1
     $summarySplit.ColumnCount = 2
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 26)) | Out-Null
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 74)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 20)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 80)) | Out-Null
     $summaryPanel.Controls.Add($summarySplit)
     $script:RunSummarySplit = $summarySplit
 
