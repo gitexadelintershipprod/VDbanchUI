@@ -67,14 +67,30 @@ function Add-MetricPointFromLine {
     if ($null -eq $script:RunResultSummary) {
         $script:RunResultSummary = New-EmptyRunResultSummary
     }
+    $previousPhase = [string](Get-PropertyValue $script:RunResultSummary "CurrentPhase" "")
     [void](Update-RunResultSummaryFromLine $script:RunResultSummary $Line)
-    if (($script:RunMetricIndex % 5) -eq 0 -or $Line -match 'avg_|completed successfully|Starting RD=') {
+    $phase = [string](Get-PropertyValue $script:RunResultSummary "CurrentPhase" "")
+    if (($script:RunMetricIndex % 5) -eq 0 -or $Line -match 'avg_|completed successfully|Starting RD=|Starting slave:') {
         Update-RunResultSummaryPanel
     }
     if (-not $script:RunChart) {
         return
     }
-    $metrics = Get-MetricValuesFromLine $Line
+    if ($Line -match 'Starting RD=' -and $phase -ne $previousPhase) {
+        # New phase: clear points so format and workload never share one continuous plot.
+        foreach ($series in $script:RunChart.Series) {
+            $series.Points.Clear()
+        }
+        $script:RunMetricIndex = 0
+        try {
+            $area = $script:RunChart.ChartAreas["RunMetrics"]
+            if ($null -ne $area) {
+                $area.AxisX.Title = ("Interval ({0})" -f $(if ([string]::IsNullOrWhiteSpace($phase)) { "run" } else { $phase }))
+            }
+        } catch {
+        }
+    }
+    $metrics = Get-MetricValuesFromLine $Line $phase
     if ($null -eq $metrics) {
         return
     }
@@ -86,9 +102,22 @@ function Add-MetricPointFromLine {
         } else {
             $script:RunMetricIndex = [int]$x
         }
-        [void]$script:RunChart.Series["IOPS"].Points.AddXY($x, [double]$metrics.Iops)
-        [void]$script:RunChart.Series["MB/s"].Points.AddXY($x, [double]$metrics.Mbps)
-        [void]$script:RunChart.Series["Latency"].Points.AddXY($x, [double]$metrics.Latency)
+        $iopsSeries = "Workload IOPS"
+        $mbpsSeries = "Workload MB/s"
+        $latSeries = "Workload Latency"
+        if ($phase -eq "format") {
+            $iopsSeries = "Format IOPS"
+            $mbpsSeries = "Format MB/s"
+            $latSeries = "Format Latency"
+        }
+        if ($null -eq $script:RunChart.Series[$iopsSeries]) {
+            $iopsSeries = "IOPS"
+            $mbpsSeries = "MB/s"
+            $latSeries = "Latency"
+        }
+        [void]$script:RunChart.Series[$iopsSeries].Points.AddXY($x, [double]$metrics.Iops)
+        [void]$script:RunChart.Series[$mbpsSeries].Points.AddXY($x, [double]$metrics.Mbps)
+        [void]$script:RunChart.Series[$latSeries].Points.AddXY($x, [double]$metrics.Latency)
         foreach ($series in $script:RunChart.Series) {
             while ($series.Points.Count -gt 300) {
                 $series.Points.RemoveAt(0)
@@ -110,7 +139,7 @@ function New-RunChart {
     $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
     $area.Name = "RunMetrics"
     $area.BackColor = [System.Drawing.Color]::WhiteSmoke
-    $area.AxisX.Title = "Interval"
+    $area.AxisX.Title = "Interval (per phase)"
     $area.AxisY.Title = "IOPS / MB/s"
     $area.AxisY2.Title = "Latency (ms)"
     $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::True
@@ -133,6 +162,12 @@ function New-RunChart {
     [void]$chart.Legends.Add($legend)
 
     foreach ($item in @(
+        @{ Name = "Workload IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue; Width = 2 },
+        @{ Name = "Workload MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen; Width = 2 },
+        @{ Name = "Workload Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick; Width = 2 },
+        @{ Name = "Format IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::CornflowerBlue; Width = 1 },
+        @{ Name = "Format MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::MediumSeaGreen; Width = 1 },
+        @{ Name = "Format Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::IndianRed; Width = 1 },
         @{ Name = "IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue; Width = 2 },
         @{ Name = "MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen; Width = 2 },
         @{ Name = "Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick; Width = 2 }
@@ -144,6 +179,11 @@ function New-RunChart {
         $series.Color = $item.Color
         $series.ChartArea = "RunMetrics"
         $series.XValueType = [System.Windows.Forms.DataVisualization.Charting.ChartValueType]::Double
+        # Hide legacy shared series from legend; keep for fallback.
+        if (@("IOPS", "MB/s", "Latency") -contains $item.Name) {
+            $series.IsVisibleInLegend = $false
+            $series.Enabled = $false
+        }
         if ($item.Axis -eq "Y2") {
             $series.YAxisType = [System.Windows.Forms.DataVisualization.Charting.AxisType]::Secondary
         }
