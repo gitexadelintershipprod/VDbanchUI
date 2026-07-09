@@ -19,8 +19,17 @@ function Test-CleanupUiEnabled {
     return ([string]$resolved.TestKind -eq "Filesystem")
 }
 
-function Import-CleanupModuleDependencies {
-    param([string]$ModuleRoot = $script:ModuleRoot)
+# Must be a scriptblock that callers DOT-SOURCE (`. & $script:CleanupModuleDependencyLoader ...`),
+# not a function. Dot-sourcing files from inside a function keeps the imported
+# functions in that function's local scope only - they vanish when the function
+# returns. That is exactly why the Clean progress window failed with
+# "Normalize-TargetEntries is not recognized" after Import-CleanupModuleDependencies
+# appeared to succeed.
+$script:CleanupModuleDependencyLoader = {
+    param([string]$ModuleRoot)
+    if ([string]::IsNullOrWhiteSpace($ModuleRoot)) {
+        throw "Cleanup module root is blank."
+    }
     foreach ($moduleName in @("Core.ps1", "ProcessRunner.ps1", "State.ps1", "TargetDiscovery.ps1", "Runner.ps1")) {
         . (Join-Path $ModuleRoot $moduleName)
     }
@@ -169,9 +178,19 @@ exit `$exitCode
 
 function Invoke-CleanupSessionRunner {
     param([string]$ContextPath)
+    # The cleanup progress window is a fresh powershell.exe process that only
+    # dot-sources TargetCleanup.ps1. Load Core/State/etc. BEFORE reading the
+    # session JSON - Import-CleanupSessionContext needs Normalize-TargetEntries
+    # / New-TargetSelection / Get-PropertyValue from those modules. Loading
+    # after Import-CleanupSessionContext was the real bug behind:
+    # "The term 'Normalize-TargetEntries' is not recognized..."
+    $raw = Get-Content -LiteralPath $ContextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $script:ModuleRoot = [string]$raw.ModuleRoot
+    if ([string]::IsNullOrWhiteSpace($script:ModuleRoot) -or -not (Test-Path -LiteralPath $script:ModuleRoot)) {
+        throw ("Cleanup session ModuleRoot is missing or invalid: '{0}'" -f $script:ModuleRoot)
+    }
+    . $script:CleanupModuleDependencyLoader $script:ModuleRoot
     $session = Import-CleanupSessionContext $ContextPath
-    $script:ModuleRoot = [string]$session.ModuleRoot
-    Import-CleanupModuleDependencies
     if (-not [string]::IsNullOrWhiteSpace([string]$session.Label)) {
         Write-CleanupProgressMessage ("Cleaning filesystem targets for {0}" -f $session.Label) "Cyan"
     }
