@@ -806,7 +806,13 @@ $runnerPayload = Export-CleanupSessionContext `
     -ResultPath $runnerResultPath `
     -Label "session-test"
 $runnerPayload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $runnerContextPath -Encoding UTF8
-Invoke-CleanupSessionRunner -ContextPath $runnerContextPath
+# Mimic the real Clean progress window: a fresh process that ONLY
+# dot-sources TargetCleanup.ps1, then runs the session runner. This is
+# exactly the path that previously failed with Normalize-TargetEntries
+# not found (modules were loaded after Import-CleanupSessionContext).
+$isolatedCmd = ". (Join-Path '" + $script:ModuleRoot + "' 'TargetCleanup.ps1'); Invoke-CleanupSessionRunner -ContextPath '" + $runnerContextPath + "'"
+$isolated = & $PSHOME/pwsh -NoProfile -Command $isolatedCmd
+Assert-True ($LASTEXITCODE -eq 0) "isolated cleanup session runner exits 0"
 Assert-True (Test-Path -LiteralPath $runnerResultPath) "cleanup session runner writes result json"
 $runnerResult = Import-CleanupResultFromJson $runnerResultPath
 Assert-True ($runnerResult.Cleaned.Count -ge 1) "cleanup session runner cleaned target"
