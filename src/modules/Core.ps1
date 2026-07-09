@@ -349,12 +349,12 @@ function Get-AppLogLevelRank {
 }
 
 function Get-AppLogMinLevel {
-    $configured = "DEBUG"
+    $configured = "INFO"
     if ($null -ne $script:Settings) {
-        $configured = [string](Get-PropertyValue $script:Settings "LogLevel" "DEBUG")
+        $configured = [string](Get-PropertyValue $script:Settings "LogLevel" "INFO")
     }
     if ([string]::IsNullOrWhiteSpace($configured)) {
-        $configured = "DEBUG"
+        $configured = "INFO"
     }
     return $configured.ToUpperInvariant()
 }

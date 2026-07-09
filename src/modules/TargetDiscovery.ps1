@@ -82,10 +82,6 @@ function Convert-TargetInventoryOutput {
 $script:TargetInventoryCache = @{}
 $script:TargetInventoryCacheTtlSeconds = 45
 
-function Clear-TargetInventoryCache {
-    $script:TargetInventoryCache = @{}
-}
-
 function Get-CachedTargetInventory {
     param(
         [string]$CacheKey,
@@ -151,35 +147,6 @@ function Get-LocalTargetInventoryCore {
 function Get-LocalTargetInventory {
     param([switch]$Force)
     return @(Get-CachedTargetInventory "local" { Get-LocalTargetInventoryCore } -Force:$Force)
-}
-
-function Invoke-CapturedProcess {
-    param(
-        [string]$FileName,
-        [string]$Arguments,
-        [int]$TimeoutMs = 20000
-    )
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $FileName
-    $psi.Arguments = $Arguments
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.CreateNoWindow = $true
-    $process = [System.Diagnostics.Process]::Start($psi)
-    $finished = $process.WaitForExit($TimeoutMs)
-    if (-not $finished) {
-        try {
-            $process.Kill()
-        } catch {
-        }
-        throw ("Command timed out: {0} {1}" -f $FileName, $Arguments)
-    }
-    return [pscustomobject]@{
-        ExitCode = $process.ExitCode
-        StdOut = $process.StandardOutput.ReadToEnd()
-        StdErr = $process.StandardError.ReadToEnd()
-    }
 }
 
 function Test-HostLooksLocal {

@@ -18,7 +18,6 @@ function Get-SlaveRowState {
             ReadinessOutput = ""
             ReadinessCheckedAt = ""
             PingCheckedAt = ""
-            CleanInFlight = $false
         }
     }
     return $Row.Tag
@@ -606,7 +605,6 @@ function Build-SlaveGrid {
     }
 
     foreach ($button in @(
-            @{ Name = "CleanRun"; Text = "Clean" },
             @{ Name = "Browse"; Text = "Browse" },
             @{ Name = "ReadinessRun"; Text = "Readiness" },
             @{ Name = "Ping"; Text = "Ping" }
@@ -640,9 +638,6 @@ function Build-SlaveGrid {
             } elseif ($status -eq "Failed" -or $status -eq "Error") {
                 $eventArgs.CellStyle.ForeColor = [System.Drawing.Color]::DarkRed
             }
-        }
-        if ($columnName -eq "CleanRun" -and -not (Test-SlaveRowCleanEnabled $row)) {
-            $eventArgs.CellStyle.ForeColor = [System.Drawing.Color]::DimGray
         }
     })
 
@@ -701,11 +696,6 @@ function Build-SlaveGrid {
             return
         }
         switch ($columnName) {
-            "CleanRun" {
-                if (Test-SlaveRowCleanEnabled $row) {
-                    Start-SlaveTargetClean -Row $row
-                }
-            }
             "Browse" {
                 Browse-SlaveTargetsForRow $row
             }

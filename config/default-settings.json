@@ -14,5 +14,5 @@
   "RunMode": "Single local run",
   "CommentDisabledParameters": true,
   "RequirePreviewBeforeRun": false,
-  "LogLevel": "DEBUG"
+  "LogLevel": "INFO"
 }

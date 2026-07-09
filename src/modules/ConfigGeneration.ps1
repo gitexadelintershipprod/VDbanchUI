@@ -263,11 +263,6 @@ function Add-TargetRiskWarnings {
     }
 }
 
-function Get-RiskWarnings {
-    param([object]$BuiltConfig)
-    return @($BuiltConfig.Warnings | Where-Object { [string]$_ -like "RISK:*" })
-}
-
 function Get-EnabledSlaves {
     Capture-SlaveGrid
     return @($script:Slaves | Where-Object { [bool]$_.Enabled -and (Test-SlaveReadinessReady $_) })
@@ -926,64 +921,4 @@ function Refresh-RunTabSummary {
     }
     $script:RunSummaryBox.Text = ($lines -join [Environment]::NewLine)
     Update-RunResultSummaryPanel
-}
-
-function Show-ConfigPreviewConfirmation {
-    param([object]$BuiltConfig)
-    Refresh-ConfigPreview
-    Select-MainTab "Config Preview"
-
-    $dialog = New-Object System.Windows.Forms.Form
-    $dialog.Text = "Confirm Vdbench config"
-    $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-    $dialog.Size = New-Object System.Drawing.Size -ArgumentList 900, 620
-    $dialog.MinimizeBox = $false
-    $dialog.MaximizeBox = $true
-
-    $buttonPanel = New-Object System.Windows.Forms.Panel
-    $buttonPanel.Dock = [System.Windows.Forms.DockStyle]::Bottom
-    $buttonPanel.Height = 46
-    $dialog.Controls.Add($buttonPanel)
-
-    $intro = New-Object System.Windows.Forms.Label
-    $intro.Dock = [System.Windows.Forms.DockStyle]::Top
-    $intro.Height = 48
-    $intro.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 8, 10, 0
-    if ($BuiltConfig.Warnings.Count -gt 0) {
-        $intro.Text = "Review the generated config below. Warnings are listed first; only the config body will be written to the .parm file."
-    } else {
-        $intro.Text = "Review the generated config below before starting Vdbench."
-    }
-    $dialog.Controls.Add($intro)
-
-    $box = New-Object System.Windows.Forms.TextBox
-    $box.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $box.Multiline = $true
-    $box.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
-    $box.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 10
-    $box.ReadOnly = $true
-    $box.WordWrap = $false
-    $previewText = [string]$BuiltConfig.Text
-    if ($BuiltConfig.Warnings.Count -gt 0) {
-        $previewText = ("* WARNINGS" + [Environment]::NewLine +
-            (($BuiltConfig.Warnings | ForEach-Object { "* - " + $_ }) -join [Environment]::NewLine) +
-            [Environment]::NewLine + [Environment]::NewLine + $previewText)
-    }
-    $box.Text = $previewText
-    $dialog.Controls.Add($box)
-
-    $startButton = New-Button "Start run" 670 9 95 28
-    $startButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $buttonPanel.Controls.Add($startButton)
-
-    $cancelButton = New-Button "Cancel" 775 9 90 28
-    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $buttonPanel.Controls.Add($cancelButton)
-
-    $dialog.AcceptButton = $startButton
-    $dialog.CancelButton = $cancelButton
-    if ($null -ne $script:Form) {
-        return ($dialog.ShowDialog($script:Form) -eq [System.Windows.Forms.DialogResult]::OK)
-    }
-    return ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)
 }
