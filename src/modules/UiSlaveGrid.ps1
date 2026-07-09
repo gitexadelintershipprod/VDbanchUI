@@ -18,6 +18,7 @@ function Get-SlaveRowState {
             ReadinessOutput = ""
             ReadinessCheckedAt = ""
             PingCheckedAt = ""
+            CleanInFlight = $false
         }
     }
     return $Row.Tag
@@ -542,7 +543,7 @@ function Set-SlaveGridRowFromSlave {
         [object]$Slave
     )
     $normalized = Apply-SlaveDefaults $Slave
-    foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias", "Notes")) {
+    foreach ($col in @("Enabled", "Name", "Host", "OsType", "User", "VdbenchPath", "SshAlias")) {
         $Row.Cells[$col].Value = Get-PropertyValue $normalized $col ""
     }
     $Row.Cells["Readiness"].Value = [string](Get-PropertyValue $normalized "ReadinessStatus" "Not checked")
@@ -587,7 +588,7 @@ function Build-SlaveGrid {
     [void]$osCol.Items.Add("Linux")
     $grid.Columns.Add($osCol) | Out-Null
 
-    foreach ($name in @("User", "VdbenchPath", "SshAlias", "Targets", "Readiness", "CheckedAt", "PingStatus", "PingAt", "Notes")) {
+    foreach ($name in @("User", "VdbenchPath", "SshAlias", "Targets", "Readiness", "CheckedAt", "PingStatus", "PingAt")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
         $col.HeaderText = switch ($name) {
@@ -601,11 +602,11 @@ function Build-SlaveGrid {
         if ($name -eq "Readiness") { $col.FillWeight = 55 }
         if ($name -eq "CheckedAt") { $col.FillWeight = 95; $col.MinimumWidth = 145 }
         if ($name -eq "PingAt") { $col.FillWeight = 95; $col.MinimumWidth = 145 }
-        if ($name -eq "Notes") { $col.FillWeight = 60 }
         $grid.Columns.Add($col) | Out-Null
     }
 
     foreach ($button in @(
+            @{ Name = "CleanRun"; Text = "Clean" },
             @{ Name = "Browse"; Text = "Browse" },
             @{ Name = "ReadinessRun"; Text = "Readiness" },
             @{ Name = "Ping"; Text = "Ping" }
@@ -697,6 +698,9 @@ function Build-SlaveGrid {
             return
         }
         switch ($columnName) {
+            "CleanRun" {
+                Start-SlaveTargetClean -Row $row
+            }
             "Browse" {
                 Browse-SlaveTargetsForRow $row
             }
@@ -750,6 +754,13 @@ function Capture-SlaveGrid {
             $name = $hostName
         }
         $state = Get-SlaveRowState $row
+        $legacyNotes = ""
+        foreach ($existing in @($script:Slaves)) {
+            if ([string](Get-PropertyValue $existing "Host" "") -eq $hostName -and [string](Get-PropertyValue $existing "Name" "") -eq $name) {
+                $legacyNotes = [string](Get-PropertyValue $existing "Notes" "")
+                break
+            }
+        }
         $items += Apply-SlaveDefaults ([pscustomobject]@{
             Enabled = [bool]$row.Cells["Enabled"].Value
             Name = $name
@@ -765,7 +776,7 @@ function Capture-SlaveGrid {
             ReadinessOutput = [string]$state.ReadinessOutput
             PingStatus = [string]$row.Cells["PingStatus"].Value
             PingCheckedAt = [string]$state.PingCheckedAt
-            Notes = [string]$row.Cells["Notes"].Value
+            Notes = $legacyNotes
         })
     }
     $script:Slaves = @($items)

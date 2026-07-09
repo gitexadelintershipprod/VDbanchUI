@@ -78,6 +78,7 @@ $script:LocalHostPathsLabel = $null
 $script:LocalHostTargetPreview = $null
 $script:LocalHostContentLayout = $null
 $script:RefreshingLocalTargets = $false
+$script:LocalHostCleanInFlight = $false
 $script:RunModeLabel = $null
 $script:RunModeIndicator = $null
 $script:MainFormLayout = $null

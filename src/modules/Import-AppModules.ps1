@@ -11,6 +11,7 @@ $order = @(
     "UiTabs.ps1",
     "ConfigGeneration.ps1",
     "Runner.ps1",
+    "TargetCleanup.ps1",
     "SelfTest.ps1"
 )
 

@@ -61,6 +61,7 @@ REQUIRED_MODULES = [
     "UiTabs.ps1",
     "ConfigGeneration.ps1",
     "Runner.ps1",
+    "TargetCleanup.ps1",
     "SelfTest.ps1",
 ]
 
@@ -675,7 +676,7 @@ $script:ProfileSaveButton = $null
 $script:ProfilePreviewButton = $null
 $script:ProfileEditorBanner = $null
 $script:ModuleRoot = "{module_root}"
-foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","SelfTest.ps1")) {{
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","TargetCleanup.ps1","SelfTest.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
 Invoke-AppSelfTest
@@ -703,9 +704,134 @@ Invoke-AppSelfTest
     _run_linux_filesystem_filter_regression_check(pwsh)
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
     _run_raw_profile_fixed_defaults_regression_check(pwsh)
+    _run_target_cleanup_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
     return True
+
+
+def _run_target_cleanup_regression_check(pwsh: str) -> None:
+    """Target cleanup scripts and local delete behavior."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-target-cleanup-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-target-cleanup-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ProfileRoot = "{tmp_dir}/profiles"
+$script:ModuleRoot = "{module_root}"
+$script:Settings = @{{ PrivateKey = "" }}
+$script:SettingsControls = @{{}}
+$script:SettingsPath = Join-Path $script:DataRoot "settings.json"
+$script:Slaves = @()
+$script:LocalHostTargets = @()
+$script:SlaveGrid = $null
+$script:LocalHostCleanInFlight = $false
+foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+function Get-SlaveRowState {{
+    param($Row)
+    if ($null -eq $Row.Tag -or $Row.Tag -isnot [hashtable]) {{
+        $Row.Tag = @{{ Targets = @(); CleanInFlight = $false }}
+    }}
+    return $Row.Tag
+}}
+function Get-SlaveRowTargets {{
+    param($Row)
+    $state = Get-SlaveRowState $Row
+    return @(Normalize-TargetEntries $state.Targets)
+}}
+. (Join-Path $script:ModuleRoot "TargetCleanup.ps1")
+
+$errors = @()
+function Assert-True {{
+    param([bool]$Value, [string]$Label)
+    if (-not $Value) {{ $script:errors += $Label }}
+}}
+
+$testFile = Join-Path "{tmp_dir}" "cleanup-test.dat"
+$anchorDir = Join-Path "{tmp_dir}" "cleanup-anchor"
+New-Item -ItemType Directory -Force -Path $anchorDir | Out-Null
+Set-Content -LiteralPath (Join-Path $anchorDir "child.txt") -Value "x" -NoNewline
+Set-Content -LiteralPath $testFile -Value "" -NoNewline
+
+$targets = @(
+    (New-TargetSelection -Kind "Test file" -Target $testFile -Selected $true),
+    (New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true),
+    (New-TargetSelection -Kind "Raw disk" -Target "/dev/sdb" -Selected $true)
+)
+Assert-True (Test-TargetSupportsCleanup $targets[0]) "test file supports cleanup"
+Assert-True (-not (Test-TargetSupportsCleanup $targets[2])) "raw disk skipped"
+$linuxScript = Get-TargetCleanupRemoteScript -Path $testFile -Kind "Test file" -OsType "Linux"
+Assert-True ($linuxScript -like "*rm -f*") "linux test-file script uses rm -f"
+
+$result = Invoke-CleanupTargets -Owner (New-LocalHostCleanupOwner) -Targets $targets
+Assert-True (-not (Test-Path -LiteralPath $testFile)) "test file deleted"
+Assert-True (-not (Test-Path -LiteralPath $anchorDir)) "anchor directory deleted"
+Assert-True ($result.Cleaned.Count -ge 2) "cleaned count"
+Assert-True ($result.Skipped.Count -ge 1) "raw disk skipped in result"
+
+$script:StartBackgroundUiWorkCalls = 0
+function Start-BackgroundUiWork {{
+    param($Owner, [scriptblock]$OnComplete = $null, [string]$OnCompleteCommandName = "", [hashtable]$Context = @{{}}, [scriptblock]$Work = $null, [string]$CommandName = "")
+    $script:StartBackgroundUiWorkCalls++
+}}
+function New-MockCellCollection {{
+    $cells = @{{}}
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","CleanRun")) {{
+        $cells[$col] = [pscustomobject]@{{ Value = "" }}
+    }}
+    return $cells
+}}
+$cleanRow = [pscustomobject]@{{
+    Tag = $null
+    IsNewRow = $false
+    Index = 0
+    Cells = (New-MockCellCollection)
+}}
+$cleanRow.Cells["Host"].Value = "10.0.0.9"
+$cleanRow.Cells["OsType"].Value = "Linux"
+$cleanRow.Tag = @{{
+    Targets = @((New-TargetSelection -Kind "Test file" -Target "/tmp/vdbench-clean-guard.dat" -Selected $true))
+    CleanInFlight = $false
+}}
+$script:SlaveGrid = [pscustomobject]@{{
+    Rows = @($cleanRow)
+    InvalidateRow = {{ param($RowIndex) }}
+}}
+Start-SlaveTargetClean -Row $cleanRow
+$firstCalls = $script:StartBackgroundUiWorkCalls
+Start-SlaveTargetClean -Row $cleanRow
+Assert-True ($firstCalls -eq 1) "repeat clean click ignored while in flight"
+Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat clean click ignored while in flight (count)"
+
+if ($errors.Count -gt 0) {{
+    foreach ($e in $errors) {{ Write-Host "ASSERT FAILED: $e" }}
+    exit 1
+}}
+Write-Host "target cleanup regression check: scripts, local delete, and repeat-click guard verified"
+""".format(
+                app_root=str(ROOT),
+                tmp_dir=tmp_dir.replace("\\", "/"),
+                module_root=str(MODULE_ROOT),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=60,
+        )
+        print(result.stdout.strip())
+        if result.returncode != 0:
+            print(result.stderr.strip())
+            raise AssertionError("target cleanup regression check failed")
 
 
 def _run_process_event_bridge_regression_check(pwsh: str) -> None:
@@ -1055,7 +1181,7 @@ $script:LocalHostTargetPreview = $null
 $script:RefreshingLocalTargets = $false
 $script:RunModeCombo = $null
 $script:ModuleRoot = "{module_root}"
-foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","TargetCleanup.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
 Initialize-AppState
@@ -1063,7 +1189,7 @@ Set-PropertyValue $script:Settings "RunMode" "Master/Slave distributed run"
 
 function New-MockCellCollection {{
     $cells = @{{}}
-    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","Notes")) {{
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","CleanRun")) {{
         $cells[$col] = [pscustomobject]@{{ Value = "" }}
     }}
     return $cells
@@ -1199,7 +1325,7 @@ def _run_readiness_regression_check(pwsh: str) -> None:
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 $script:ModuleRoot = "{module_root}"
-foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","TargetCleanup.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
 Set-Location "{wrong_launch_dir}"
@@ -1420,7 +1546,7 @@ $script:SlavesPath = Join-Path $script:DataRoot "slaves.json"
 $script:LocalHostTargetsPath = Join-Path $script:DataRoot "localhost.json"
 $script:CatalogPath = Join-Path $script:ConfigRoot "parameter-catalog.json"
 $script:ModuleRoot = "{module_root}"
-foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1")) {{
+foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","TargetCleanup.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
 Initialize-AppState
@@ -1451,7 +1577,7 @@ Test-Step "Get-SlaveReadinessResult ShowCheckerWindow=true" {{
 # needs System.Windows.Forms.Timer - unavailable on Linux pwsh. ---
 function New-MockCellCollection {{
     $cells = @{{}}
-    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","Notes")) {{
+    foreach ($col in @("Enabled","Name","Host","OsType","User","VdbenchPath","SshAlias","Targets","Readiness","CheckedAt","PingStatus","PingAt","CleanRun")) {{
         $cells[$col] = [pscustomobject]@{{ Value = "" }}
     }}
     return $cells
@@ -2532,6 +2658,11 @@ def main() -> int:
     assert "function Invoke-SlavePingBackgroundWork" in ui_slave_module
     assert "function Invoke-SlaveReadinessBackgroundWork" in ui_slave_module
     assert '@{ Name = "ReadinessRun"; Text = "Readiness" }' in ui_slave_module
+    assert '@{ Name = "CleanRun"; Text = "Clean" }' in ui_slave_module
+    assert 'Cells["Notes"]' not in ui_slave_module
+    assert 'New-Button "Clean"' in ui_tabs_module
+    assert "function Start-LocalHostTargetClean" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert "function Start-SlaveTargetClean" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
     assert "$timer.Tag" not in ui_slave_module
     assert "capturedIndex" not in ui_slave_module
     assert 'New-Button "Test ping"' not in ui_slave_module
@@ -2896,7 +3027,8 @@ def main() -> int:
     assert "LocalHostDiskCombo" not in ui_tabs_module
     assert "AutoScroll = $false" in ui_helpers_module
     assert "SetFlowBreak($prev, $true)" in ui_helpers_module
-    assert "Add-FlowToolbarItem $toolbar $validateButton -FlowBreak" in ui_tabs_module
+    assert 'New-Button "Clean"' in ui_tabs_module
+    assert "Add-FlowToolbarItem $toolbar $cleanButton -FlowBreak" in ui_tabs_module
     assert "LocalHostTargetPreview -HeaderBase 46" in ui_helpers_module
     assert "ProfileToolbarLayout.RowStyles[1].Height" in ui_helpers_module
     assert "function New-ProfileDropdown" in ui_helpers_module
