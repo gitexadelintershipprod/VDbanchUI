@@ -1,22 +1,37 @@
-function Test-FilesystemAnchorIsRoot {
-    param([string]$Target)
-    if ([string]::IsNullOrWhiteSpace($Target)) {
-        return $false
-    }
-    $value = $Target.Trim()
-    if ($value -match '^[A-Za-z]:\\?$') {
-        return $true
-    }
-    if ($value -eq "/" -or $value -eq "\\") {
-        return $true
-    }
-    return $false
-}
-
 function Test-TargetSupportsCleanup {
     param([object]$Target)
     $kind = [string](Get-PropertyValue $Target "Kind" "")
-    return ($kind -eq "Test file") -or ($kind -match "Filesystem")
+    return ($kind -eq "Filesystem")
+}
+
+function Test-CleanupUiEnabled {
+    $resolved = Resolve-RunTestKind
+    return ([string]$resolved.TestKind -eq "Filesystem")
+}
+
+function Get-CleanupEligibleTargets {
+    param([object[]]$Targets)
+    return @(Get-SelectedTargetEntries $Targets | Where-Object { Test-TargetSupportsCleanup $_ })
+}
+
+function Get-FilesystemCleanupContentsScript {
+    param(
+        [string]$Path,
+        [string]$OsType
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    if ($OsType -eq "Linux") {
+        $quotedPath = Convert-ToShellSingleQuoted $Path
+        return "rm -rf -- $quotedPath/* $quotedPath/.[!.]* $quotedPath/..?* 2>/dev/null || true"
+    }
+    $quotedPath = Convert-ToPowerShellSingleQuoted $Path
+    return @"
+if (Test-Path -LiteralPath $quotedPath) {
+    Get-ChildItem -LiteralPath $quotedPath -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+"@
 }
 
 function Get-TargetCleanupRemoteScript {
@@ -28,38 +43,10 @@ function Get-TargetCleanupRemoteScript {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ""
     }
-    $isFilesystem = ($Kind -match "Filesystem")
-    $isRoot = $isFilesystem -and (Test-FilesystemAnchorIsRoot $Path)
-    if ($OsType -eq "Linux") {
-        $quotedPath = Convert-ToShellSingleQuoted $Path
-        if ($isFilesystem) {
-            if ($isRoot) {
-                return "rm -rf -- $quotedPath/* $quotedPath/.[!.]* $quotedPath/..?* 2>/dev/null || true"
-            }
-            return "rm -rf -- $quotedPath"
-        }
-        return "rm -f -- $quotedPath"
+    if ($Kind -ne "Filesystem") {
+        return ""
     }
-    $quotedPath = Convert-ToPowerShellSingleQuoted $Path
-    if ($isFilesystem) {
-        if ($isRoot) {
-            return @"
-if (Test-Path -LiteralPath $quotedPath) {
-    Get-ChildItem -LiteralPath $quotedPath -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-}
-"@
-        }
-        return @"
-if (Test-Path -LiteralPath $quotedPath) {
-    Remove-Item -LiteralPath $quotedPath -Recurse -Force -ErrorAction SilentlyContinue
-}
-"@
-    }
-    return @"
-if (Test-Path -LiteralPath $quotedPath) {
-    Remove-Item -LiteralPath $quotedPath -Force -ErrorAction SilentlyContinue
-}
-"@
+    return Get-FilesystemCleanupContentsScript -Path $Path -OsType $OsType
 }
 
 function Remove-LocalCleanupTarget {
@@ -176,6 +163,26 @@ function New-SlaveCleanupOwnerFromRow {
     }
 }
 
+function Update-LocalHostCleanButtonState {
+    if ($null -eq $script:LocalHostCleanButton) {
+        return
+    }
+    $enabled = Test-CleanupUiEnabled
+    $script:LocalHostCleanButton.Enabled = $enabled
+    if ($enabled) {
+        $script:LocalHostCleanButton.ForeColor = [System.Drawing.SystemColors]::ControlText
+    } else {
+        $script:LocalHostCleanButton.ForeColor = [System.Drawing.Color]::DimGray
+    }
+}
+
+function Update-CleanupUiState {
+    Update-LocalHostCleanButtonState
+    if ($null -ne $script:SlaveGrid) {
+        $script:SlaveGrid.Invalidate()
+    }
+}
+
 function Invoke-LocalHostTargetCleanBackgroundWork {
     param([hashtable]$Context)
     Invoke-CleanupTargets -Owner $Context.Owner -Targets $Context.Targets
@@ -195,20 +202,26 @@ function Complete-LocalHostTargetCleanBackgroundWork {
     if ($null -eq $Result) {
         return
     }
-    if (@($Result.Errors).Count -gt 0) {
-        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine)))
+    $errors = @(Get-PropertyValue $Result "Errors" @())
+    $cleaned = @(Get-PropertyValue $Result "Cleaned" @())
+    $skipped = @(Get-PropertyValue $Result "Skipped" @())
+    if ($errors.Count -gt 0) {
+        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($errors -join [Environment]::NewLine)))
     }
-    Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
+    Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f $cleaned.Count, $skipped.Count, $errors.Count)
 }
 
 function Start-LocalHostTargetClean {
+    if (-not (Test-CleanupUiEnabled)) {
+        return
+    }
     if ($script:LocalHostCleanInFlight) {
         return
     }
     Capture-LocalHostTargets
-    $selected = @(Get-SelectedTargetEntries @(Get-LocalHostTargetStore))
+    $selected = @(Get-CleanupEligibleTargets @(Get-LocalHostTargetStore))
     if ($selected.Count -eq 0) {
-        Show-Warning "No selected targets to clean on Local Host."
+        Show-Warning "No selected filesystem targets to clean on Local Host."
         return
     }
     $script:LocalHostCleanInFlight = $true
@@ -248,24 +261,33 @@ function Complete-SlaveTargetCleanBackgroundWork {
     if ($null -eq $Result) {
         return
     }
-    if (@($Result.Errors).Count -gt 0) {
-        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine))
+    $errors = @(Get-PropertyValue $Result "Errors" @())
+    $cleaned = @(Get-PropertyValue $Result "Cleaned" @())
+    $skipped = @(Get-PropertyValue $Result "Skipped" @())
+    if ($errors.Count -gt 0) {
+        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
     }
-    Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
+    Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, $cleaned.Count, $skipped.Count, $errors.Count)
+}
+
+function Test-SlaveRowCleanEnabled {
+    param($Row)
+    if (-not (Test-CleanupUiEnabled)) {
+        return $false
+    }
+    if ($null -eq $Row -or $Row.IsNewRow) {
+        return $false
+    }
+    return (@(Get-CleanupEligibleTargets (Get-SlaveRowTargets $Row)).Count -gt 0)
 }
 
 function Start-SlaveTargetClean {
     param($Row)
-    if ($null -eq $Row -or $Row.IsNewRow) {
+    if (-not (Test-SlaveRowCleanEnabled $Row)) {
         return
     }
     $state = Get-SlaveRowState $Row
     if ([bool]$state.CleanInFlight) {
-        return
-    }
-    $selected = @(Get-SelectedTargetEntries (Get-SlaveRowTargets $Row))
-    if ($selected.Count -eq 0) {
-        Show-Warning "No selected targets to clean for this slave."
         return
     }
     $state.CleanInFlight = $true

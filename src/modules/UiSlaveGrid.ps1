@@ -641,6 +641,9 @@ function Build-SlaveGrid {
                 $eventArgs.CellStyle.ForeColor = [System.Drawing.Color]::DarkRed
             }
         }
+        if ($columnName -eq "CleanRun" -and -not (Test-SlaveRowCleanEnabled $row)) {
+            $eventArgs.CellStyle.ForeColor = [System.Drawing.Color]::DimGray
+        }
     })
 
     $grid.Add_CellBeginEdit({
@@ -699,7 +702,9 @@ function Build-SlaveGrid {
         }
         switch ($columnName) {
             "CleanRun" {
-                Start-SlaveTargetClean -Row $row
+                if (Test-SlaveRowCleanEnabled $row) {
+                    Start-SlaveTargetClean -Row $row
+                }
             }
             "Browse" {
                 Browse-SlaveTargetsForRow $row

@@ -679,6 +679,7 @@ function Refresh-LocalHostTab {
     }
     $script:LocalHostPathsLabel.Text = ($pathLines -join [Environment]::NewLine)
     Update-LocalHostTargetPreview -ForceInventory:$ForceInventory
+    Update-CleanupUiState
 }
 
 function Update-LocalHostTargetPreview {
@@ -806,6 +807,7 @@ function Build-LocalHostTab {
 
     $cleanButton = New-Button "Clean" 338 8 80 28
     $cleanButton.Add_Click({ Start-LocalHostTargetClean })
+    $script:LocalHostCleanButton = $cleanButton
     Add-FlowToolbarItem $toolbar $cleanButton -FlowBreak
 
     $note = New-Label "Single local run only. Browse opens the same target picker as Slaves. Tick Use in the target list after Browse." 0 0 400 48
@@ -1242,6 +1244,7 @@ function Sync-ProfileEditorTargetContext {
 
     Refresh-ConfigPreview
     Update-RunModeIndicator
+    Update-CleanupUiState
 }
 
 function Refresh-ProfileEditor {
