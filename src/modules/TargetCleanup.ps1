@@ -195,10 +195,13 @@ function Complete-LocalHostTargetCleanBackgroundWork {
     if ($null -eq $Result) {
         return
     }
-    if (@($Result.Errors).Count -gt 0) {
-        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine)))
+    $errors = @(Get-PropertyValue $Result "Errors" @())
+    $cleaned = @(Get-PropertyValue $Result "Cleaned" @())
+    $skipped = @(Get-PropertyValue $Result "Skipped" @())
+    if ($errors.Count -gt 0) {
+        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($errors -join [Environment]::NewLine)))
     }
-    Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
+    Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f $cleaned.Count, $skipped.Count, $errors.Count)
 }
 
 function Start-LocalHostTargetClean {
@@ -248,10 +251,13 @@ function Complete-SlaveTargetCleanBackgroundWork {
     if ($null -eq $Result) {
         return
     }
-    if (@($Result.Errors).Count -gt 0) {
-        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine))
+    $errors = @(Get-PropertyValue $Result "Errors" @())
+    $cleaned = @(Get-PropertyValue $Result "Cleaned" @())
+    $skipped = @(Get-PropertyValue $Result "Skipped" @())
+    if ($errors.Count -gt 0) {
+        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
     }
-    Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
+    Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, $cleaned.Count, $skipped.Count, $errors.Count)
 }
 
 function Start-SlaveTargetClean {
