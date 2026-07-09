@@ -230,18 +230,26 @@ function Invoke-AppSelfTest {
 
         $avgLine = "15:39:05.028     avg_4-33 2232.7  0.862   1.6 1.04  69.9 1561.7  0.892  671.0  0.790 48.80 20.97  69.77   32767   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000"
         $sampleText = @(
-            "Anchor size: anchor=D:\fs_test: dirs: 1; files: 1; bytes: 10.000g",
-            "Anchor size: anchor=/stresstest: dirs: 1; files: 1; bytes: 10.000g",
-            "Starting RD=format_for_rd1",
-            "15:38:31.035    avg_2-105 1560.5  1.240   1.3 0.83   0.0    0.0  0.000 1560.5  1.240  0.00 195.0 195.06  131067   0.0  0.000   0.0  0.000   0.0 101856   0.0  0.000   0.0  0.376   0.0  0.000",
-            "Starting RD=rd1; elapsed=30 warmup=3; fwdrate=max. For loops: None",
-            "15:39:00.017           28 2463.0  0.780   1.6 1.12  69.3 1707.0  0.794  756.0  0.749 53.34 23.62  76.97   32768   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000",
+            "15:36:42.372 Anchor size: anchor=D:\fs_test: dirs: 1; files: 1; bytes: 10.000g",
+            "15:36:42.373 Anchor size: anchor=/stresstest: dirs: 1; files: 1; bytes: 10.000g",
+            "15:36:42.474 Starting slave: ssh 10.50.11.174 -l root /opt/vdbench/vdbench SlaveJvm -m 10.50.11.180 -n 10.50.11.174-11 -l Linux-01-0 -p 5570",
+            "15:36:42.479 Starting slave: ssh 10.50.11.153 -l administrator C:\vdbench\vdbench SlaveJvm -m 10.50.11.180 -n 10.50.11.153-10 -l Windows-01-0 -p 5570",
+            "15:36:44.961 Windows-01-0: Created anchor directory: D:\fs_test",
+            "15:36:46.005 Starting RD=format_for_rd1",
+            "15:36:46.100 Linux-01-0: anchor=/stresstest mkdir complete.",
+            "15:36:47.162            1 1541.0  1.150   4.6 1.08   0.0    0.0  0.000 1541.0  1.150  0.00 192.7 192.75  131157",
+            "15:37:10.019           24 1951.0  1.021   1.4 1.08   0.0    0.0  0.000 1951.0  1.021  0.00 243.8 243.88  131072",
+            "15:38:31.035    avg_2-105 1560.5  1.240   1.3 0.83   0.0    0.0  0.000 1560.5  1.240  0.00 195.0 195.06  131067",
+            "15:38:32.002 Starting RD=rd1; elapsed=30 warmup=3; fwdrate=max. For loops: None",
+            "15:38:33.018            1 1168.0  0.959   1.9 0.58  70.7  826.0  1.027  342.0  0.796 25.81 10.69  36.50   32768",
+            "15:39:00.017           28 2463.0  0.780   1.6 1.12  69.3 1707.0  0.794  756.0  0.749 53.34 23.62  76.97   32768",
             $avgLine,
-            "Vdbench execution completed successfully. Output directory: C:\vdbench\manager\reports\20260709-153641"
+            "15:39:06.244 Vdbench execution completed successfully. Output directory: C:\vdbench\manager\reports\20260709-153641"
         ) -join [Environment]::NewLine
         $resultSummary = Get-RunResultSummaryFromText $sampleText
         Assert-SelfTestEquals $resultSummary.Status "Completed" "run result summary status"
         Assert-SelfTestEquals $resultSummary.AnchorCount 2 "run result summary anchors"
+        Assert-SelfTestEquals $resultSummary.Slaves.Count 2 "run result summary slaves"
         if ([math]::Abs(([double]$resultSummary.WorkloadAvgIops.Replace(",", "")) - 2232.7) -gt 0.1) {
             throw ("Self-test failed: workload avg iops. Expected ~2232.7, got '{0}'." -f $resultSummary.WorkloadAvgIops)
         }
@@ -254,9 +262,22 @@ function Invoke-AppSelfTest {
         if ([math]::Abs(([double]$resultSummary.WorkloadMaxIops.Replace(",", "")) - 2463.0) -gt 0.1) {
             throw ("Self-test failed: workload max iops. Expected ~2463.0, got '{0}'." -f $resultSummary.WorkloadMaxIops)
         }
+        if ([math]::Abs(([double]$resultSummary.FormatMaxIops.Replace(",", "")) - 1951.0) -gt 0.1) {
+            throw ("Self-test failed: format max iops. Expected ~1951.0, got '{0}'." -f $resultSummary.FormatMaxIops)
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$resultSummary.FormatDuration)) {
+            throw "Self-test failed: format duration missing"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$resultSummary.WorkloadDuration)) {
+            throw "Self-test failed: workload duration missing"
+        }
         $formatted = Format-RunResultSummaryText $resultSummary
-        Assert-SelfTestContains $formatted "Workload avg:" "formatted run result summary"
-        Assert-SelfTestContains $formatted "Format avg:" "formatted run result format section"
+        Assert-SelfTestContains $formatted "FORMAT" "formatted run result format section"
+        Assert-SelfTestContains $formatted "WORKLOAD" "formatted run result workload section"
+        Assert-SelfTestContains $formatted "SLAVES" "formatted run result slaves section"
+        Assert-SelfTestContains $formatted "SUMMARY" "formatted run result summary section"
+        Assert-SelfTestContains $formatted "Linux-01-0" "formatted run result slave name"
+        Assert-SelfTestContains $formatted "Windows-01-0" "formatted run result windows slave"
 
         $psiPs1 = Get-VdbenchProcessStartInfo (Join-Path $script:AppRoot "tools\FakeVdbench.ps1") "C:\tmp\profile.parm" "C:\tmp\out folder" $script:AppRoot
         Assert-SelfTestEquals $psiPs1.FileName "powershell.exe" "ps1 runner executable"

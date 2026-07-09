@@ -1549,9 +1549,9 @@ function Build-RunTab {
     $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 88)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 140)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 230)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 58)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 42)) | Out-Null
     $tab.Controls.Add($container)
     $script:RunTabLayout = $container
 
@@ -1612,8 +1612,8 @@ function Build-RunTab {
     $summarySplit.Dock = [System.Windows.Forms.DockStyle]::Fill
     $summarySplit.RowCount = 1
     $summarySplit.ColumnCount = 2
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 50)) | Out-Null
-    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 50)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 38)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 62)) | Out-Null
     $summaryPanel.Controls.Add($summarySplit)
     $script:RunSummarySplit = $summarySplit
 

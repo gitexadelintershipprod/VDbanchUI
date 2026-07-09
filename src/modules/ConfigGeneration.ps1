@@ -862,7 +862,7 @@ function Resize-RunTabSummaryArea {
         }
     }
     $rowHeight = 22 + 12 + $maxContentHeight + 16
-    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 110), 220)
+    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 160), 280)
     $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
 }
 
