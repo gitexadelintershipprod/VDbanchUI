@@ -349,7 +349,7 @@ function New-RemoteSshArguments {
         $systemName = [string](Get-PropertyValue $Slave "Host" "")
     }
     [void]$parts.Add((Quote-ProcessArgument $systemName))
-    return $parts
+    return ,$parts
 }
 
 function New-TestFileTarget {
