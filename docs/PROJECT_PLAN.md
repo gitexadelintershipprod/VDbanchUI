@@ -45,11 +45,12 @@ Entry point: `src/VdbenchUI.ps1` (dot-sources modules).
 ## Main Modules (UI tabs)
 
 1. Settings / Paths
-2. Master / Slave
-3. Profile Builder
-4. Config Preview
-5. Run Monitor
-6. Status / Reports
+2. Local Host
+3. Master / Slave
+4. Profile Builder
+5. Config Preview
+6. Run Monitor
+7. Status / Reports
 
 ## Validation
 

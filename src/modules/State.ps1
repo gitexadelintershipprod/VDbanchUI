@@ -459,20 +459,17 @@ function Get-DefaultSlaveUserForOs {
     return "administrator"
 }
 
-function Get-DefaultTestTargetForOs {
-    param([string]$OsType)
-    if ([string]$OsType -eq "Linux") {
-        return "/dev/sdb"
-    }
-    return "C:\vdbench\testfile.dat"
-}
-
 function Get-DefaultTestFileTargetForOs {
     param([string]$OsType)
     if ([string]$OsType -eq "Linux") {
         return "/var/tmp/vdbench-testfile.dat"
     }
     return "C:\vdbench\testfile.dat"
+}
+
+function Get-DefaultTestTargetForOs {
+    param([string]$OsType)
+    return Get-DefaultTestFileTargetForOs $OsType
 }
 
 function Get-TargetCategory {
@@ -997,16 +994,6 @@ function Set-ProfileParamEnabled {
     $item.Enabled = $Enabled
 }
 
-function Sanitize-FileName {
-    param([string]$Name)
-    $invalid = [System.IO.Path]::GetInvalidFileNameChars()
-    $result = $Name
-    foreach ($char in $invalid) {
-        $result = $result.Replace([string]$char, "-")
-    }
-    return $result.Trim()
-}
-
 function Get-ProfilePath {
     param([string]$Name)
     $fileName = (Sanitize-FileName $Name)
@@ -1078,93 +1065,6 @@ function Open-ProfileFolder {
     }
 }
 
-function Duplicate-RunProfile {
-    $profile = Get-RunProfile
-    if ($null -eq $profile) {
-        Show-Warning "Select a run profile to duplicate."
-        return
-    }
-    $copy = Copy-ObjectJson $profile
-    $baseName = [string]$copy.Name
-    if ([string]::IsNullOrWhiteSpace($baseName)) {
-        $baseName = "Profile"
-    }
-    $copy.Name = ("{0}-Copy-{1}" -f $baseName, (Get-Date).ToString("yyyyMMdd-HHmmss"))
-    $copy.CreatedAt = (Get-Date).ToString("o")
-    $copy.UpdatedAt = (Get-Date).ToString("o")
-    Ensure-ProfileCatalogKeys $copy
-    Sync-CommonProfileParameters $copy
-    Write-JsonFile (Get-ProfilePath $copy.Name) $copy
-    Refresh-RunProfileList
-    if ($script:RunProfileSelector) {
-        $script:RunProfileSelector.Text = [string]$copy.Name
-        Sync-RunProfileFromSelector
-    }
-    Refresh-RunTabSummary
-    Refresh-ConfigPreview
-}
-
-function Export-RunProfile {
-    $profile = Get-RunProfile
-    if ($null -eq $profile) {
-        Show-Warning "Select a run profile to export."
-        return
-    }
-    Sync-CommonProfileParameters $profile
-    Ensure-ProfileCatalogKeys $profile
-    $dialog = New-Object System.Windows.Forms.SaveFileDialog
-    $dialog.Filter = "Profile JSON (*.json)|*.json|All files (*.*)|*.*"
-    $dialog.FileName = (Sanitize-FileName $profile.Name) + ".json"
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Write-JsonFile $dialog.FileName $profile
-    }
-}
-
-function Import-Profile {
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Filter = "Profile JSON (*.json)|*.json|All files (*.*)|*.*"
-    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-        return
-    }
-    try {
-        $importedProfile = Read-JsonFile $dialog.FileName $null
-        if ($null -eq $importedProfile -or $null -eq $importedProfile.PSObject.Properties["Name"]) {
-            throw "Selected JSON is not a Vdbench UI profile."
-        }
-        Ensure-ProfileCatalogKeys $importedProfile
-        $legacyTargets = @(Get-PropertyValue $importedProfile "LocalTargets" @())
-        if ($legacyTargets.Count -gt 0) {
-            $script:LocalHostTargets = @(Normalize-TargetEntries $legacyTargets)
-            Save-LocalHostTargets
-        }
-        if ($null -ne $importedProfile.PSObject.Properties["LocalTargets"]) {
-            $importedProfile.PSObject.Properties.Remove("LocalTargets")
-        }
-        if ($null -ne $importedProfile.PSObject.Properties["TestKind"]) {
-            $importedProfile.PSObject.Properties.Remove("TestKind")
-        }
-        $baseName = [string]$importedProfile.Name
-        if ([string]::IsNullOrWhiteSpace($baseName)) {
-            $baseName = "Imported-Profile"
-        }
-        $targetPath = Get-ProfilePath $baseName
-        if (Test-Path -LiteralPath $targetPath) {
-            $importedProfile.Name = ("{0}-Imported-{1}" -f $baseName, (Get-Date).ToString("yyyyMMdd-HHmmss"))
-        }
-        $importedProfile.UpdatedAt = (Get-Date).ToString("o")
-        Write-JsonFile (Get-ProfilePath $importedProfile.Name) $importedProfile
-        Refresh-RunProfileList
-        if ($script:RunProfileSelector) {
-            $script:RunProfileSelector.Text = [string]$importedProfile.Name
-            Sync-RunProfileFromSelector
-        }
-        Refresh-RunTabSummary
-        Refresh-ConfigPreview
-    } catch {
-        Show-Warning ("Profile import failed: " + $_.Exception.Message)
-    }
-}
-
 function Delete-SelectedProfile {
     $name = Get-SelectedLibraryProfileName
     if ([string]::IsNullOrWhiteSpace($name)) {
@@ -1193,41 +1093,6 @@ function Reload-RunProfile {
     Update-RunModeIndicator
 }
 
-function Export-SlaveInventory {
-    Capture-SlaveGrid
-    $dialog = New-Object System.Windows.Forms.SaveFileDialog
-    $dialog.Filter = "Slave inventory JSON (*.json)|*.json|All files (*.*)|*.*"
-    $dialog.FileName = "vdbench-slaves.json"
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Write-JsonFile $dialog.FileName $script:Slaves -AsArray
-    }
-}
-
-function Import-SlaveInventory {
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Filter = "Slave inventory JSON (*.json)|*.json|All files (*.*)|*.*"
-    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-        return
-    }
-    try {
-        $items = @(Read-JsonFile $dialog.FileName @())
-        $normalized = @()
-        foreach ($item in $items) {
-            if ([string]::IsNullOrWhiteSpace([string](Get-PropertyValue $item "Name" "")) -and [string]::IsNullOrWhiteSpace([string](Get-PropertyValue $item "Host" ""))) {
-                continue
-            }
-            $normalizedItem = Normalize-SlaveEntry $item
-            $normalizedItem.ReadinessStatus = "Not checked"
-            $normalizedItem.ReadinessCheckedAt = ""
-            $normalized += $normalizedItem
-        }
-        $script:Slaves = @($normalized)
-        Populate-SlaveGrid
-        Save-Slaves
-    } catch {
-        Show-Warning ("Slave import failed: " + $_.Exception.Message)
-    }
-}
 function Get-Mode {
     if ($null -ne $script:RunModeCombo) {
         return [string]$script:RunModeCombo.Text

@@ -26,7 +26,8 @@ Profiles store workload parameters only. They no longer store `TestKind` or `Loc
 
 The **Run** tab is the profile library and execution orchestrator:
 
-- Select, reload, delete, duplicate, import, export, and open the profiles folder.
+- Select, reload, delete, and open the profiles folder.
+- Use **Config only** to write a `.parm` and run folder without starting Vdbench.
 - Choose which saved profile to execute and review mode, derived test kind, and selected targets before start.
 
 ## Settings

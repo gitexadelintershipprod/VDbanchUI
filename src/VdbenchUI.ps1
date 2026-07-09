@@ -109,7 +109,6 @@ $script:ProfileEditorTestKind = ""
 $script:ProfileEditorLastTestKind = ""
 $script:ProfileNewButton = $null
 $script:ProfileSaveButton = $null
-$script:ProfilePreviewButton = $null
 $script:ProcessEventBridgeReady = $false
 $script:ProfileEditorBanner = $null
 $script:PendingListViewBulkSync = $null

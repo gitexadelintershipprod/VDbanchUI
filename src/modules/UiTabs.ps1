@@ -72,6 +72,17 @@ function Build-SettingsTab {
     $commentDisabled.Size = New-Object System.Drawing.Size -ArgumentList 360, 24
     $panel.Controls.Add($commentDisabled)
     $script:SettingsControls["CommentDisabledParameters"] = $commentDisabled
+    $y += 34
+
+    $panel.Controls.Add((New-Label "Log level" 18 $y $labelWidth))
+    $logLevelValue = [string](Get-PropertyValue $script:Settings "LogLevel" "INFO")
+    if ([string]::IsNullOrWhiteSpace($logLevelValue)) {
+        $logLevelValue = "INFO"
+    }
+    $logLevel = New-ComboBox @("DEBUG", "INFO", "WARN", "ERROR") $logLevelValue.ToUpperInvariant() $fieldX $y 160 24
+    $logLevel.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $panel.Controls.Add($logLevel)
+    $script:SettingsControls["LogLevel"] = $logLevel
     $y += 42
 
     $buttonHost = New-Object System.Windows.Forms.Panel
@@ -225,88 +236,6 @@ function Invoke-TargetGridRowChanged {
     if ($null -ne $Extra) {
         & $Extra $Grid $Row
     }
-}
-
-function Register-TargetSelectionGridHandlers {
-    param(
-        [System.Windows.Forms.DataGridView]$Grid,
-        [scriptblock]$OnRowChanged
-    )
-    Initialize-TargetSelectionGrid $Grid
-    # Event-handler scriptblocks do not capture local variables (see AGENTS.md) -
-    # store the callback on the grid Tag so handlers can read it at fire time.
-    $tag = @{}
-    if ($null -ne $Grid.Tag -and $Grid.Tag -is [hashtable]) {
-        $tag = @{} + $Grid.Tag
-    }
-    $tag.TargetSelectionOnRowChanged = $OnRowChanged
-    $Grid.Tag = $tag
-
-    $Grid.Add_CurrentCellDirtyStateChanged({
-        param($sender, $eventArgs)
-        if ($sender.IsCurrentCellDirty) {
-            $sender.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) | Out-Null
-        }
-    })
-    $Grid.Add_CellValueChanged({
-        param($sender, $eventArgs)
-        try {
-            if ($eventArgs.RowIndex -ge 0) {
-                $extra = $null
-                if ($null -ne $sender.Tag) {
-                    $extra = $sender.Tag.TargetSelectionOnRowChanged
-                }
-                Invoke-TargetGridRowChanged -Grid $sender -Row $sender.Rows[$eventArgs.RowIndex] -Extra $extra
-            }
-        } catch {
-            Write-AppLog ("Target grid CellValueChanged failed: {0}" -f $_.Exception.Message) "ERROR" $_.Exception
-        }
-    })
-    $Grid.Add_CellContentClick({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -lt 0) {
-            return
-        }
-        $row = $sender.Rows[$eventArgs.RowIndex]
-        $column = $sender.Columns[$eventArgs.ColumnIndex]
-        if ($column.Name -eq "CreateFile") {
-            if ($row.Cells["CreateFile"].ReadOnly) {
-                return
-            }
-            return
-        }
-        $extra = $null
-        if ($null -ne $sender.Tag) {
-            $extra = $sender.Tag.TargetSelectionOnRowChanged
-        }
-        if ($column.Name -eq "Selected") {
-            $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
-            $row.Cells["Selected"].Value = -not $current
-            $sender.InvalidateCell($row.Cells["Selected"])
-            Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
-            return
-        }
-        if ($column.Name -in @("Kind", "Target", "Description")) {
-            $current = [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
-            $row.Cells["Selected"].Value = -not $current
-            $sender.InvalidateCell($row.Cells["Selected"])
-            Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
-        }
-    })
-    $Grid.Add_CellDoubleClick({
-        param($sender, $eventArgs)
-        if ($eventArgs.RowIndex -lt 0) {
-            return
-        }
-        $row = $sender.Rows[$eventArgs.RowIndex]
-        $row.Cells["Selected"].Value = -not [bool](Get-PropertyValue $row.Cells["Selected"].Value $false)
-        $sender.InvalidateCell($row.Cells["Selected"])
-        $extra = $null
-        if ($null -ne $sender.Tag) {
-            $extra = $sender.Tag.TargetSelectionOnRowChanged
-        }
-        Invoke-TargetGridRowChanged -Grid $sender -Row $row -Extra $extra
-    })
 }
 
 function Set-TargetGridRows {
@@ -1399,39 +1328,6 @@ function Refresh-RunProfileList {
     Sync-RunProfileFromSelector
 }
 
-function Preview-DraftProfile {
-    if ($script:ProfileEditorLocked) {
-        Show-Warning "Select a target before previewing a draft profile."
-        return
-    }
-    if ($null -eq $script:CurrentProfile) {
-        return
-    }
-    Capture-ProfileEditor
-    Sync-CommonProfileParameters $script:CurrentProfile
-    try {
-        $built = Build-VdbenchConfig -UseDraftProfile
-        $script:LastBuiltConfig = $built
-        $prefix = ""
-        if ($built.Warnings.Count -gt 0) {
-            $prefix = ("* DRAFT PREVIEW WARNINGS" + [Environment]::NewLine)
-            foreach ($warning in $built.Warnings) {
-                $prefix += ("* - " + $warning + [Environment]::NewLine)
-            }
-            $prefix += [Environment]::NewLine
-        }
-        if ($script:ConfigPreviewBox) {
-            $script:ConfigPreviewBox.Text = $prefix + $built.Text
-        }
-        Select-MainTab "Config Preview"
-    } catch {
-        if ($script:ConfigPreviewBox) {
-            $script:ConfigPreviewBox.Text = "Draft preview error: " + $_.Exception.Message
-        }
-        Write-AppLog ("Draft preview error: {0}" -f $_.Exception.Message) "ERROR"
-    }
-}
-
 function Build-ProfileTab {
     $tab = New-MainTabPage "Profile Builder" "Profile"
 
@@ -1528,19 +1424,6 @@ function Build-PreviewTab {
     $container.Controls.Add($script:ConfigPreviewBox, 0, 1)
     return $tab
 }
-function Open-CurrentRunFolder {
-    if ([string]::IsNullOrWhiteSpace($script:CurrentRunId)) {
-        Show-Warning "No current run."
-        return
-    }
-    $path = Join-Path $script:RunStateRoot ($script:CurrentRunId + ".json")
-    $state = Read-JsonFile $path $null
-    $runDir = [string](Get-PropertyValue $state "RunDir" "")
-    if ($state -and -not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir)) {
-        Start-Process $runDir
-    }
-}
-
 function Build-RunTab {
     $tab = New-MainTabPage "Run Monitor" "Run"
 
@@ -1584,6 +1467,10 @@ function Build-RunTab {
     $startButton = New-Button "Start" 0 0 80 28
     $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
     Add-FlowToolbarItem $toolbar $startButton
+
+    $configOnlyButton = New-Button "Config only" 0 0 100 28
+    $configOnlyButton.Add_Click({ Invoke-UiSafe { New-ConfigOnlyRun } "Config only" })
+    Add-FlowToolbarItem $toolbar $configOnlyButton
 
     $stopButton = New-Button "Stop/Kill" 0 0 90 28
     $stopButton.Add_Click({ Stop-VdbenchRun })
@@ -1717,7 +1604,7 @@ function Refresh-Reports {
         foreach ($state in Get-RunStates) {
             $idx = $script:ReportsGrid.Rows.Add()
             $row = $script:ReportsGrid.Rows[$idx]
-            foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
+            foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "RunDir")) {
                 $row.Cells[$name].Value = [string](Get-PropertyValue $state $name "")
             }
         }
@@ -1855,7 +1742,7 @@ function Build-ReportsTab {
     $script:ReportsGrid.ReadOnly = $true
     $script:ReportsGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
     $script:ReportsGrid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
-    foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "LastIops", "LastMbps", "LastLatency", "RunDir")) {
+    foreach ($name in @("Id", "StartedAt", "Status", "ExitCode", "Profile", "Mode", "TestKind", "RunDir")) {
         $col = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
         $col.Name = $name
         $col.HeaderText = $name

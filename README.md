@@ -24,7 +24,7 @@ The application stores mutable state under:
 - `runs/*`
 - `logs/*`
 
-Settings, profiles, slave inventory, and selected run folders can be exported from the UI.
+Settings and selected run folders can be exported from the UI.
 
 ### Runtime directories
 
@@ -126,9 +126,18 @@ report history without touching storage targets. Restore `Master vdbench.bat` to
 - The UI does not install Java, SSH, or Vdbench.
 - The UI does not download or bundle Oracle Vdbench.
 - Raw disk and destructive tests are exposed, but the generated config preview and run log are always visible before execution.
-- Raw physical-device targets and filesystem format/root-target cases are flagged as `RISK` warnings and require an extra confirmation before `Start`.
-- Profiles and slave inventory can be imported/exported from the UI.
+- Raw physical-device targets and filesystem format/root-target cases are flagged as `RISK` warnings in the generated config preview.
 - Target discovery uses Windows CIM locally and SSH for remote slaves. Manual target
   entry remains available when discovery is not appropriate.
 - Settings can be imported/exported from `Settings / Paths`.
 - Selected reports can be exported as ZIP bundles from `Status / Reports`.
+
+## Windows production smoke checklist
+
+Manual checks on a real Windows Server with Vdbench installed (not automated here):
+
+1. First launch from a portable unzip: run `Launch-VdbenchUI.bat`, confirm Settings paths look sane, Save settings.
+2. Readiness window: on Master / Slave, click **Readiness** on a row; confirm a separate PowerShell window opens, shows checker output, and stays open until Enter.
+3. SSH browse: with a reachable slave (Host/IP + User), click **Browse** and confirm disks/filesystems list without shell-quoting errors.
+4. Config only: on Run Monitor, click **Config only**; confirm a run folder and `.parm` appear without starting Vdbench.
+5. Chart: start a short fake-runner or real run and confirm the Run Monitor chart (or fallback message) updates while stdout streams.
