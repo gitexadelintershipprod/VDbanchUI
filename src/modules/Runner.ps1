@@ -42,15 +42,35 @@ function Flush-RunLog {
 
 function Reset-RunChart {
     $script:RunMetricIndex = 0
+    $script:RunResultSummary = New-EmptyRunResultSummary
     if ($script:RunChart) {
         foreach ($series in $script:RunChart.Series) {
             $series.Points.Clear()
         }
+        try {
+            $area = $script:RunChart.ChartAreas["RunMetrics"]
+            if ($null -ne $area) {
+                $area.AxisY.Title = "IOPS / MB/s"
+                $area.AxisY2.Title = "Latency (ms)"
+                $area.AxisY2.LabelStyle.Format = "0.00"
+                $area.AxisY.IsStartedFromZero = $true
+                $area.AxisY2.IsStartedFromZero = $true
+            }
+        } catch {
+        }
     }
+    Update-RunResultSummaryPanel
 }
 
 function Add-MetricPointFromLine {
     param([string]$Line)
+    if ($null -eq $script:RunResultSummary) {
+        $script:RunResultSummary = New-EmptyRunResultSummary
+    }
+    [void](Update-RunResultSummaryFromLine $script:RunResultSummary $Line)
+    if (($script:RunMetricIndex % 5) -eq 0 -or $Line -match 'avg_|completed successfully|Starting RD=') {
+        Update-RunResultSummaryPanel
+    }
     if (-not $script:RunChart) {
         return
     }
@@ -63,6 +83,8 @@ function Add-MetricPointFromLine {
         if ($x -le 0) {
             $script:RunMetricIndex++
             $x = $script:RunMetricIndex
+        } else {
+            $script:RunMetricIndex = [int]$x
         }
         [void]$script:RunChart.Series["IOPS"].Points.AddXY($x, [double]$metrics.Iops)
         [void]$script:RunChart.Series["MB/s"].Points.AddXY($x, [double]$metrics.Mbps)
@@ -84,30 +106,44 @@ function New-RunChart {
     }
     $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart
     $chart.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $chart.BackColor = [System.Drawing.Color]::White
     $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
     $area.Name = "RunMetrics"
+    $area.BackColor = [System.Drawing.Color]::WhiteSmoke
     $area.AxisX.Title = "Interval"
-    $area.AxisY.Title = "IOPS / MB per sec"
-    $area.AxisY2.Title = "Latency"
+    $area.AxisY.Title = "IOPS / MB/s"
+    $area.AxisY2.Title = "Latency (ms)"
     $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::True
+    $area.AxisY2.MajorGrid.Enabled = $false
+    $area.AxisY2.LabelStyle.Format = "0.00"
+    $area.AxisY2.TitleForeColor = [System.Drawing.Color]::Firebrick
+    $area.AxisY2.LabelStyle.ForeColor = [System.Drawing.Color]::Firebrick
     $area.AxisX.MajorGrid.LineColor = [System.Drawing.Color]::Gainsboro
     $area.AxisY.MajorGrid.LineColor = [System.Drawing.Color]::Gainsboro
+    $area.AxisX.LineColor = [System.Drawing.Color]::DimGray
+    $area.AxisY.LineColor = [System.Drawing.Color]::DimGray
+    $area.AxisY.IsStartedFromZero = $true
+    $area.AxisY2.IsStartedFromZero = $true
     [void]$chart.ChartAreas.Add($area)
 
     $legend = New-Object System.Windows.Forms.DataVisualization.Charting.Legend
     $legend.Docking = [System.Windows.Forms.DataVisualization.Charting.Docking]::Top
+    $legend.Alignment = [System.Drawing.StringAlignment]::Center
+    $legend.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 8
     [void]$chart.Legends.Add($legend)
 
     foreach ($item in @(
-        @{ Name = "IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue },
-        @{ Name = "MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen },
-        @{ Name = "Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick }
+        @{ Name = "IOPS"; Axis = "Y"; Color = [System.Drawing.Color]::SteelBlue; Width = 2 },
+        @{ Name = "MB/s"; Axis = "Y"; Color = [System.Drawing.Color]::SeaGreen; Width = 2 },
+        @{ Name = "Latency"; Axis = "Y2"; Color = [System.Drawing.Color]::Firebrick; Width = 2 }
     )) {
         $series = New-Object System.Windows.Forms.DataVisualization.Charting.Series
         $series.Name = $item.Name
         $series.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
-        $series.BorderWidth = 2
+        $series.BorderWidth = [int]$item.Width
         $series.Color = $item.Color
+        $series.ChartArea = "RunMetrics"
+        $series.XValueType = [System.Windows.Forms.DataVisualization.Charting.ChartValueType]::Double
         if ($item.Axis -eq "Y2") {
             $series.YAxisType = [System.Windows.Forms.DataVisualization.Charting.AxisType]::Secondary
         }
@@ -252,6 +288,22 @@ function Complete-VdbenchProcessExited {
     }
     Set-RunMetadata $RunId $updates
     Write-AppLog ("Run {0} finished with status {1} (exit {2})" -f $RunId, $status, $ExitCode)
+    if ($null -eq $script:RunResultSummary) {
+        $script:RunResultSummary = New-EmptyRunResultSummary
+    }
+    $script:RunResultSummary.Status = $status
+    if ($status -eq "Completed") {
+        $script:RunResultSummary.Success = $true
+        if ([string]::IsNullOrWhiteSpace([string]$script:RunResultSummary.CompletedMessage)) {
+            $script:RunResultSummary.CompletedMessage = "Vdbench completed successfully"
+        }
+    } elseif ($status -eq "Failed" -or $status -eq "Killed") {
+        $script:RunResultSummary.Success = $false
+        if ([string]::IsNullOrWhiteSpace([string]$script:RunResultSummary.CompletedMessage)) {
+            $script:RunResultSummary.CompletedMessage = ("Run ended with status {0}" -f $status)
+        }
+    }
+    Update-RunResultSummaryPanel
     Notify-RunFinished -RunId $RunId -Status $status
 }
 

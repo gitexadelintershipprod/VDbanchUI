@@ -821,33 +821,67 @@ function Update-RunModeIndicator {
 }
 
 function Resize-RunTabSummaryArea {
-    if ($null -eq $script:RunSummaryBox -or $null -eq $script:RunTabLayout) {
+    if ($null -eq $script:RunTabLayout) {
         return
     }
-    $text = [string]$script:RunSummaryBox.Text
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        $text = " "
+    $boxes = @()
+    if ($null -ne $script:RunSummaryBox) {
+        $boxes += $script:RunSummaryBox
     }
-    $font = $script:RunSummaryBox.Font
-    $width = $script:RunSummaryBox.ClientSize.Width
-    if ($width -lt 200) {
-        $width = [Math]::Max(200, $script:RunTabLayout.ClientSize.Width - 32)
+    if ($null -ne $script:RunResultSummaryBox) {
+        $boxes += $script:RunResultSummaryBox
     }
-    $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
-    $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
-        $text,
-        $font,
-        (New-Object System.Drawing.Size($width, [int]::MaxValue)),
-        $flags
-    )
-    $contentHeight = [Math]::Max($measured.Height + 12, 52)
-    $lineCount = @(($text -split [Environment]::NewLine)).Count
-    if ($lineCount -gt 1) {
-        $contentHeight += (($lineCount - 1) * 4)
+    if ($boxes.Count -eq 0) {
+        return
     }
-    $rowHeight = 26 + 12 + $contentHeight + 12
+    $maxContentHeight = 52
+    foreach ($box in $boxes) {
+        $text = [string]$box.Text
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            $text = " "
+        }
+        $font = $box.Font
+        $width = $box.ClientSize.Width
+        if ($width -lt 160) {
+            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) / 2))
+        }
+        $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
+        $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
+            $text,
+            $font,
+            (New-Object System.Drawing.Size($width, [int]::MaxValue)),
+            $flags
+        )
+        $contentHeight = [Math]::Max($measured.Height + 16, 52)
+        $lineCount = @(($text -split [Environment]::NewLine)).Count
+        if ($lineCount -gt 1) {
+            $contentHeight += (($lineCount - 1) * 2)
+        }
+        if ($contentHeight -gt $maxContentHeight) {
+            $maxContentHeight = $contentHeight
+        }
+    }
+    $rowHeight = 22 + 12 + $maxContentHeight + 16
+    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 110), 220)
     $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
-    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
+}
+
+function Update-RunResultSummaryPanel {
+    if ($null -eq $script:RunResultSummaryBox) {
+        return
+    }
+    if ($null -eq $script:RunResultSummary) {
+        $script:RunResultSummary = New-EmptyRunResultSummary
+    }
+    $script:RunResultSummaryBox.Text = Format-RunResultSummaryText $script:RunResultSummary
+    if ([bool](Get-PropertyValue $script:RunResultSummary "Success" $false)) {
+        $script:RunResultSummaryBox.ForeColor = [System.Drawing.Color]::DarkGreen
+    } elseif ([string](Get-PropertyValue $script:RunResultSummary "Status" "") -eq "Failed") {
+        $script:RunResultSummaryBox.ForeColor = [System.Drawing.Color]::Firebrick
+    } else {
+        $script:RunResultSummaryBox.ForeColor = [System.Drawing.SystemColors]::ControlText
+    }
+    Resize-RunTabSummaryArea
 }
 
 function Refresh-RunTabSummary {
@@ -884,7 +918,7 @@ function Refresh-RunTabSummary {
         }
     }
     $script:RunSummaryBox.Text = ($lines -join [Environment]::NewLine)
-    Resize-RunTabSummaryArea
+    Update-RunResultSummaryPanel
 }
 
 function Show-ConfigPreviewConfirmation {

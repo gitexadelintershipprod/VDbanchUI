@@ -1549,8 +1549,8 @@ function Build-RunTab {
     $container.RowCount = 4
     $container.ColumnCount = 1
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 88)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 100)) | Out-Null
-    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 210)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 140)) | Out-Null
+    $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 230)) | Out-Null
     $container.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $tab.Controls.Add($container)
     $script:RunTabLayout = $container
@@ -1608,31 +1608,71 @@ function Build-RunTab {
     $summaryPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 4, 8, 4
     $container.Controls.Add($summaryPanel, 0, 1)
 
-    $summaryLayout = New-Object System.Windows.Forms.TableLayoutPanel
-    $summaryLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $summaryLayout.RowCount = 2
-    $summaryLayout.ColumnCount = 1
-    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 26)) | Out-Null
-    $summaryLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $summaryPanel.Controls.Add($summaryLayout)
+    $summarySplit = New-Object System.Windows.Forms.TableLayoutPanel
+    $summarySplit.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $summarySplit.RowCount = 1
+    $summarySplit.ColumnCount = 2
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 50)) | Out-Null
+    $summarySplit.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 50)) | Out-Null
+    $summaryPanel.Controls.Add($summarySplit)
+    $script:RunSummarySplit = $summarySplit
 
-    $summaryLayout.Controls.Add((New-Label "Run summary" 0 0 120 20), 0, 0)
+    $configLayout = New-Object System.Windows.Forms.TableLayoutPanel
+    $configLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $configLayout.RowCount = 2
+    $configLayout.ColumnCount = 1
+    $configLayout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 8, 0
+    $configLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 22)) | Out-Null
+    $configLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $summarySplit.Controls.Add($configLayout, 0, 0)
+
+    $configTitle = New-Label "Run setup" 0 0 120 20
+    $configTitle.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 9, ([System.Drawing.FontStyle]::Bold)
+    $configLayout.Controls.Add($configTitle, 0, 0)
 
     $script:RunSummaryBox = New-Object System.Windows.Forms.TextBox
     $script:RunSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $script:RunSummaryBox.Multiline = $true
     $script:RunSummaryBox.ReadOnly = $true
-    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
+    $script:RunSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
     $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
     $script:RunSummaryBox.WordWrap = $true
-    $script:RunSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::None
-    $script:RunSummaryBox.BackColor = [System.Drawing.SystemColors]::Control
+    $script:RunSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $script:RunSummaryBox.BackColor = [System.Drawing.Color]::White
     $script:RunSummaryBox.Add_TextChanged({ Resize-RunTabSummaryArea })
-    $summaryLayout.Controls.Add($script:RunSummaryBox, 0, 1)
+    $configLayout.Controls.Add($script:RunSummaryBox, 0, 1)
+
+    $resultLayout = New-Object System.Windows.Forms.TableLayoutPanel
+    $resultLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $resultLayout.RowCount = 2
+    $resultLayout.ColumnCount = 1
+    $resultLayout.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 0, 0
+    $resultLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 22)) | Out-Null
+    $resultLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $summarySplit.Controls.Add($resultLayout, 1, 0)
+
+    $resultTitle = New-Label "Results summary" 0 0 160 20
+    $resultTitle.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI", 9, ([System.Drawing.FontStyle]::Bold)
+    $resultTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 70, 140)
+    $resultLayout.Controls.Add($resultTitle, 0, 0)
+
+    $script:RunResultSummaryBox = New-Object System.Windows.Forms.TextBox
+    $script:RunResultSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:RunResultSummaryBox.Multiline = $true
+    $script:RunResultSummaryBox.ReadOnly = $true
+    $script:RunResultSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 9
+    $script:RunResultSummaryBox.WordWrap = $true
+    $script:RunResultSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $script:RunResultSummaryBox.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
+    $script:RunResultSummaryBox.Add_TextChanged({ Resize-RunTabSummaryArea })
+    $resultLayout.Controls.Add($script:RunResultSummaryBox, 0, 1)
+
     $summaryPanel.Add_Resize({ Resize-RunTabSummaryArea })
 
     Refresh-RunProfileList
     Refresh-RunTabSummary
+    Update-RunResultSummaryPanel
 
     $script:RunChart = New-RunChart
     if ($script:RunChart) {

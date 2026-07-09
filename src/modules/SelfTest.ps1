@@ -219,6 +219,45 @@ function Invoke-AppSelfTest {
         $legacyMetric = Get-MetricValuesFromLine "          12       2500    9.77    4096    70    0.850"
         Assert-SelfTestEquals $legacyMetric.Iops 2500 "legacy metric iops"
 
+        $fsMetric = Get-MetricValuesFromLine "15:38:33.018            1 1168.0  0.959   1.9 0.58  70.7  826.0  1.027  342.0  0.796 25.81 10.69  36.50   32768   0.0  0.000   0.0  0.000   0.0  0.000   2.0  0.776   0.0  0.000   0.0  0.000"
+        Assert-SelfTestEquals $fsMetric.Iops 1168 "filesystem metric iops"
+        if ([math]::Abs($fsMetric.Mbps - 36.50) -gt 0.01) {
+            throw ("Self-test failed: filesystem metric mbps. Expected ~36.50, got '{0}'." -f $fsMetric.Mbps)
+        }
+        if ([math]::Abs($fsMetric.Latency - 0.959) -gt 0.001) {
+            throw ("Self-test failed: filesystem metric latency. Expected ~0.959, got '{0}'." -f $fsMetric.Latency)
+        }
+
+        $avgLine = "15:39:05.028     avg_4-33 2232.7  0.862   1.6 1.04  69.9 1561.7  0.892  671.0  0.790 48.80 20.97  69.77   32767   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000"
+        $sampleText = @(
+            "Anchor size: anchor=D:\fs_test: dirs: 1; files: 1; bytes: 10.000g",
+            "Anchor size: anchor=/stresstest: dirs: 1; files: 1; bytes: 10.000g",
+            "Starting RD=format_for_rd1",
+            "15:38:31.035    avg_2-105 1560.5  1.240   1.3 0.83   0.0    0.0  0.000 1560.5  1.240  0.00 195.0 195.06  131067   0.0  0.000   0.0  0.000   0.0 101856   0.0  0.000   0.0  0.376   0.0  0.000",
+            "Starting RD=rd1; elapsed=30 warmup=3; fwdrate=max. For loops: None",
+            "15:39:00.017           28 2463.0  0.780   1.6 1.12  69.3 1707.0  0.794  756.0  0.749 53.34 23.62  76.97   32768   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000   0.0  0.000",
+            $avgLine,
+            "Vdbench execution completed successfully. Output directory: C:\vdbench\manager\reports\20260709-153641"
+        ) -join [Environment]::NewLine
+        $resultSummary = Get-RunResultSummaryFromText $sampleText
+        Assert-SelfTestEquals $resultSummary.Status "Completed" "run result summary status"
+        Assert-SelfTestEquals $resultSummary.AnchorCount 2 "run result summary anchors"
+        if ([math]::Abs(([double]$resultSummary.WorkloadAvgIops.Replace(",", "")) - 2232.7) -gt 0.1) {
+            throw ("Self-test failed: workload avg iops. Expected ~2232.7, got '{0}'." -f $resultSummary.WorkloadAvgIops)
+        }
+        if ([math]::Abs(([double]$resultSummary.WorkloadAvgMbps.Replace(",", "")) - 69.77) -gt 0.1) {
+            throw ("Self-test failed: workload avg mbps. Expected ~69.77, got '{0}'." -f $resultSummary.WorkloadAvgMbps)
+        }
+        if ([math]::Abs(([double]$resultSummary.FormatAvgMbps.Replace(",", "")) - 195.06) -gt 0.1) {
+            throw ("Self-test failed: format avg mbps. Expected ~195.06, got '{0}'." -f $resultSummary.FormatAvgMbps)
+        }
+        if ([math]::Abs(([double]$resultSummary.WorkloadMaxIops.Replace(",", "")) - 2463.0) -gt 0.1) {
+            throw ("Self-test failed: workload max iops. Expected ~2463.0, got '{0}'." -f $resultSummary.WorkloadMaxIops)
+        }
+        $formatted = Format-RunResultSummaryText $resultSummary
+        Assert-SelfTestContains $formatted "Workload avg:" "formatted run result summary"
+        Assert-SelfTestContains $formatted "Format avg:" "formatted run result format section"
+
         $psiPs1 = Get-VdbenchProcessStartInfo (Join-Path $script:AppRoot "tools\FakeVdbench.ps1") "C:\tmp\profile.parm" "C:\tmp\out folder" $script:AppRoot
         Assert-SelfTestEquals $psiPs1.FileName "powershell.exe" "ps1 runner executable"
         Assert-SelfTestContains $psiPs1.Arguments "-ExecutionPolicy Bypass -File" "ps1 runner arguments"
