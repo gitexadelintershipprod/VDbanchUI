@@ -1070,7 +1070,8 @@ Set-StrictMode -Version 2.0
     [void]$iss.StartupScripts.Add($initScriptPath)
     foreach ($moduleName in @(
         "Core.ps1", "Metrics.ps1", "ProcessRunner.ps1", "State.ps1", "UiHelpers.ps1",
-        "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1"
+        "TargetDiscovery.ps1", "UiSlaveGrid.ps1", "UiTabs.ps1", "ConfigGeneration.ps1", "Runner.ps1",
+        "TargetCleanup.ps1"
     )) {
         [void]$iss.StartupScripts.Add((Join-Path $script:ModuleRoot $moduleName))
     }
@@ -1082,7 +1083,7 @@ Set-StrictMode -Version 2.0
     # or startup script errors immediately instead of failing silently later).
     $probe = [powershell]::Create()
     $probe.RunspacePool = $pool
-    [void]$probe.AddScript("Get-Command Get-SlaveReadinessResult -ErrorAction Stop | Out-Null")
+    [void]$probe.AddScript("Get-Command Invoke-SlaveTargetCleanBackgroundWork -ErrorAction Stop | Out-Null")
     try {
         $null = $probe.Invoke()
         if ($probe.HadErrors) {
