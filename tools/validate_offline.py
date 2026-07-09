@@ -705,6 +705,7 @@ Invoke-AppSelfTest
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
     _run_raw_profile_fixed_defaults_regression_check(pwsh)
     _run_target_cleanup_regression_check(pwsh)
+    _run_target_cleanup_endinvoke_complete_check(pwsh)
     _run_remote_ssh_args_return_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
@@ -833,6 +834,74 @@ Write-Host "target cleanup regression check: scripts, local delete, and repeat-c
         if result.returncode != 0:
             print(result.stderr.strip())
             raise AssertionError("target cleanup regression check failed")
+
+
+def _run_target_cleanup_endinvoke_complete_check(pwsh: str) -> None:
+    """Complete-*Clean* handlers must tolerate EndInvoke results with empty array properties."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-target-cleanup-endinvoke-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-target-cleanup-endinvoke-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ConfigRoot = Join-Path $script:AppRoot "config"
+$script:DataRoot = "{tmp_dir}/data"
+$script:ModuleRoot = "{module_root}"
+$script:Settings = @{{}}
+$script:SlaveGrid = $null
+$script:LocalHostCleanInFlight = $true
+foreach ($m in @("Core.ps1","UiHelpers.ps1")) {{
+    . (Join-Path $script:ModuleRoot $m)
+}}
+function Show-Warning {{ param([string]$Message) }}
+function Write-DebugLog {{ param([string]$Message) }}
+function Get-SlaveRowState {{ param($Row) return @{{ CleanInFlight = $true }} }}
+. (Join-Path $script:ModuleRoot "TargetCleanup.ps1")
+
+$pool = [runspacefactory]::CreateRunspacePool(1, 1)
+$pool.Open()
+$ps = [powershell]::Create()
+$ps.RunspacePool = $pool
+[void]$ps.AddScript({{
+    return @{{
+        Cleaned = @()
+        Skipped = @()
+        Errors = @("/stresstest: rm: cannot remove: Device or resource busy")
+    }}
+}})
+$async = $ps.BeginInvoke()
+while (-not $async.IsCompleted) {{ Start-Sleep -Milliseconds 10 }}
+$endInvokeResult = $ps.EndInvoke($async)
+$ps.Dispose()
+$pool.Close()
+$pool.Dispose()
+
+$context = @{{
+    RowIndex = 0
+    HostName = "10.50.11.174"
+}}
+Complete-SlaveTargetCleanBackgroundWork -Result $endInvokeResult -ErrorMessage $null -Context $context
+Complete-LocalHostTargetCleanBackgroundWork -Result $endInvokeResult -ErrorMessage $null -Context @{{}}
+Write-Host "target cleanup EndInvoke complete check: empty Cleaned/Skipped arrays read without StrictMode errors"
+""".format(
+                app_root=str(ROOT),
+                tmp_dir=tmp_dir.replace("\\", "/"),
+                module_root=str(MODULE_ROOT),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        print(result.stdout.strip())
+        if result.returncode != 0:
+            print(result.stderr.strip())
+            raise AssertionError("target cleanup EndInvoke complete check failed")
 
 
 def _run_remote_ssh_args_return_regression_check(pwsh: str) -> None:
