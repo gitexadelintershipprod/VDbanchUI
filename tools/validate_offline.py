@@ -743,6 +743,9 @@ function Get-SlaveRowState {{
     if ($null -eq $Row.Tag -or $Row.Tag -isnot [hashtable]) {{
         $Row.Tag = @{{ Targets = @(); CleanInFlight = $false }}
     }}
+    if (-not $Row.Tag.ContainsKey("CleanInFlight")) {{
+        $Row.Tag["CleanInFlight"] = $false
+    }}
     return $Row.Tag
 }}
 function Get-SlaveRowTargets {{
@@ -851,6 +854,33 @@ $firstCalls = $script:StartBackgroundUiWorkCalls
 Start-SlaveTargetClean -Row $cleanRow
 Assert-True ($firstCalls -eq 1) "repeat clean click ignored while in flight"
 Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat clean click ignored while in flight (count)"
+
+# Legacy row Tag without CleanInFlight must not throw under StrictMode.
+$legacyRow = [pscustomobject]@{{
+    Tag = @{{
+        Targets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
+    }}
+    IsNewRow = $false
+    Index = 1
+    Cells = (New-MockCellCollection)
+}}
+$legacyRow.Cells["Host"].Value = "10.0.0.8"
+$legacyRow.Cells["OsType"].Value = "Linux"
+$script:SlaveGrid = [pscustomobject]@{{
+    Rows = @($legacyRow)
+    InvalidateRow = {{ param($RowIndex) }}
+}}
+$script:StartBackgroundUiWorkCalls = 0
+$threw = $false
+try {{
+    Start-SlaveTargetClean -Row $legacyRow
+}} catch {{
+    $threw = $true
+    $script:errors += ("legacy CleanInFlight missing threw: " + $_.Exception.Message)
+}}
+Assert-True (-not $threw) "legacy Tag without CleanInFlight must not throw"
+Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "legacy Tag clean still starts once"
+Assert-True ([bool]$legacyRow.Tag["CleanInFlight"]) "legacy Tag CleanInFlight set after start"
 
 if ($errors.Count -gt 0) {{
     foreach ($e in $errors) {{ Write-Host "ASSERT FAILED: $e" }}
@@ -2738,6 +2768,12 @@ def main() -> int:
     assert "function Invoke-SlaveReadinessBackgroundWork" in ui_slave_module
     assert '@{ Name = "ReadinessRun"; Text = "Readiness" }' in ui_slave_module
     assert '@{ Name = "CleanRun"; Text = "Clean" }' in ui_slave_module
+    assert 'CleanInFlight = $false' in ui_slave_module, (
+        "Get-SlaveRowState must initialize CleanInFlight so StrictMode does not "
+        "throw when Start-SlaveTargetClean reads the flag on existing rows"
+    )
+    assert 'ContainsKey("CleanInFlight")' in ui_slave_module
+    assert 'Get-PropertyValue $state "CleanInFlight" $false' in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
     assert 'Cells["Notes"]' not in ui_slave_module
     assert 'New-Button "Clean"' not in ui_tabs_module
     assert "function Start-LocalHostTargetClean" not in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
