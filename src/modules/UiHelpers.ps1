@@ -1087,7 +1087,7 @@ Set-StrictMode -Version 2.0
     # or startup script errors immediately instead of failing silently later).
     $probe = [powershell]::Create()
     $probe.RunspacePool = $pool
-    [void]$probe.AddScript("Get-Command Invoke-LocalHostTargetCleanBackgroundWork -ErrorAction Stop | Out-Null")
+    [void]$probe.AddScript("Get-Command Invoke-SlaveTargetCleanBackgroundWork -ErrorAction Stop | Out-Null")
     try {
         $null = $probe.Invoke()
         if ($probe.HadErrors) {
