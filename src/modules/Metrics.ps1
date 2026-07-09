@@ -389,8 +389,11 @@ function Update-RunResultSummaryFromLine {
             $Summary.FormatAvgIops = ("{0:n1}" -f [double]$avg.Iops)
             $Summary.FormatAvgMbps = ("{0:n2}" -f [double]$avg.Mbps)
             $Summary.FormatAvgLatency = ("{0:n3}" -f [double]$avg.Latency)
-            if ([double]$Summary.FormatObservedMaxIops -gt 0) {
-                $Summary.FormatMaxIops = ("{0:n1}" -f [double]$Summary.FormatObservedMaxIops)
+            # Max must never display below avg for the same phase.
+            $formatMax = [Math]::Max([double]$Summary.FormatObservedMaxIops, [double]$avg.Iops)
+            if ($formatMax -gt 0) {
+                $Summary.FormatObservedMaxIops = $formatMax
+                $Summary.FormatMaxIops = ("{0:n1}" -f $formatMax)
             }
             if ($null -ne $ts -and $null -ne $Summary.FormatStart -and $null -eq $Summary.FormatEnd) {
                 $Summary.FormatEnd = $ts
@@ -403,8 +406,11 @@ function Update-RunResultSummaryFromLine {
             if ($null -ne $avg.ReadPct) {
                 $Summary.WorkloadReadPct = ("{0:n1}" -f [double]$avg.ReadPct)
             }
-            if ([double]$Summary.WorkloadObservedMaxIops -gt 0) {
-                $Summary.WorkloadMaxIops = ("{0:n1}" -f [double]$Summary.WorkloadObservedMaxIops)
+            # Max must never display below avg (missed intervals / warmup gaps).
+            $workloadMax = [Math]::Max([double]$Summary.WorkloadObservedMaxIops, [double]$avg.Iops)
+            if ($workloadMax -gt 0) {
+                $Summary.WorkloadObservedMaxIops = $workloadMax
+                $Summary.WorkloadMaxIops = ("{0:n1}" -f $workloadMax)
             }
             if ($null -ne $ts -and $null -ne $Summary.WorkloadStart -and $null -eq $Summary.WorkloadEnd) {
                 $Summary.WorkloadEnd = $ts
@@ -416,12 +422,19 @@ function Update-RunResultSummaryFromLine {
         $Summary.LastLatency = ("{0:n3}" -f [double]$avg.Latency)
         $Summary.LastInterval = [string]$avg.Range
     } elseif ($null -ne $avg -and $avg.Kind -eq "max") {
-        # Filesystem max_* rows are often sparse/misaligned. Prefer observed max
-        # from interval samples within the SAME phase only.
+        # Prefer observed interval max; still accept raw max_* when higher.
         $Summary.HasData = $true
         $isFormat = ($Summary.CurrentPhase -eq "format") -or (Test-IsFormatRunDefinition ([string]$Summary.CurrentRd))
-        if (-not $isFormat -and [string]$avg.MetricKind -eq "raw" -and [double]$avg.Iops -gt 0) {
-            $Summary.WorkloadMaxIops = ("{0:n1}" -f [double]$avg.Iops)
+        if ([double]$avg.Iops -gt 0) {
+            if ($isFormat) {
+                $formatMax = [Math]::Max([double]$Summary.FormatObservedMaxIops, [double]$avg.Iops)
+                $Summary.FormatObservedMaxIops = $formatMax
+                $Summary.FormatMaxIops = ("{0:n1}" -f $formatMax)
+            } else {
+                $workloadMax = [Math]::Max([double]$Summary.WorkloadObservedMaxIops, [double]$avg.Iops)
+                $Summary.WorkloadObservedMaxIops = $workloadMax
+                $Summary.WorkloadMaxIops = ("{0:n1}" -f $workloadMax)
+            }
         }
     }
 
@@ -485,6 +498,52 @@ function Format-SummaryTableRow {
     return ("{0,-10} {1,8} {2,10} {3,10} {4,10} {5,8} {6,8}" -f $Col1, $Col2, $Col3, $Col4, $Col5, $Col6, $Col7)
 }
 
+function Format-FixedCellText {
+    param(
+        [string]$Text,
+        [int]$Width
+    )
+    $value = [string]$Text
+    if ($null -eq $value) {
+        $value = ""
+    }
+    if ($Width -le 0) {
+        return $value
+    }
+    if ($value.Length -gt $Width) {
+        if ($Width -le 1) {
+            return $value.Substring(0, $Width)
+        }
+        return ($value.Substring(0, $Width - 1) + ".")
+    }
+    return $value.PadRight($Width)
+}
+
+function Format-BoxedRow {
+    param(
+        [string[]]$Cells,
+        [int]$CellWidth
+    )
+    $parts = New-Object System.Collections.Generic.List[string]
+    foreach ($cell in @($Cells)) {
+        [void]$parts.Add((" {0} " -f (Format-FixedCellText $cell $CellWidth)))
+    }
+    return ("|{0}|" -f ($parts -join "|"))
+}
+
+function Format-BoxedSeparator {
+    param(
+        [int]$ColumnCount,
+        [int]$CellWidth
+    )
+    $seg = ("-" * ($CellWidth + 2))
+    $parts = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $ColumnCount; $i++) {
+        [void]$parts.Add($seg)
+    }
+    return ("+{0}+" -f ($parts -join "+"))
+}
+
 function Format-RunResultSummaryText {
     param($Summary)
     if ($null -eq $Summary) {
@@ -506,81 +565,91 @@ function Format-RunResultSummaryText {
         [void]$lines.Add(("Status: {0}  |  {1}" -f $status, $completed))
     }
 
-    [void]$lines.Add("")
-    [void]$lines.Add("FORMAT")
-    [void]$lines.Add((Format-SummaryTableRow "Phase" "Time" "Avg IOPS" "Max IOPS" "Avg MB/s" "Lat ms" "Read%"))
-    [void]$lines.Add((Format-SummaryTableRow "-----" "----" "--------" "--------" "--------" "------" "-----"))
     $formatTime = [string](Get-PropertyValue $Summary "FormatDuration" "")
     $formatMbps = [string](Get-PropertyValue $Summary "FormatAvgMbps" "")
-    if (-not [string]::IsNullOrWhiteSpace($formatMbps) -or -not [string]::IsNullOrWhiteSpace($formatTime)) {
-        [void]$lines.Add((Format-SummaryTableRow `
-            "format" `
-            $(if ([string]::IsNullOrWhiteSpace($formatTime)) { "-" } else { $formatTime }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.FormatAvgIops)) { "-" } else { [string]$Summary.FormatAvgIops }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.FormatMaxIops)) { "-" } else { [string]$Summary.FormatMaxIops }) `
-            $(if ([string]::IsNullOrWhiteSpace($formatMbps)) { "-" } else { $formatMbps }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.FormatAvgLatency)) { "-" } else { [string]$Summary.FormatAvgLatency }) `
-            "-"))
-    } else {
-        [void]$lines.Add((Format-SummaryTableRow "format" "-" "-" "-" "-" "-" "-"))
-    }
-
-    [void]$lines.Add("")
-    [void]$lines.Add("WORKLOAD")
-    [void]$lines.Add((Format-SummaryTableRow "Phase" "Time" "Avg IOPS" "Max IOPS" "Avg MB/s" "Lat ms" "Read%"))
-    [void]$lines.Add((Format-SummaryTableRow "-----" "----" "--------" "--------" "--------" "------" "-----"))
+    $formatIops = [string](Get-PropertyValue $Summary "FormatAvgIops" "")
+    $formatMax = [string](Get-PropertyValue $Summary "FormatMaxIops" "")
+    $formatLat = [string](Get-PropertyValue $Summary "FormatAvgLatency" "")
     $workloadTime = [string](Get-PropertyValue $Summary "WorkloadDuration" "")
     $workloadIops = [string](Get-PropertyValue $Summary "WorkloadAvgIops" "")
-    if (-not [string]::IsNullOrWhiteSpace($workloadIops) -or -not [string]::IsNullOrWhiteSpace($workloadTime)) {
-        $readPct = [string](Get-PropertyValue $Summary "WorkloadReadPct" "")
-        [void]$lines.Add((Format-SummaryTableRow `
-            "workload" `
-            $(if ([string]::IsNullOrWhiteSpace($workloadTime)) { "-" } else { $workloadTime }) `
-            $(if ([string]::IsNullOrWhiteSpace($workloadIops)) { "-" } else { $workloadIops }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.WorkloadMaxIops)) { "-" } else { [string]$Summary.WorkloadMaxIops }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.WorkloadAvgMbps)) { "-" } else { [string]$Summary.WorkloadAvgMbps }) `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.WorkloadAvgLatency)) { "-" } else { [string]$Summary.WorkloadAvgLatency }) `
-            $(if ([string]::IsNullOrWhiteSpace($readPct)) { "-" } else { $readPct })))
-    } else {
-        [void]$lines.Add((Format-SummaryTableRow "workload" "-" "-" "-" "-" "-" "-"))
-    }
+    $workloadMax = [string](Get-PropertyValue $Summary "WorkloadMaxIops" "")
+    $workloadMbps = [string](Get-PropertyValue $Summary "WorkloadAvgMbps" "")
+    $workloadLat = [string](Get-PropertyValue $Summary "WorkloadAvgLatency" "")
+    $readPct = [string](Get-PropertyValue $Summary "WorkloadReadPct" "")
+    $anchors = [int](Get-PropertyValue $Summary "AnchorCount" 0)
+
+    # Top: two wide cells - workload | format. Slave grid: 4 fixed columns.
+    $topCols = 2
+    $topWidth = 46
+    $slaveCols = 4
+    $slaveWidth = 22
 
     [void]$lines.Add("")
-    [void]$lines.Add("SLAVES")
+    [void]$lines.Add((Format-BoxedSeparator $topCols $topWidth))
+    [void]$lines.Add((Format-BoxedRow @("WORKLOAD", "FORMAT") $topWidth))
+
+    $wlLine1 = "time={0}  avg={1} IOPS  max={2}" -f `
+        $(if ([string]::IsNullOrWhiteSpace($workloadTime)) { "-" } else { $workloadTime }), `
+        $(if ([string]::IsNullOrWhiteSpace($workloadIops)) { "-" } else { $workloadIops }), `
+        $(if ([string]::IsNullOrWhiteSpace($workloadMax)) { "-" } else { $workloadMax })
+    $fmtLine1 = "time={0}  avg={1} MB/s  maxIOPS={2}" -f `
+        $(if ([string]::IsNullOrWhiteSpace($formatTime)) { "-" } else { $formatTime }), `
+        $(if ([string]::IsNullOrWhiteSpace($formatMbps)) { "-" } else { $formatMbps }), `
+        $(if ([string]::IsNullOrWhiteSpace($formatMax)) { "-" } else { $formatMax })
+    [void]$lines.Add((Format-BoxedRow @($wlLine1, $fmtLine1) $topWidth))
+
+    $wlLine2 = "{0} MB/s  lat={1}ms  read={2}%  anchors={3}" -f `
+        $(if ([string]::IsNullOrWhiteSpace($workloadMbps)) { "-" } else { $workloadMbps }), `
+        $(if ([string]::IsNullOrWhiteSpace($workloadLat)) { "-" } else { $workloadLat }), `
+        $(if ([string]::IsNullOrWhiteSpace($readPct)) { "-" } else { $readPct }), `
+        $anchors
+    $fmtLine2 = "avgIOPS={0}  lat={1}ms" -f `
+        $(if ([string]::IsNullOrWhiteSpace($formatIops)) { "-" } else { $formatIops }), `
+        $(if ([string]::IsNullOrWhiteSpace($formatLat)) { "-" } else { $formatLat })
+    [void]$lines.Add((Format-BoxedRow @($wlLine2, $fmtLine2) $topWidth))
+    [void]$lines.Add((Format-BoxedSeparator $topCols $topWidth))
+
     $slaveMap = Get-PropertyValue $Summary "Slaves" @{}
-    if ($null -eq $slaveMap -or @($slaveMap.Keys).Count -eq 0) {
-        [void]$lines.Add("  (none detected yet)")
+    $slaveNames = @()
+    if ($null -ne $slaveMap -and @($slaveMap.Keys).Count -gt 0) {
+        $slaveNames = @($slaveMap.Keys | Sort-Object)
+    }
+
+    [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
+    if ($slaveNames.Count -eq 0) {
+        $emptyCells = @(" (no slaves yet)", "", "", "")
+        [void]$lines.Add((Format-BoxedRow $emptyCells $slaveWidth))
+        [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
     } else {
-        [void]$lines.Add(("{0,-14} {1,-16} {2}" -f "Name", "Host", "Anchor"))
-        [void]$lines.Add(("{0,-14} {1,-16} {2}" -f "----", "----", "------"))
-        foreach ($name in @($slaveMap.Keys | Sort-Object)) {
-            $slave = $slaveMap[$name]
-            [void]$lines.Add(("{0,-14} {1,-16} {2}" -f `
-                [string](Get-PropertyValue $slave "Name" $name), `
-                $(if ([string]::IsNullOrWhiteSpace([string]$slave.Host)) { "-" } else { [string]$slave.Host }), `
-                $(if ([string]::IsNullOrWhiteSpace([string]$slave.Anchor)) { "-" } else { [string]$slave.Anchor })))
+        for ($i = 0; $i -lt $slaveNames.Count; $i += $slaveCols) {
+            $nameCells = New-Object System.Collections.Generic.List[string]
+            $hostCells = New-Object System.Collections.Generic.List[string]
+            $anchorCells = New-Object System.Collections.Generic.List[string]
+            for ($c = 0; $c -lt $slaveCols; $c++) {
+                $idx = $i + $c
+                if ($idx -lt $slaveNames.Count) {
+                    $name = [string]$slaveNames[$idx]
+                    $slave = $slaveMap[$name]
+                    $hostVal = [string](Get-PropertyValue $slave "Host" "")
+                    $anchorVal = [string](Get-PropertyValue $slave "Anchor" "")
+                    [void]$nameCells.Add([string](Get-PropertyValue $slave "Name" $name))
+                    [void]$hostCells.Add($(if ([string]::IsNullOrWhiteSpace($hostVal)) { "-" } else { $hostVal }))
+                    [void]$anchorCells.Add($(if ([string]::IsNullOrWhiteSpace($anchorVal)) { "-" } else { $anchorVal }))
+                } else {
+                    [void]$nameCells.Add("")
+                    [void]$hostCells.Add("")
+                    [void]$anchorCells.Add("")
+                }
+            }
+            [void]$lines.Add((Format-BoxedRow @($nameCells) $slaveWidth))
+            [void]$lines.Add((Format-BoxedRow @($hostCells) $slaveWidth))
+            [void]$lines.Add((Format-BoxedRow @($anchorCells) $slaveWidth))
+            [void]$lines.Add((Format-BoxedSeparator $slaveCols $slaveWidth))
         }
     }
 
-    [void]$lines.Add("")
-    [void]$lines.Add("SUMMARY")
-    $anchors = [int](Get-PropertyValue $Summary "AnchorCount" 0)
-    [void]$lines.Add(("  Anchors: {0}" -f $anchors))
-    if (-not [string]::IsNullOrWhiteSpace($formatTime) -or -not [string]::IsNullOrWhiteSpace($formatMbps)) {
-        [void]$lines.Add(("  Format:   time={0}  avg={1} MB/s  maxIOPS={2}" -f `
-            $(if ([string]::IsNullOrWhiteSpace($formatTime)) { "-" } else { $formatTime }), `
-            $(if ([string]::IsNullOrWhiteSpace($formatMbps)) { "-" } else { $formatMbps }), `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.FormatMaxIops)) { "-" } else { [string]$Summary.FormatMaxIops })))
-    }
-    if (-not [string]::IsNullOrWhiteSpace($workloadIops) -or -not [string]::IsNullOrWhiteSpace($workloadTime)) {
-        [void]$lines.Add(("  Workload: time={0}  avg={1} IOPS  max={2} IOPS  {3} MB/s" -f `
-            $(if ([string]::IsNullOrWhiteSpace($workloadTime)) { "-" } else { $workloadTime }), `
-            $(if ([string]::IsNullOrWhiteSpace($workloadIops)) { "-" } else { $workloadIops }), `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.WorkloadMaxIops)) { "-" } else { [string]$Summary.WorkloadMaxIops }), `
-            $(if ([string]::IsNullOrWhiteSpace([string]$Summary.WorkloadAvgMbps)) { "-" } else { [string]$Summary.WorkloadAvgMbps })))
-    }
     if (-not [bool](Get-PropertyValue $Summary "HasData" $false)) {
-        [void]$lines.Add("  Start a run to fill format / workload / slave tables.")
+        [void]$lines.Add("Start a run to fill workload / format / slave cells.")
     }
     return ($lines -join [Environment]::NewLine)
 }
