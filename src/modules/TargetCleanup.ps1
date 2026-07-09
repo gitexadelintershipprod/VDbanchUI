@@ -196,7 +196,7 @@ function Complete-LocalHostTargetCleanBackgroundWork {
         return
     }
     if (@($Result.Errors).Count -gt 0) {
-        Show-Warning ("Clean failed for one or more targets:" + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine))
+        Show-Warning (("Clean failed for one or more targets:" + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine)))
     }
     Write-DebugLog ("Local host clean finished: cleaned={0} skipped={1} errors={2}" -f @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
 }
@@ -249,7 +249,7 @@ function Complete-SlaveTargetCleanBackgroundWork {
         return
     }
     if (@($Result.Errors).Count -gt 0) {
-        Show-Warning ("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine)
+        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($Result.Errors -join [Environment]::NewLine))
     }
     Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, @($Result.Cleaned).Count, @($Result.Skipped).Count, @($Result.Errors).Count)
 }

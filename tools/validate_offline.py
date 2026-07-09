@@ -705,6 +705,7 @@ Invoke-AppSelfTest
     _run_filesystem_profile_fixed_defaults_regression_check(pwsh)
     _run_raw_profile_fixed_defaults_regression_check(pwsh)
     _run_target_cleanup_regression_check(pwsh)
+    _run_remote_ssh_args_return_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
     return True
@@ -832,6 +833,43 @@ Write-Host "target cleanup regression check: scripts, local delete, and repeat-c
         if result.returncode != 0:
             print(result.stderr.strip())
             raise AssertionError("target cleanup regression check failed")
+
+
+def _run_remote_ssh_args_return_regression_check(pwsh: str) -> None:
+    """New-RemoteSshArguments must return a List, not an enumerated Object[]."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-ssh-args-return-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-ssh-args-return-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:ModuleRoot = "{module_root}"
+$script:Settings = @{{ PrivateKey = ""; SshConfig = "" }}
+. (Join-Path $script:ModuleRoot "Core.ps1")
+. (Join-Path $script:ModuleRoot "Runner.ps1")
+$owner = [pscustomobject]@{{ Host = "10.0.0.1"; OsType = "Linux"; User = "root"; SshAlias = "10.0.0.1"; PrivateKey = "" }}
+$parts = New-RemoteSshArguments $owner
+$typeName = $parts.GetType().FullName
+if ($typeName -notlike "System.Collections.Generic.List*") {{
+    Write-Host "expected List return, got $typeName"
+    exit 1
+}}
+[void]$parts.Add("extra-token")
+Write-Host "remote ssh args return regression check: New-RemoteSshArguments returns mutable List"
+""".format(module_root=str(MODULE_ROOT)),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        print(result.stdout.strip())
+        if result.returncode != 0:
+            print(result.stderr.strip())
+            raise AssertionError("remote ssh args return regression check failed")
 
 
 def _run_process_event_bridge_regression_check(pwsh: str) -> None:
