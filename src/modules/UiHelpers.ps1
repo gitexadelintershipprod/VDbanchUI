@@ -575,6 +575,10 @@ function Apply-MainFormResponsiveLayout {
         $summarySize = [Math]::Round(9.0 * $scale, 1)
         $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", $summarySize
     }
+    if ($script:RunResultSummaryBox) {
+        $summarySize = [Math]::Round(9.0 * $scale, 1)
+        $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", $summarySize
+    }
 
     if ($script:MainFormLayout) {
         $headerHeight = [int][Math]::Max(60, [Math]::Round(60 * $scale))
