@@ -2846,6 +2846,7 @@ def main() -> int:
     assert "$script:BackgroundRunspacePool" in ui_helpers_module
     assert "CreateRunspacePool" in ui_helpers_module
     assert "StartupScripts" in ui_helpers_module
+    assert '"TargetCleanup.ps1"' in ui_helpers_module
     assert "$script:BackgroundUiJobs" in ui_helpers_module
     assert "function Initialize-BackgroundUiPollTimer" in ui_helpers_module
     assert "InnerException" in ui_helpers_module
