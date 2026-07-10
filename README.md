@@ -1,143 +1,78 @@
 # Vdbench UI
 
-Portable Windows UI for managing an existing Oracle Vdbench installation.
+Portable Windows UI for managing an existing Oracle Vdbench installation
+(single host or Master/Slave distributed runs on Windows + Linux).
 
-This project is intentionally isolated from other repositories and does not use Docker.
-It is designed for Windows Server 2022 Desktop Experience where Java and Vdbench are
-already installed and working.
+**Documentation language / დოკუმენტაციის ენა:**
 
-## Run
+| Language | Guide |
+|---|---|
+| English | **[User Guide (EN)](docs/en/README.md)** |
+| ქართული | **[მომხმარებლის სახელმძღვანელო (KA)](docs/ka/README.md)** |
 
-On the Windows server, open:
+Each guide is a **separate page** (switch via the links above or the language line at the top of each guide). Screenshots, prerequisites, prepare scripts, and the full tab-by-tab workflow are documented there.
+
+---
+
+## Quick start
+
+1. Prepare the lab with the install kit under `C:\install` (scripts `01`–`04`, JDK, OpenSSH, Vdbench ZIP, Linux RPMs). Details: [EN](docs/en/README.md#2-prerequisites--install-kit) · [KA](docs/ka/README.md#2-წინაპირობები-და-install-ნაკრები).
+2. Run prepare scripts on master / Windows slave / Linux slave.
+3. On the master UI host open:
 
 ```bat
 Launch-VdbenchUI.bat
 ```
 
-The launcher starts PowerShell in STA mode because Windows Forms and Clipboard actions
-need an STA thread.
+4. **Settings** → validate paths → **Slaves** or **Local** → **Profile** → **Preview** → **Run** → **Reports**.
 
-The application stores mutable state under:
+### Prepare scripts (also in repo root)
 
-- `data/settings.json`
-- `profiles/*.json`
-- `runs/*`
-- `logs/*`
+| Script | Role |
+|---|---|
+| `01-Prepare-Vdbench-Master.ps1` | Windows master |
+| `02-Prepare-Vdbench-Windows-Slave.ps1` | Windows slave |
+| `03-Prepare-Vdbench-Linux-Slave-v4.3.sh` | Linux (RHEL 9) slave |
+| `04-Check-Vdbench-Hosts-Readiness.ps1` | Master readiness checks (UI **Readiness** button) |
 
-Settings and selected run folders can be exported from the UI.
+---
 
-### Runtime directories
+## Runtime state
 
-- `data/settings.json`, `data/slaves.json` — mutable app state
-- `data/runs/*.json` — run metadata index (status, paths, summary metrics)
-- `runs/` or configured `ReportsRoot` — actual Vdbench output per run
-- `logs/app.log` — application log
-- `profiles/*.json` — workload profiles
+- `data/settings.json`, `data/slaves.json` — mutable app state  
+- `data/runs/*.json` — run metadata index  
+- `runs/` or configured `ReportsRoot` — Vdbench output per run  
+- `logs/app.log` — application log  
+- `profiles/*.json` — workload profiles  
 
-## Development Validation
+---
 
-On Linux or any machine with Python 3:
+## Development validation
 
 ```bash
 python3 tools/validate_offline.py
 ```
 
-This checks JSON contracts, module layout, golden config fixtures, and renders sample
-configs for raw/filesystem local and distributed modes.
-
-On the Windows target:
+Windows:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Validate-Project.ps1
-```
-
-`Validate-Project.ps1` also runs the main app script in headless `-SelfTest` mode to
-verify raw, distributed, and filesystem config generation without opening the UI.
-
-Pester tests (Windows, optional):
-
-```powershell
-Invoke-Pester -Path .\tests\ConfigGeneration.Tests.ps1
-```
-
-Non-UI smoke test on the Windows target:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Invoke-SmokeTest.ps1
-```
-
-All non-UI Windows gates in one command:
-
-```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Verify-Portable.ps1
 ```
 
-Direct app self-test:
-
-```powershell
-powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -File .\src\VdbenchUI.ps1 -SelfTest
-```
-
-## Portable Package
-
-On Windows:
+Portable ZIP:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Package-Portable.ps1
 ```
 
-The ZIP is written under `dist\` and excludes runtime state such as `data`, `runs`,
-`reports`, and `logs`.
+---
 
-## First Workflow
+## More
 
-1. Open `Settings / Paths`.
-2. Confirm `VdbenchRoot`, `MasterVdbenchBat`, `ReportsRoot`, SSH paths, and readiness checker.
-3. Open `Master / Slave`.
-4. For single local runs, open `Local Host`, select one or more targets with the
-   `Use` checkbox, and optionally enable `Create/overwrite file` for a test-file
-   target.
-5. For master/slave runs, open `Master / Slave`, add hosts, run ping/readiness
-   checks, then use `Pick target` to select one or more targets per enabled host.
-6. Open `Profile Builder`.
-7. Create or edit a profile and use the `?` buttons for parameter help. Target
-   paths are selected from `Local Host` or `Master / Slave`, not from the profile
-   parameter list.
-8. Disable optional parameters by clearing the `Enabled` checkbox. Disabled values are preserved and rendered as comments in the generated config.
-9. Review `Config Preview`.
-10. Use `Run Monitor` -> `Config only` to create a `.parm` and run folder without starting Vdbench.
-11. Start the real run from `Run Monitor` -> `Start`.
+- [Master / Slave model](docs/MASTER_SLAVE_MODEL.md)
+- [Project plan](docs/PROJECT_PLAN.md)
+- [Tools](tools/README.md)
+- [Profiles](profiles/README.md)
 
-## Safe Smoke Test
-
-Before running against real disks, you can test the UI flow with the bundled fake runner:
-
-1. Open `Settings / Paths`.
-2. Click `Use fake runner`.
-3. Save settings.
-4. Start a run from `Run Monitor`.
-
-This exercises config generation, process launch, live log streaming, chart parsing, and
-report history without touching storage targets. Restore `Master vdbench.bat` to the real
-`C:\vdbench\vdbench.bat` before production tests.
-
-## Notes
-
-- The UI does not install Java, SSH, or Vdbench.
-- The UI does not download or bundle Oracle Vdbench.
-- Raw disk and destructive tests are exposed, but the generated config preview and run log are always visible before execution.
-- Raw physical-device targets and filesystem format/root-target cases are flagged as `RISK` warnings in the generated config preview.
-- Target discovery uses Windows CIM locally and SSH for remote slaves. Manual target
-  entry remains available when discovery is not appropriate.
-- Settings can be imported/exported from `Settings / Paths`.
-- Selected reports can be exported as ZIP bundles from `Status / Reports`.
-
-## Windows production smoke checklist
-
-Manual checks on a real Windows Server with Vdbench installed (not automated here):
-
-1. First launch from a portable unzip: run `Launch-VdbenchUI.bat`, confirm Settings paths look sane, Save settings.
-2. Readiness window: on Master / Slave, click **Readiness** on a row; confirm a separate PowerShell window opens, shows checker output, and stays open until Enter.
-3. SSH browse: with a reachable slave (Host/IP + User), click **Browse** and confirm disks/filesystems list without shell-quoting errors.
-4. Config only: on Run Monitor, click **Config only**; confirm a run folder and `.parm` appear without starting Vdbench.
-5. Chart: start a short fake-runner or real run and confirm the Run Monitor chart (or fallback message) updates while stdout streams.
+This project does not use Docker. The UI does not install or download Oracle Vdbench; supply `vdbench50407.zip` yourself.
