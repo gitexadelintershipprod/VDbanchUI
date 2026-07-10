@@ -819,35 +819,24 @@ function Resize-RunTabSummaryArea {
     if ($null -eq $script:RunTabLayout) {
         return
     }
-    $boxes = @()
+    $configHeight = 52
     if ($null -ne $script:RunSummaryBox) {
-        $boxes += $script:RunSummaryBox
-    }
-    if ($null -ne $script:RunResultSummaryBox) {
-        $boxes += $script:RunResultSummaryBox
-    }
-    if ($boxes.Count -eq 0) {
-        return
-    }
-    $maxContentHeight = 52
-    foreach ($box in $boxes) {
-        $text = [string]$box.Text
+        $text = [string]$script:RunSummaryBox.Text
         if ([string]::IsNullOrWhiteSpace($text)) {
             $text = " "
         }
-        $font = $box.Font
-        $width = $box.ClientSize.Width
+        $font = $script:RunSummaryBox.Font
+        $width = $script:RunSummaryBox.ClientSize.Width
         if ($width -lt 160) {
-            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) * 0.80))
+            $width = [Math]::Max(160, [int](($script:RunTabLayout.ClientSize.Width - 48) * 0.20))
         }
         $lineCount = @(($text -split "`r?`n")).Count
         if ($lineCount -lt 1) {
             $lineCount = 1
         }
-        # Prefer line-count sizing for monospace tables (WordWrap off on results).
         $lineHeight = [Math]::Max(12, [int][Math]::Ceiling($font.GetHeight()))
-        $contentHeight = ($lineCount * $lineHeight) + 16
-        if ([bool]$box.WordWrap) {
+        $configHeight = ($lineCount * $lineHeight) + 16
+        if ([bool]$script:RunSummaryBox.WordWrap) {
             $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::TextBoxControl
             $measured = [System.Windows.Forms.TextRenderer]::MeasureText(
                 $text,
@@ -855,33 +844,57 @@ function Resize-RunTabSummaryArea {
                 (New-Object System.Drawing.Size($width, [int]::MaxValue)),
                 $flags
             )
-            $contentHeight = [Math]::Max($contentHeight, $measured.Height + 16)
+            $configHeight = [Math]::Max($configHeight, $measured.Height + 16)
         }
-        $contentHeight = [Math]::Max($contentHeight, 52)
-        if ($contentHeight -gt $maxContentHeight) {
-            $maxContentHeight = $contentHeight
-        }
+        $configHeight = [Math]::Max($configHeight, 52)
     }
-    $rowHeight = 22 + 12 + $maxContentHeight + 16
-    # Grow with host count so the compact results table stays visible without scrolling.
-    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 170), 420)
-    $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
+
+    $resultsHeight = 120
+    $hostPanel = $script:RunResultSummaryHost
+    if ($null -eq $hostPanel) {
+        $hostPanel = $script:RunResultSummaryBox
+    }
+    if ($null -ne $hostPanel -and $hostPanel -is [System.Windows.Forms.Panel]) {
+        $resultsHeight = Get-RunResultSummaryContentHeight $hostPanel
+    } elseif ($null -ne $hostPanel -and $hostPanel -is [System.Windows.Forms.TextBox]) {
+        $text = [string]$hostPanel.Text
+        if ([string]::IsNullOrWhiteSpace($text)) { $text = " " }
+        $lineCount = @(($text -split "`r?`n")).Count
+        $lineHeight = [Math]::Max(12, [int][Math]::Ceiling($hostPanel.Font.GetHeight()))
+        $resultsHeight = [Math]::Max(52, ($lineCount * $lineHeight) + 16)
+    }
+
+    $contentHeight = [Math]::Max($configHeight, $resultsHeight)
+    $rowHeight = 22 + 12 + $contentHeight + 16
+    # Grow with host cards so Excel-like sections stay visible; scroll inside host if taller.
+    $rowHeight = [Math]::Min([Math]::Max($rowHeight, 200), 480)
+    if ($script:RunTabLayout.RowStyles.Count -gt 1) {
+        $script:RunTabLayout.RowStyles[1].Height = [single]$rowHeight
+    }
 }
 
 function Update-RunResultSummaryPanel {
-    if ($null -eq $script:RunResultSummaryBox) {
+    $hostPanel = $script:RunResultSummaryHost
+    if ($null -eq $hostPanel) {
+        $hostPanel = $script:RunResultSummaryBox
+    }
+    if ($null -eq $hostPanel) {
         return
     }
     if ($null -eq $script:RunResultSummary) {
         $script:RunResultSummary = New-EmptyRunResultSummary
     }
-    $script:RunResultSummaryBox.Text = Format-RunResultSummaryText $script:RunResultSummary
-    if ([bool](Get-PropertyValue $script:RunResultSummary "Success" $false)) {
-        $script:RunResultSummaryBox.ForeColor = [System.Drawing.Color]::DarkGreen
-    } elseif ([string](Get-PropertyValue $script:RunResultSummary "Status" "") -eq "Failed") {
-        $script:RunResultSummaryBox.ForeColor = [System.Drawing.Color]::Firebrick
-    } else {
-        $script:RunResultSummaryBox.ForeColor = [System.Drawing.SystemColors]::ControlText
+    if ($hostPanel -is [System.Windows.Forms.Panel]) {
+        Update-RunResultSummaryCards -HostPanel $hostPanel -Summary $script:RunResultSummary
+    } elseif ($hostPanel -is [System.Windows.Forms.TextBox]) {
+        $hostPanel.Text = Format-RunResultSummaryText $script:RunResultSummary
+        if ([bool](Get-PropertyValue $script:RunResultSummary "Success" $false)) {
+            $hostPanel.ForeColor = [System.Drawing.Color]::DarkGreen
+        } elseif ([string](Get-PropertyValue $script:RunResultSummary "Status" "") -eq "Failed") {
+            $hostPanel.ForeColor = [System.Drawing.Color]::Firebrick
+        } else {
+            $hostPanel.ForeColor = [System.Drawing.SystemColors]::ControlText
+        }
     }
     Resize-RunTabSummaryArea
 }

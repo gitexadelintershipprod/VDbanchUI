@@ -575,7 +575,9 @@ function Apply-MainFormResponsiveLayout {
         $summarySize = [Math]::Round(9.0 * $scale, 1)
         $script:RunSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", $summarySize
     }
-    if ($script:RunResultSummaryBox) {
+    if ($script:RunResultSummaryHost -and $null -ne $script:RunResultSummary) {
+        Update-RunResultSummaryPanel
+    } elseif ($script:RunResultSummaryBox -is [System.Windows.Forms.TextBox]) {
         $summarySize = [Math]::Round(9.0 * $scale, 1)
         $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", $summarySize
     }
@@ -1257,5 +1259,315 @@ function Start-BackgroundUiWork {
         OnComplete = $OnComplete
         OnCompleteCommandName = $OnCompleteCommandName
         Context = $Context
+    }
+}
+
+function Format-ResultMetricDisplayValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return "-"
+    }
+    return $Value.Trim()
+}
+
+function New-ResultMetricCell {
+    param(
+        [string]$Header,
+        [string]$Value,
+        [int]$MinWidth = 88,
+        [int]$Height = 48
+    )
+    $scale = Get-UiScaleFactor
+    $width = [int][Math]::Max($MinWidth, [Math]::Round($MinWidth * $scale))
+    $cellHeight = [int][Math]::Max($Height, [Math]::Round($Height * $scale))
+    $headerHeight = [int][Math]::Max(18, [Math]::Round(18 * $scale))
+
+    $cell = New-Object System.Windows.Forms.TableLayoutPanel
+    $cell.Width = $width
+    $cell.Height = $cellHeight
+    $cell.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $cell.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $cell.ColumnCount = 1
+    $cell.RowCount = 2
+    $cell.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $cell.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), [single]$headerHeight)) | Out-Null
+    $cell.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
+    $cell.CellBorderStyle = [System.Windows.Forms.TableLayoutPanelCellBorderStyle]::Single
+    $cell.BackColor = [System.Drawing.Color]::White
+
+    $headerLabel = New-Object System.Windows.Forms.Label
+    $headerLabel.Text = $Header
+    $headerLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $headerLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $headerLabel.ForeColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
+    $headerLabel.BackColor = [System.Drawing.Color]::FromArgb(232, 232, 232)
+    $headerLabel.Font = Get-ScaledUiFont -SizeBump -1.0 -Style ([System.Drawing.FontStyle]::Bold)
+    $headerLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $headerLabel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 2, 0
+
+    $valueLabel = New-Object System.Windows.Forms.Label
+    $valueLabel.Text = (Format-ResultMetricDisplayValue $Value)
+    $valueLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $valueLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $valueLabel.ForeColor = [System.Drawing.Color]::FromArgb(20, 20, 20)
+    $valueLabel.BackColor = [System.Drawing.Color]::White
+    $valueLabel.Font = Get-ScaledUiFont -SizeBump 0.5 -Style ([System.Drawing.FontStyle]::Bold)
+    $valueLabel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $valueLabel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 2, 0
+    $valueLabel.AutoEllipsis = $true
+
+    $cell.Controls.Add($headerLabel, 0, 0)
+    $cell.Controls.Add($valueLabel, 0, 1)
+    return $cell
+}
+
+function New-ResultSectionCard {
+    param(
+        [string]$Title,
+        [object[]]$Metrics,
+        [string]$Accent = "workload"
+    )
+    switch ($Accent.ToLowerInvariant()) {
+        "format" {
+            $titleBackColor = [System.Drawing.Color]::FromArgb(112, 128, 144)
+            $titleForeColor = [System.Drawing.Color]::White
+        }
+        "host" {
+            $titleBackColor = [System.Drawing.Color]::FromArgb(90, 140, 90)
+            $titleForeColor = [System.Drawing.Color]::White
+        }
+        default {
+            $titleBackColor = [System.Drawing.Color]::FromArgb(68, 114, 196)
+            $titleForeColor = [System.Drawing.Color]::White
+        }
+    }
+    $scale = Get-UiScaleFactor
+    $titleHeight = [int][Math]::Max(24, [Math]::Round(24 * $scale))
+    $cellHeight = [int][Math]::Max(48, [Math]::Round(48 * $scale))
+    $gap = [int][Math]::Round(8 * $scale)
+
+    $card = New-Object System.Windows.Forms.Panel
+    $card.Dock = [System.Windows.Forms.DockStyle]::Top
+    $card.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, $gap
+    $card.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $card.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $card.BackColor = [System.Drawing.Color]::White
+
+    $titleBar = New-Object System.Windows.Forms.Label
+    $titleBar.Text = $Title
+    $titleBar.Dock = [System.Windows.Forms.DockStyle]::Top
+    $titleBar.Height = $titleHeight
+    $titleBar.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $titleBar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList ([int][Math]::Round(8 * $scale)), 0, 0, 0
+    $titleBar.BackColor = $titleBackColor
+    $titleBar.ForeColor = $titleForeColor
+    $titleBar.Font = Get-ScaledUiFont -SizeBump 0.5 -Style ([System.Drawing.FontStyle]::Bold)
+
+    $metricsFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $metricsFlow.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $metricsFlow.WrapContents = $true
+    $metricsFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+    $metricsFlow.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $metricsFlow.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $metricsFlow.BackColor = [System.Drawing.Color]::White
+
+    $metricCount = 0
+    foreach ($metric in @($Metrics)) {
+        if ($null -eq $metric) { continue }
+        $header = [string](Get-PropertyValue $metric "Header" "")
+        $value = [string](Get-PropertyValue $metric "Value" "")
+        $minWidth = [int](Get-PropertyValue $metric "MinWidth" 88)
+        $cell = New-ResultMetricCell -Header $header -Value $value -MinWidth $minWidth -Height $cellHeight
+        $metricsFlow.Controls.Add($cell) | Out-Null
+        $metricCount++
+    }
+    if ($metricCount -lt 1) {
+        $metricCount = 1
+    }
+
+    # Prefer one row of cells; wrap only when the host is narrow.
+    $card.Height = $titleHeight + $cellHeight + 2
+    $card.Controls.Add($metricsFlow) | Out-Null
+    $card.Controls.Add($titleBar) | Out-Null
+    return $card
+}
+
+function New-ResultStatusStrip {
+    param(
+        [string]$Text,
+        [System.Drawing.Color]$ForeColor
+    )
+    $scale = Get-UiScaleFactor
+    $strip = New-Object System.Windows.Forms.Label
+    $strip.Text = $Text
+    $strip.Dock = [System.Windows.Forms.DockStyle]::Top
+    $strip.AutoSize = $false
+    $strip.Height = [int][Math]::Max(26, [Math]::Round(26 * $scale))
+    $strip.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $strip.Padding = New-Object System.Windows.Forms.Padding -ArgumentList ([int][Math]::Round(8 * $scale)), 0, 0, 0
+    $strip.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, ([int][Math]::Round(8 * $scale))
+    $strip.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $strip.BackColor = [System.Drawing.Color]::FromArgb(242, 242, 242)
+    $strip.ForeColor = $ForeColor
+    $strip.Font = Get-ScaledUiFont -Style ([System.Drawing.FontStyle]::Bold)
+    $strip.AutoEllipsis = $true
+    return $strip
+}
+
+function Get-RunResultSummaryContentHeight {
+    param([System.Windows.Forms.Control]$HostPanel)
+    if ($null -eq $HostPanel) {
+        return 120
+    }
+    $inner = $null
+    foreach ($child in @($HostPanel.Controls)) {
+        if ([string]$child.Name -eq "RunResultSummaryInner") {
+            $inner = $child
+            break
+        }
+    }
+    if ($null -eq $inner) {
+        return [Math]::Max(120, $HostPanel.Height)
+    }
+    $total = 8
+    foreach ($card in @($inner.Controls)) {
+        $total += [int]$card.Height
+        if ($card.Margin) {
+            $total += [int]$card.Margin.Top + [int]$card.Margin.Bottom
+        }
+    }
+    return [Math]::Max(120, $total + 12)
+}
+
+function Update-RunResultSummaryCards {
+    param(
+        [System.Windows.Forms.Panel]$HostPanel,
+        $Summary
+    )
+    if ($null -eq $HostPanel) {
+        return
+    }
+    $HostPanel.SuspendLayout()
+    try {
+        $HostPanel.Controls.Clear()
+        $scale = Get-UiScaleFactor $HostPanel
+        $inner = New-Object System.Windows.Forms.Panel
+        $inner.Name = "RunResultSummaryInner"
+        $inner.Dock = [System.Windows.Forms.DockStyle]::Top
+        $inner.AutoSize = $true
+        $inner.AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
+        $inner.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
+        $inner.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
+
+        if ($null -eq $Summary) {
+            $Summary = New-EmptyRunResultSummary
+        }
+
+        $status = [string](Get-PropertyValue $Summary "Status" "")
+        if ([string]::IsNullOrWhiteSpace($status)) {
+            if ([bool](Get-PropertyValue $Summary "HasData" $false)) {
+                $status = "Running"
+            } else {
+                $status = "Idle"
+            }
+        }
+        $completed = [string](Get-PropertyValue $Summary "CompletedMessage" "")
+        $statusText = if ([string]::IsNullOrWhiteSpace($completed)) {
+            ("Status: {0}" -f $status)
+        } else {
+            ("Status: {0}  |  {1}" -f $status, $completed)
+        }
+        $statusColor = [System.Drawing.SystemColors]::ControlText
+        if ([bool](Get-PropertyValue $Summary "Success" $false)) {
+            $statusColor = [System.Drawing.Color]::DarkGreen
+        } elseif ($status -eq "Failed") {
+            $statusColor = [System.Drawing.Color]::Firebrick
+        }
+
+        $cards = New-Object System.Collections.Generic.List[System.Windows.Forms.Control]
+        [void]$cards.Add((New-ResultStatusStrip -Text $statusText -ForeColor $statusColor))
+
+        $workloadMetrics = @(
+            @{ Header = "Time"; Value = (Get-PropertyValue $Summary "WorkloadDuration" ""); MinWidth = 90 },
+            @{ Header = "Avg IOPS"; Value = (Get-PropertyValue $Summary "WorkloadAvgIops" ""); MinWidth = 96 },
+            @{ Header = "Max IOPS"; Value = (Get-PropertyValue $Summary "WorkloadMaxIops" ""); MinWidth = 96 },
+            @{ Header = "MB/s"; Value = (Get-PropertyValue $Summary "WorkloadAvgMbps" ""); MinWidth = 88 },
+            @{ Header = "Lat ms"; Value = (Get-PropertyValue $Summary "WorkloadAvgLatency" ""); MinWidth = 88 },
+            @{ Header = "Read %"; Value = (Get-PropertyValue $Summary "WorkloadReadPct" ""); MinWidth = 80 },
+            @{ Header = "Anchors"; Value = ([string](Get-PropertyValue $Summary "AnchorCount" 0)); MinWidth = 80 }
+        )
+        [void]$cards.Add((New-ResultSectionCard -Title "WORKLOAD" -Metrics $workloadMetrics -Accent "workload"))
+
+        $formatMetrics = @(
+            @{ Header = "Time"; Value = (Get-PropertyValue $Summary "FormatDuration" ""); MinWidth = 90 },
+            @{ Header = "Avg MB/s"; Value = (Get-PropertyValue $Summary "FormatAvgMbps" ""); MinWidth = 96 },
+            @{ Header = "Max IOPS"; Value = (Get-PropertyValue $Summary "FormatMaxIops" ""); MinWidth = 96 },
+            @{ Header = "Avg IOPS"; Value = (Get-PropertyValue $Summary "FormatAvgIops" ""); MinWidth = 96 },
+            @{ Header = "Lat ms"; Value = (Get-PropertyValue $Summary "FormatAvgLatency" ""); MinWidth = 88 }
+        )
+        [void]$cards.Add((New-ResultSectionCard -Title "FORMAT" -Metrics $formatMetrics -Accent "format"))
+
+        $slaveMap = Get-PropertyValue $Summary "Slaves" @{}
+        $slaveNames = @()
+        if ($null -ne $slaveMap -and @($slaveMap.Keys).Count -gt 0) {
+            $slaveNames = @($slaveMap.Keys | Sort-Object)
+        }
+        if ($slaveNames.Count -eq 0) {
+            $emptyHostMetrics = @(
+                @{ Header = "Host"; Value = "(no hosts yet)"; MinWidth = 140 },
+                @{ Header = "IP"; Value = ""; MinWidth = 120 },
+                @{ Header = "Anchor"; Value = ""; MinWidth = 140 }
+            )
+            [void]$cards.Add((New-ResultSectionCard -Title "HOST" -Metrics $emptyHostMetrics -Accent "host"))
+        } else {
+            foreach ($name in $slaveNames) {
+                $slave = $slaveMap[$name]
+                $hostTitle = ("HOST  {0}" -f (Format-ResultMetricDisplayValue ([string](Get-PropertyValue $slave "Name" $name))))
+                $hostMetrics = @(
+                    @{ Header = "IP"; Value = (Get-PropertyValue $slave "Host" ""); MinWidth = 120 },
+                    @{ Header = "Anchor"; Value = (Get-PropertyValue $slave "Anchor" ""); MinWidth = 140 },
+                    @{ Header = "Avg IOPS"; Value = (Get-PropertyValue $slave "AvgIops" ""); MinWidth = 96 },
+                    @{ Header = "Max IOPS"; Value = (Get-PropertyValue $slave "MaxIops" ""); MinWidth = 96 },
+                    @{ Header = "MB/s"; Value = (Get-PropertyValue $slave "AvgMbps" ""); MinWidth = 88 },
+                    @{ Header = "Lat ms"; Value = (Get-PropertyValue $slave "AvgLatency" ""); MinWidth = 88 },
+                    @{ Header = "Read %"; Value = (Get-PropertyValue $slave "ReadPct" ""); MinWidth = 80 }
+                )
+                [void]$cards.Add((New-ResultSectionCard -Title $hostTitle -Metrics $hostMetrics -Accent "host"))
+            }
+        }
+
+        if (-not [bool](Get-PropertyValue $Summary "HasData" $false)) {
+            $hint = New-Object System.Windows.Forms.Label
+            $hint.Text = "Start a run to fill results."
+            $hint.Dock = [System.Windows.Forms.DockStyle]::Top
+            $hint.Height = [int][Math]::Max(22, [Math]::Round(22 * $scale))
+            $hint.ForeColor = [System.Drawing.Color]::DimGray
+            $hint.Font = Get-ScaledUiFont
+            $hint.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+            $hint.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 0, 0
+            [void]$cards.Add($hint)
+        }
+
+        # Add bottom-up so Dock Top stacks in visual top-to-bottom order.
+        # Insert thin spacers (Dock ignores Margin on children).
+        $scale = Get-UiScaleFactor $HostPanel
+        $spacerH = [int][Math]::Max(6, [Math]::Round(6 * $scale))
+        $renderList = New-Object System.Collections.Generic.List[System.Windows.Forms.Control]
+        for ($i = 0; $i -lt $cards.Count; $i++) {
+            [void]$renderList.Add($cards[$i])
+            if ($i -lt ($cards.Count - 1)) {
+                $spacer = New-Object System.Windows.Forms.Panel
+                $spacer.Dock = [System.Windows.Forms.DockStyle]::Top
+                $spacer.Height = $spacerH
+                $spacer.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
+                [void]$renderList.Add($spacer)
+            }
+        }
+        for ($i = $renderList.Count - 1; $i -ge 0; $i--) {
+            $inner.Controls.Add($renderList[$i]) | Out-Null
+        }
+        $HostPanel.Controls.Add($inner) | Out-Null
+    } finally {
+        $HostPanel.ResumeLayout($true)
     }
 }
