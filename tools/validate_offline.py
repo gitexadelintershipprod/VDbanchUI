@@ -738,7 +738,90 @@ Invoke-AppSelfTest
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
     _run_add_slave_dialog_scale_leak_regression_check(pwsh)
+    _run_chart_point_order_regression_check(pwsh)
     return True
+
+
+def _run_chart_point_order_regression_check(pwsh: str) -> None:
+    """Run chart must not backtrack on X — that draws a diagonal end artifact.
+
+    Real bug (2026-07-10): appending an out-of-order / zero-interval point after
+    normal samples made the Latency series draw a stray diagonal from mid-chart
+    back to the final point. Resolve-RunChartPointAction enforces monotonic X
+    (Add / Replace / Skip). Finalize-RunChart must exist for end markers/axis fit.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-chart-order-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-chart-order-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+. (Join-Path $script:ModuleRoot "Runner.ps1")
+
+$cases = @(
+    [pscustomobject]@{{ NewX = 0; LastX = 10; HasPoints = $true; Expect = "Skip" }},
+    [pscustomobject]@{{ NewX = -1; LastX = 10; HasPoints = $true; Expect = "Skip" }},
+    [pscustomobject]@{{ NewX = 1; LastX = [double]::NaN; HasPoints = $false; Expect = "Add" }},
+    [pscustomobject]@{{ NewX = 5; LastX = 4; HasPoints = $true; Expect = "Add" }},
+    [pscustomobject]@{{ NewX = 16; LastX = 33; HasPoints = $true; Expect = "Skip" }},
+    [pscustomobject]@{{ NewX = 33; LastX = 33; HasPoints = $true; Expect = "Replace" }}
+)
+$results = New-Object System.Collections.Generic.List[object]
+foreach ($c in $cases) {{
+    $got = Resolve-RunChartPointAction -NewX $c.NewX -LastX $c.LastX -HasPoints:$($c.HasPoints)
+    if ($got -ne $c.Expect) {{
+        throw ("Resolve-RunChartPointAction NewX={{0}} LastX={{1}} got {{2}} expected {{3}}" -f $c.NewX, $c.LastX, $got, $c.Expect)
+    }}
+    [void]$results.Add([pscustomobject]@{{ NewX = $c.NewX; Got = $got; Expect = $c.Expect }})
+}}
+
+$runner = Get-Content -LiteralPath (Join-Path $script:ModuleRoot "Runner.ps1") -Raw
+if ($runner -notmatch 'function Finalize-RunChart') {{
+    throw "Finalize-RunChart missing"
+}}
+if ($runner -notmatch 'Finalize-RunChart') {{
+    throw "Finalize-RunChart must be called on run completion"
+}}
+if ($runner -match 'RunMetricIndex\\+\\+') {{
+    throw "Add-MetricPointFromLine must not invent X via RunMetricIndex++ for Interval<=0"
+}}
+
+[pscustomobject]@{{
+    CaseCount = $results.Count
+    BacktrackSkipped = [bool](($results | Where-Object {{ $_.NewX -eq 16 -and $_.Got -eq "Skip" }}).Count -gt 0)
+    SameXReplaced = [bool](($results | Where-Object {{ $_.NewX -eq 33 -and $_.Got -eq "Replace" }}).Count -gt 0)
+}} | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("chart point-order regression harness failed to run")
+
+        parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
+        assert parsed.get("CaseCount") == 6, parsed
+        assert parsed.get("BacktrackSkipped") is True, parsed
+        assert parsed.get("SameXReplaced") is True, parsed
+        print(
+            "chart point-order regression check: "
+            "monotonic X Add/Replace/Skip verified; Finalize-RunChart present; "
+            "no Interval<=0 counter fallback"
+        )
 
 
 def _run_add_slave_dialog_scale_leak_regression_check(pwsh: str) -> None:
@@ -2934,7 +3017,15 @@ def main() -> int:
     assert "Show-ConfigPreviewConfirmation" not in runner_module
     assert "Risk confirmation" not in runner_module
     assert "function New-ConfigOnlyRun" in runner_module
-    assert "function Stop-ProcessTree" in (MODULE_ROOT / "ProcessRunner.ps1").read_text(encoding="utf-8")
+    assert "function Resolve-RunChartPointAction" in runner_module
+    assert "function Finalize-RunChart" in runner_module
+    assert "Finalize-RunChart" in runner_module
+    assert "Set-RunChartSeriesPoint" in runner_module
+    assert "RunMetricIndex++" not in runner_module, (
+        "Add-MetricPointFromLine must not invent chart X via RunMetricIndex++ "
+        "(caused end-of-run diagonal artifacts)"
+    )
+    assert "Stop-ProcessTree" in (MODULE_ROOT / "ProcessRunner.ps1").read_text(encoding="utf-8")
     assert "Stop-ProcessTree -Process" in runner_module
     assert "capturedRunId" in runner_module
     assert "Config warnings" not in runner_module
