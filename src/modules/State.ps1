@@ -370,14 +370,64 @@ function Notify-ProfileTargetContextChanged {
     }
 }
 
+function Clear-ProfileEditSource {
+    $script:ProfileEditSourceName = ""
+    Update-ProfileEditUiHints
+}
+
+function Get-ProfileEditSourceName {
+    return [string]$script:ProfileEditSourceName
+}
+
+function Test-EditingSavedProfile {
+    return -not [string]::IsNullOrWhiteSpace([string]$script:ProfileEditSourceName)
+}
+
 function Initialize-NewDraftProfile {
     if ($script:ProfileEditorLocked) {
         Write-DebugLog "Initialize-NewDraftProfile skipped because profile editor is locked"
         return
     }
+    $script:ProfileEditSourceName = ""
     $script:CurrentProfile = New-DefaultProfile "New-Profile"
     if ($script:ProfileNameBox) {
-        Refresh-ProfileEditor
+        Refresh-ProfileEditor -SkipCapture -ChangeSource "new-draft-profile"
+    }
+    Update-ProfileEditUiHints
+}
+
+function Get-ProfileCopyForEditing {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $null
+    }
+    $loaded = Load-ProfileByName $Name
+    if ($null -eq $loaded) {
+        return $null
+    }
+    # Deep copy so Profile Builder edits never mutate the Run tab's loaded object.
+    return (Copy-ObjectJson $loaded)
+}
+
+function Edit-SelectedProfile {
+    $name = Get-SelectedLibraryProfileName
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        Show-Warning "Select a run profile to edit."
+        return
+    }
+    $copy = Get-ProfileCopyForEditing $name
+    if ($null -eq $copy) {
+        Show-Warning ("Profile file not found for '{0}'." -f $name)
+        return
+    }
+    $script:CurrentProfile = $copy
+    $script:ProfileEditSourceName = $name
+    if ($script:ProfileNameBox) {
+        Refresh-ProfileEditor -SkipCapture -ChangeSource "edit-selected-profile"
+    }
+    Update-ProfileEditUiHints
+    if (Get-Command Select-MainTab -ErrorAction SilentlyContinue) {
+        Select-MainTab "Profile Builder"
     }
 }
 
@@ -1060,14 +1110,35 @@ function Save-CurrentProfile {
         Show-Warning "Enter a profile name before saving."
         return
     }
+    $editSource = [string]$script:ProfileEditSourceName
+    $wasEditing = -not [string]::IsNullOrWhiteSpace($editSource)
     $script:CurrentProfile.UpdatedAt = (Get-Date).ToString("o")
     Write-JsonFile (Get-ProfilePath $savedName) $script:CurrentProfile
+
+    # Renamed while editing a saved profile: offer to remove the old file.
+    if ($wasEditing -and ($editSource -ne $savedName)) {
+        $oldPath = Get-ProfilePath $editSource
+        if (Test-Path -LiteralPath $oldPath) {
+            $prompt = ("Profile was renamed from '{0}' to '{1}'. Delete the old file '{0}.json'?" -f $editSource, $savedName)
+            if (Ask-YesNo $prompt "Rename profile") {
+                Remove-Item -LiteralPath $oldPath -Force
+            }
+        }
+    }
+
     Refresh-RunProfileList
     if ($script:RunProfileSelector) {
         $script:RunProfileSelector.Text = $savedName
         Sync-RunProfileFromSelector
     }
-    Initialize-NewDraftProfile
+
+    if ($wasEditing) {
+        # Stay on the saved profile in the editor so further tweaks overwrite the same file.
+        $script:ProfileEditSourceName = $savedName
+        Update-ProfileEditUiHints
+    } else {
+        Initialize-NewDraftProfile
+    }
 }
 
 function Open-ProfileFolder {

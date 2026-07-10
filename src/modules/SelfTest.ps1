@@ -321,6 +321,34 @@ Total 2232.7 69.77 32768 69.9 0.862 0.950 0.750 3.2 0.85 2.0
         Assert-SelfTestContains $psiBat.Arguments "/d /c" "bat runner cmd switch"
         Assert-SelfTestContains $psiBat.Arguments "`"C:\Program Files\vdbench\vdbench.bat`"" "bat runner quoted executable"
 
+        # Edit-from-Run: load a disk copy so mutating the editor profile cannot touch RunProfile.
+        $editSourceProfile = New-DefaultProfile "EditSource-Profile"
+        Set-ProfileParamValue $editSourceProfile "workload.rdpct" "70"
+        Ensure-ProfileCatalogKeys $editSourceProfile
+        Write-JsonFile (Get-ProfilePath "EditSource-Profile") $editSourceProfile
+        $script:RunProfile = Load-ProfileByName "EditSource-Profile"
+        $runRdpctBefore = [string](Get-ProfileParamValue $script:RunProfile "workload.rdpct")
+        $editorCopy = Get-ProfileCopyForEditing "EditSource-Profile"
+        if ($null -eq $editorCopy) {
+            throw "Self-test failed: Get-ProfileCopyForEditing returned null"
+        }
+        Assert-SelfTestEquals $editorCopy.Name "EditSource-Profile" "edit copy profile name"
+        Set-ProfileParamValue $editorCopy "workload.rdpct" "42"
+        $runRdpctAfter = [string](Get-ProfileParamValue $script:RunProfile "workload.rdpct")
+        Assert-SelfTestEquals $runRdpctAfter $runRdpctBefore "edit copy must not mutate RunProfile"
+        Assert-SelfTestEquals (Get-ProfileParamValue $editorCopy "workload.rdpct") "42" "edit copy mutation applied"
+        $script:CurrentProfile = $editorCopy
+        $script:ProfileEditSourceName = "EditSource-Profile"
+        $script:ProfileEditorLocked = $false
+        # Headless overwrite path: write CurrentProfile back to the same file name.
+        Ensure-ProfileCatalogKeys $script:CurrentProfile
+        Sync-CommonProfileParameters $script:CurrentProfile
+        $script:CurrentProfile.UpdatedAt = (Get-Date).ToString("o")
+        Write-JsonFile (Get-ProfilePath ([string]$script:CurrentProfile.Name)) $script:CurrentProfile
+        $reloaded = Load-ProfileByName "EditSource-Profile"
+        Assert-SelfTestEquals (Get-ProfileParamValue $reloaded "workload.rdpct") "42" "save overwrite same profile file"
+        $script:ProfileEditSourceName = ""
+
         Write-Host "VdbenchUI self-test OK."
     } finally {
         Restore-SelfTestPaths $savedPaths

@@ -32,6 +32,7 @@ $script:LocalHostTargets = @()
 $script:Catalog = @()
 $script:CurrentProfile = $null
 $script:RunProfile = $null
+$script:ProfileEditSourceName = ""
 $script:ParameterControls = @{}
 $script:SettingsControls = @{}
 $script:RefreshingProfileEditor = $false
@@ -107,6 +108,7 @@ $script:ProfileNewButton = $null
 $script:ProfileSaveButton = $null
 $script:ProcessEventBridgeReady = $false
 $script:ProfileEditorBanner = $null
+$script:ProfileToolbarNote = $null
 $script:PendingListViewBulkSync = $null
 
 $script:ModuleRoot = Join-Path (Split-Path -Parent $PSCommandPath) "modules"

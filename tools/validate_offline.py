@@ -644,6 +644,7 @@ $script:LocalHostTargets = @()
 $script:Catalog = @()
 $script:CurrentProfile = $null
 $script:RunProfile = $null
+$script:ProfileEditSourceName = ""
 $script:ParameterControls = @{{}}
 $script:SettingsControls = @{{}}
 $script:RefreshingProfileEditor = $false
@@ -704,6 +705,7 @@ $script:ProfileEditorLastTestKind = ""
 $script:ProfileNewButton = $null
 $script:ProfileSaveButton = $null
 $script:ProfileEditorBanner = $null
+$script:ProfileToolbarNote = $null
 $script:ModuleRoot = "{module_root}"
 foreach ($m in @("Core.ps1","Metrics.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","UiSlaveGrid.ps1","UiTabs.ps1","ConfigGeneration.ps1","Runner.ps1","TargetCleanup.ps1","SelfTest.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
@@ -3067,6 +3069,11 @@ def main() -> int:
     )
     assert "iorate) is fixed at max" in ui_tabs_module
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
+    assert '"Edit"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8"), "Run tab must expose Edit for selected profile"
+    assert "function Edit-SelectedProfile" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Get-ProfileCopyForEditing" in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "ProfileEditSourceName" in (ROOT / "src" / "VdbenchUI.ps1").read_text(encoding="utf-8")
+    assert "SkipCapture" in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8"), "Refresh-ProfileEditor must support SkipCapture for Edit/New load"
     assert "Require preview confirmation before run" not in ui_tabs_module
     assert 'Key = "InstallRoot"' not in ui_tabs_module, "InstallRoot reference field removed from Settings UI"
     assert 'Key = "ManagerRoot"' not in ui_tabs_module, "ManagerRoot reference field removed from Settings UI"
