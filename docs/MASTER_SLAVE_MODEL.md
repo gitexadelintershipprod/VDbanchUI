@@ -5,8 +5,8 @@ The UI separates profile parameters, host/target inventory, and run orchestratio
 ## Run Mode
 
 - **Run mode** (`Single local run` vs `Master/Slave distributed run`) is selected in the header.
-- Local mode uses targets from `data/localhost.json` on the **Local Host** tab.
-- Distributed mode uses enabled, ready slaves from `data/slaves.json` on the **Master / Slave** tab.
+- Local mode uses targets from `data/localhost.json` on the **Local** tab.
+- Distributed mode uses enabled, ready slaves from `data/slaves.json` on the **Slaves** tab.
 - Raw vs filesystem test kind is derived from selected targets at run time (mixed targets are blocked).
 
 ## Profile
@@ -17,7 +17,7 @@ Profiles store workload parameters only. They no longer store `TestKind` or `Loc
 - Shared workload fields (`common.xfersize`, `common.threads`, `common.rate`) are internal sync keys; edit the visible **WD** / **FWD** / **General** / **FS Run** fields instead.
 - Saving a profile writes it to `profiles/` and resets the draft for the next new profile.
 - Profile parameters are grouped into **General**, **SD**, **WD** (raw/block), **FSD**, **FWD**, and **FS Run** (filesystem), in Vdbench definition order within each tab.
-- The editor is locked until a target is selected on **Local Host** or **Master / Slave**; derived test kind controls whether raw (SD/WD) or filesystem (FSD/FWD/FS Run) parameters are shown.
+- The editor is locked until a target is selected on **Local** or **Slaves**; derived test kind controls whether raw (SD/WD) or filesystem (FSD/FWD/FS Run) parameters are shown.
 - `storage.threads` is on the **SD** tab (`sd=,threads=`). Workload threads are on the **WD** tab; filesystem threads on **FWD**.
 - Changing target type while the Profile tab is open shows a warning to review parameters.
 - Detailed UI diagnostics are written to `logs/debug.log` when `LogLevel` is `DEBUG`.
@@ -207,9 +207,15 @@ all of this app's direct `ssh.exe` calls use it.
 
 ### Readiness checker script contract
 
-`Settings → Readiness checker` points at an external `.ps1` script (not part of this
-repo) that the UI launches in its own PowerShell window whenever **Readiness** is
-clicked. Two settings govern this launch:
+`Settings → Readiness checker` points at the shipped script
+`install/04-Check-Vdbench-Hosts-Readiness.ps1` (typically `C:\install\...` on the master).
+The UI launches it in its own PowerShell window whenever **Readiness** is clicked, and
+also appends Settings paths (`-PrivateKeyPath`, `-MasterVdbenchRoot`,
+`-WindowsVdbenchRoot`, `-LinuxVdbenchRoot`) so Validate paths and Readiness use the same
+key/Vdbench roots. The checker exits **non-zero** when any recorded check is `FAIL`, so
+the grid shows `Ready` only when every check passed.
+
+Two settings govern the launch template:
 
 - **Readiness checker** — absolute path to the script.
 - **Readiness args template** — free-form text appended verbatim to the checker
@@ -223,9 +229,9 @@ clicked. Two settings govern this launch:
     powershell -ExecutionPolicy Bypass -File C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.xxx
     powershell -ExecutionPolicy Bypass -File C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -LinuxHosts 10.50.11.xxx
     ```
-  - `{Host}` / `{VdbenchPath}` / `{Target}` — raw substitutions of this row's Host,
-    VdbenchPath, and selected/default Target, for a *different* checker script that
-    declares its own differently-named parameters (e.g. a custom
+  - `{Host}` / `{VdbenchPath}` / `{Target}` — raw substitutions of this row's connection
+    host (SshAlias/Host), VdbenchPath, and selected/default Target, for a *different*
+    checker script that declares its own differently-named parameters (e.g. a custom
     `param([string]$HostName, ...)` block). Not needed for the shipped checker.
 
 **Earlier revisions of this doc said the shipped default should be empty** ("most
@@ -354,7 +360,7 @@ the discrepancy actually is:
    `Attributes`/`Length` look normal, the file is fully real and readable, and the
    discrepancy is specific to whatever the checker script itself does for this check.
 3. **Inspect what the checker script's own code actually does for this specific check**
-   - since it is an external script not part of this repo, its exact logic is opaque to
+   - the shipped checker lives in `install/04-Check-Vdbench-Hosts-Readiness.ps1`; open it
    this app and to anyone without reading it:
    ```powershell
    Select-String -Path "C:\install\04-Check-Vdbench-Hosts-Readiness.ps1" -Pattern "vdbench.bat" -Context 3,3

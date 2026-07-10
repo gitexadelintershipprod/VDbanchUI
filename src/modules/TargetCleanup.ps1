@@ -4,21 +4,6 @@ function Test-TargetSupportsCleanup {
     return ($kind -eq "Filesystem")
 }
 
-if (-not (Get-Variable -Name CleanupUiEnabledCache -Scope Script -ErrorAction SilentlyContinue)) {
-    $script:CleanupUiEnabledCache = $false
-}
-if (-not (Get-Variable -Name CleanupUiStateInitialized -Scope Script -ErrorAction SilentlyContinue)) {
-    $script:CleanupUiStateInitialized = $false
-}
-
-function Test-CleanupUiEnabled {
-    if ($script:CleanupUiStateInitialized) {
-        return [bool]$script:CleanupUiEnabledCache
-    }
-    $resolved = Resolve-RunTestKind
-    return ([string]$resolved.TestKind -eq "Filesystem")
-}
-
 # Must be a scriptblock that callers DOT-SOURCE (`. & $script:CleanupModuleDependencyLoader ...`),
 # not a function. Dot-sourcing files from inside a function keeps the imported
 # functions in that function's local scope only - they vanish when the function
@@ -257,12 +242,13 @@ function Get-FilesystemCleanupContentsScript {
     }
     if ($OsType -eq "Linux") {
         $quotedPath = Convert-ToShellSingleQuoted $Path
-        return "rm -rf -- $quotedPath/* $quotedPath/.[!.]* $quotedPath/..?* 2>/dev/null || true"
+        # find+rm so empty anchors succeed, real delete failures surface (no || true).
+        return "find $quotedPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
     }
     $quotedPath = Convert-ToPowerShellSingleQuoted $Path
     return @"
 if (Test-Path -LiteralPath $quotedPath) {
-    Get-ChildItem -LiteralPath $quotedPath -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $quotedPath -Force -ErrorAction Stop | Remove-Item -Recurse -Force -ErrorAction Stop
 }
 "@
 }
@@ -439,9 +425,7 @@ function New-SlaveCleanupOwnerFromRow {
 }
 
 function Update-CleanupUiState {
-    $resolved = Resolve-RunTestKind
-    $script:CleanupUiEnabledCache = ([string]$resolved.TestKind -eq "Filesystem")
-    $script:CleanupUiStateInitialized = $true
+    # Refresh Clean button enabled/grey styling after target selection changes.
     if ($null -ne $script:SlaveGrid) {
         $script:SlaveGrid.Invalidate()
     }
@@ -481,9 +465,8 @@ function Complete-SlaveTargetCleanBackgroundWork {
     $errors = @(Get-PropertyValue $Result "Errors" @())
     $cleaned = @(Get-PropertyValue $Result "Cleaned" @())
     $skipped = @(Get-PropertyValue $Result "Skipped" @())
-    $showedWindow = [bool](Get-PropertyValue $Context "ShowCleanupWindow" $false)
-    if (-not $showedWindow -and $errors.Count -gt 0) {
-        Show-Warning (("Clean failed for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
+    if ($errors.Count -gt 0) {
+        Show-Warning (("Clean finished with errors for {0}:" -f $Context.HostName) + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
     }
     Write-DebugLog ("Slave clean finished for host={0}: cleaned={1} skipped={2} errors={3}" -f $Context.HostName, $cleaned.Count, $skipped.Count, $errors.Count)
 }
@@ -494,9 +477,7 @@ function Test-SlaveRowCleanEnabled {
         return $false
     }
     # Per-row only: Clean must work for this slave's selected filesystem
-    # anchors even when no slaves are Enabled/Ready for the current run yet
-    # (global Test-CleanupUiEnabled / Resolve-RunTestKind would otherwise
-    # silently disable every Clean button).
+    # anchors even when no slaves are Enabled/Ready for the current run yet.
     return (@(Get-CleanupEligibleTargets (Get-SlaveRowTargets $Row)).Count -gt 0)
 }
 
@@ -513,6 +494,12 @@ function Start-SlaveTargetClean {
     $state = Get-SlaveRowState $Row
     if ([bool](Get-PropertyValue $state "CleanInFlight" $false)) {
         Show-Warning "Clean is already running for this host."
+        return
+    }
+    $hostLabel = [string]$Row.Cells["Host"].Value
+    $targetList = @($eligible | ForEach-Object { [string](Get-PropertyValue $_ "Target" "") } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $confirmMsg = ("Delete ALL contents of these filesystem anchors on {0}?`n`n{1}`n`nThis cannot be undone." -f $hostLabel, ($targetList -join [Environment]::NewLine))
+    if (-not (Ask-YesNo $confirmMsg "Confirm Clean")) {
         return
     }
     $state["CleanInFlight"] = $true

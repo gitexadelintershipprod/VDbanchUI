@@ -31,13 +31,13 @@ Expected files in C:\install:
 
 Run:
   Set-ExecutionPolicy Bypass -Scope Process -Force
-  C:\install\01-Prepare-Vdbench-Master-FINAL-v4.ps1
+  C:\install\01-Prepare-Vdbench-Master.ps1
 
 Force recreate SSH key:
-  C:\install\01-Prepare-Vdbench-Master-FINAL-v4.ps1 -RecreateSshKey
+  C:\install\01-Prepare-Vdbench-Master.ps1 -RecreateSshKey
 
 Force Java installer rerun:
-  C:\install\01-Prepare-Vdbench-Master-FINAL-v4.ps1 -ForceJavaInstall
+  C:\install\01-Prepare-Vdbench-Master.ps1 -ForceJavaInstall
 #>
 
 param(
@@ -654,7 +654,9 @@ function Prepare-MasterSshKeyAndConfig {
     $sshDir = "C:\install\ssh"
     $MasterPrivateKey = Join-Path $sshDir "id_rsa"
     $MasterPublicKey  = Join-Path $sshDir "id_rsa.pub"
-    $ExportedPublicKey = "C:\install\master_id_ed25519.pub"
+    $ExportedPublicKey = "C:\install\master_id_rsa.pub"
+    # Legacy export name kept in sync for older slave kits that still look for it.
+    $LegacyExportedPublicKey = "C:\install\master_id_ed25519.pub"
 
     New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
     New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.ssh" | Out-Null
@@ -664,6 +666,7 @@ function Prepare-MasterSshKeyAndConfig {
         Remove-Item -Force $MasterPrivateKey -ErrorAction SilentlyContinue
         Remove-Item -Force $MasterPublicKey -ErrorAction SilentlyContinue
         Remove-Item -Force $ExportedPublicKey -ErrorAction SilentlyContinue
+        Remove-Item -Force $LegacyExportedPublicKey -ErrorAction SilentlyContinue
     }
 
     if (-not (Test-Path $MasterPrivateKey) -or -not (Test-Path $MasterPublicKey)) {
@@ -683,6 +686,7 @@ function Prepare-MasterSshKeyAndConfig {
     }
 
     Copy-Item $MasterPublicKey $ExportedPublicKey -Force
+    Copy-Item $MasterPublicKey $LegacyExportedPublicKey -Force
 
     $sshConfigPath = Join-Path "$env:USERPROFILE\.ssh" "config"
 

@@ -596,9 +596,6 @@ function Get-DefaultSshAliasForSlave {
     if (-not [string]::IsNullOrWhiteSpace($HostName)) {
         return $HostName.Trim()
     }
-    if (-not [string]::IsNullOrWhiteSpace($Name)) {
-        return $Name.Trim()
-    }
     return ""
 }
 
@@ -1137,42 +1134,6 @@ function Refresh-SettingsControls {
     Refresh-ConfigPreview
 }
 
-function Export-Settings {
-    Capture-Settings
-    Sync-RunModeToSettings
-    $dialog = New-Object System.Windows.Forms.SaveFileDialog
-    $dialog.Filter = "Settings JSON (*.json)|*.json|All files (*.*)|*.*"
-    $dialog.FileName = "vdbench-ui-settings.json"
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Write-JsonFile $dialog.FileName $script:Settings
-    }
-}
-
-function Import-Settings {
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Filter = "Settings JSON (*.json)|*.json|All files (*.*)|*.*"
-    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-        return
-    }
-    try {
-        $imported = Read-JsonFile $dialog.FileName $null
-        if ($null -eq $imported -or $null -eq $imported.PSObject.Properties["RunMode"]) {
-            throw "Selected JSON is not a Vdbench UI settings file."
-        }
-        $defaults = Read-JsonFile (Join-Path $script:ConfigRoot "default-settings.json") ([pscustomobject]@{})
-        Merge-DefaultProperties $imported $defaults | Out-Null
-        $script:Settings = $imported
-        Write-JsonFile $script:SettingsPath $script:Settings
-        Refresh-SettingsControls
-        Apply-RunModeFromSettings
-        Update-RunModeIndicator
-        Update-RunModeTabs
-        Show-Info "Settings imported."
-    } catch {
-        Show-Warning ("Settings import failed: " + $_.Exception.Message)
-    }
-}
-
 function Browse-FileForControl {
     param([System.Windows.Forms.TextBox]$TextBox)
     $dialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -1219,20 +1180,4 @@ function Validate-SettingsPaths {
         [void]$lines.Add(("{0,-22} {1,-60} Exists={2}" -f $item.Name, $item.Path, $exists))
     }
     $script:SettingsStatusBox.Text = ($lines -join [Environment]::NewLine)
-}
-
-function Use-FakeRunnerSettings {
-    $fakeRunner = Join-Path $script:AppRoot "tools\FakeVdbench.ps1"
-    if ($script:SettingsControls.ContainsKey("MasterVdbenchBat")) {
-        $script:SettingsControls["MasterVdbenchBat"].Text = $fakeRunner
-    }
-    if ($script:SettingsControls.ContainsKey("VdbenchRoot")) {
-        $script:SettingsControls["VdbenchRoot"].Text = $script:AppRoot
-    }
-    if ($script:SettingsControls.ContainsKey("ReportsRoot")) {
-        $script:SettingsControls["ReportsRoot"].Text = Join-Path $script:AppRoot "runs"
-    }
-    Capture-Settings
-    Validate-SettingsPaths
-    Refresh-ConfigPreview
 }

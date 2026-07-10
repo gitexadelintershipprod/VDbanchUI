@@ -28,25 +28,22 @@ representative raw, distributed, and filesystem Vdbench configs from the catalog
 Application logic lives under `src/modules/`. The entry script `src/VdbenchUI.ps1` loads
 modules in dependency order via `Import-AppModules`.
 
-## Fake Runner
+## Fake Runner (dev / CI only)
 
-`FakeVdbench.ps1` is a safe runner for UI smoke testing. Point `Master vdbench.bat` to
-this file to test process launch, charts, logs, and reports without touching disks.
-
-Run the non-UI smoke test on Windows:
+`FakeVdbench.ps1` is used by headless self-test and `Invoke-SmokeTest.ps1`. It is **not**
+exposed in the Settings UI. Point `Master vdbench.bat` at this file manually only when
+you intentionally want a non-destructive process smoke test.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Invoke-SmokeTest.ps1
 ```
 
-It validates the project, runs the fake runner, checks stdout, and writes artifacts under
-`data\smoke\`.
-
 ## Packaging
 
 Run `Package-Portable.ps1` on Windows to create a portable ZIP under `dist\`.
+The package includes `install/` (prepare scripts + `REQUIRED-FILES.txt`), `docs/`, `src/`, and `tools/`.
 
-The UI itself can also export selected run folders as ZIP bundles from `Status / Reports`.
+Reports tab actions: **Refresh** and **Open folder** (open the selected run directory).
 
 ## One-Command Verification
 

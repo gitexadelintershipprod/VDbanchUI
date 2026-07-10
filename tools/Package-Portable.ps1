@@ -21,6 +21,7 @@ $include = @(
     ".gitignore",
     "config",
     "docs",
+    "install",
     "profiles",
     "src",
     "tests",

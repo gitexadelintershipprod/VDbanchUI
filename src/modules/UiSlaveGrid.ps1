@@ -35,6 +35,30 @@ function Get-SlaveRowState {
     return $Row.Tag
 }
 
+function Get-SlaveConnectionHost {
+    # Same destination Browse/Clean/vdbench use: SshAlias when set, else Host.
+    # Ping and Readiness must dial this value too (not Host alone).
+    param($Row)
+    if ($null -eq $Row) {
+        return ""
+    }
+    $alias = ""
+    $hostName = ""
+    try {
+        if ($null -ne $Row.Cells -and $null -ne $Row.Cells["SshAlias"]) {
+            $alias = [string]$Row.Cells["SshAlias"].Value
+        }
+        if ($null -ne $Row.Cells -and $null -ne $Row.Cells["Host"]) {
+            $hostName = [string]$Row.Cells["Host"].Value
+        }
+    } catch {
+    }
+    if (-not [string]::IsNullOrWhiteSpace($alias)) {
+        return $alias.Trim()
+    }
+    return ([string]$hostName).Trim()
+}
+
 function Get-SlaveRowTargets {
     param($Row)
     if ($null -eq $Row) {
@@ -216,7 +240,11 @@ function Get-SlaveReadinessResult {
         [string]$Checker,
         [string]$CheckerTemplate,
         [bool]$ShowCheckerWindow = $false,
-        [string]$OsType = ""
+        [string]$OsType = "",
+        [string]$PrivateKeyPath = "",
+        [string]$MasterVdbenchRoot = "",
+        [string]$WindowsVdbenchRoot = "",
+        [string]$LinuxVdbenchRoot = ""
     )
     if ([string]::IsNullOrWhiteSpace($Checker) -or -not (Test-Path -LiteralPath $Checker)) {
         return [pscustomobject]@{
@@ -227,6 +255,29 @@ function Get-SlaveReadinessResult {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
     $checkerArgs = Expand-ReadinessCheckerArguments $CheckerTemplate $HostName $VdbenchPath $Target $OsType
+    # Pass UI Settings paths into the shipped checker so Validate paths and
+    # Readiness use the same PrivateKey / Vdbench roots (not only hardcoded defaults).
+    $settingsArgs = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($PrivateKeyPath)) {
+        [void]$settingsArgs.Add("-PrivateKeyPath"); [void]$settingsArgs.Add((Quote-ProcessArgument $PrivateKeyPath))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($MasterVdbenchRoot)) {
+        [void]$settingsArgs.Add("-MasterVdbenchRoot"); [void]$settingsArgs.Add((Quote-ProcessArgument $MasterVdbenchRoot))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WindowsVdbenchRoot)) {
+        [void]$settingsArgs.Add("-WindowsVdbenchRoot"); [void]$settingsArgs.Add((Quote-ProcessArgument $WindowsVdbenchRoot))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($LinuxVdbenchRoot)) {
+        [void]$settingsArgs.Add("-LinuxVdbenchRoot"); [void]$settingsArgs.Add((Quote-ProcessArgument $LinuxVdbenchRoot))
+    }
+    if ($settingsArgs.Count -gt 0) {
+        $extra = [string]::Join(" ", $settingsArgs)
+        if ([string]::IsNullOrWhiteSpace($checkerArgs)) {
+            $checkerArgs = $extra
+        } else {
+            $checkerArgs = ($checkerArgs.TrimEnd() + " " + $extra)
+        }
+    }
     $quotedChecker = Quote-ProcessArgument $Checker
     # Run the checker from its own containing folder, matching exactly what
     # happens when a user double-clicks / "Run with PowerShell"s it from
@@ -320,7 +371,11 @@ function Invoke-SlaveReadinessBackgroundWork {
         $Context.Checker `
         $Context.CheckerTemplate `
         ([bool]$Context.ShowCheckerWindow) `
-        ([string]$Context.OsType)
+        ([string]$Context.OsType) `
+        ([string](Get-PropertyValue $Context "PrivateKeyPath" "")) `
+        ([string](Get-PropertyValue $Context "MasterVdbenchRoot" "")) `
+        ([string](Get-PropertyValue $Context "WindowsVdbenchRoot" "")) `
+        ([string](Get-PropertyValue $Context "LinuxVdbenchRoot" ""))
 }
 
 function Complete-SlavePingBackgroundWork {
@@ -377,7 +432,7 @@ function Start-SlavePingCheck {
     }
     $pingContext = @{
         RowIndex = $Row.Index
-        HostName = [string]$Row.Cells["Host"].Value
+        HostName = Get-SlaveConnectionHost $Row
     }
     Write-DebugLog ("Ping check started for host={0} row={1}" -f $pingContext.HostName, $pingContext.RowIndex)
     Update-SlaveRowPing $pingContext.RowIndex "Pinging..."
@@ -409,12 +464,16 @@ function Start-SlaveReadinessCheck {
         RowIndex = $Row.Index
         ShowOutput = $ShowOutput
         ShowCheckerWindow = $ShowOutput
-        HostName = [string]$Row.Cells["Host"].Value
+        HostName = Get-SlaveConnectionHost $Row
         VdbenchPath = [string]$Row.Cells["VdbenchPath"].Value
         Target = Get-SlaveReadinessTargetForRow $Row
         OsType = [string]$Row.Cells["OsType"].Value
         Checker = [string](Get-PropertyValue $script:Settings "ReadinessChecker" "")
         CheckerTemplate = [string](Get-PropertyValue $script:Settings "ReadinessCheckerArguments" "{HostFlag}")
+        PrivateKeyPath = [string](Get-PropertyValue $script:Settings "PrivateKey" "")
+        MasterVdbenchRoot = [string](Get-PropertyValue $script:Settings "VdbenchRoot" "C:\vdbench")
+        WindowsVdbenchRoot = [string](Get-PropertyValue $script:Settings "WindowsVdbench" "C:\vdbench")
+        LinuxVdbenchRoot = [string](Get-PropertyValue $script:Settings "LinuxVdbench" "/opt/vdbench")
     }
     Write-DebugLog ("Readiness check started for host={0} row={1} checker={2}" -f $readyContext.HostName, $readyContext.RowIndex, $readyContext.Checker)
     Update-SlaveRowReadiness $readyContext.RowIndex "Checking..."
@@ -1055,9 +1114,6 @@ function Browse-SlaveTargetsForRow {
         $selected = Show-SlaveTargetPicker -Row $Row -Inventory $targets -Existing (Get-SlaveRowTargets $Row)
         if ($null -ne $selected) {
             Set-SlaveRowTargets $Row $selected
-            if (@(Get-SelectedTargetEntries $selected).Count -gt 0) {
-                $Row.Cells["Enabled"].Value = $true
-            }
             Capture-SlaveGrid
             Notify-ProfileTargetContextChanged "slave-target-picker"
         }

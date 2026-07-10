@@ -7,12 +7,10 @@ function Build-SettingsTab {
     $tab.Controls.Add($panel)
 
     $fields = @(
-        @{ Key = "InstallRoot"; Label = "Install root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "VdbenchRoot"; Label = "Vdbench root"; Browse = "folder" },
-        @{ Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"; InfoOnly = $true },
         @{ Key = "ReportsRoot"; Label = "Reports root"; Browse = "folder" },
         @{ Key = "ReadinessChecker"; Label = "Readiness checker"; Browse = "file"; Hint = "Script run when clicking Readiness on a row. It opens in its own PowerShell window. The shipped default script needs 'Readiness args template' below set to {HostFlag} to actually check the clicked row's host; clear it to blank instead only if you point this at a different script that takes no arguments." },
-        @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file"; Hint = "Absolute path to vdbench.bat on THIS (master) machine. If the Readiness checker reports this file missing, it is checking its own separate, hardcoded path, not this setting - verify the real path here (the official Vdbench zip often extracts into a version-named subfolder, e.g. C:\vdbench\vdbench50407\vdbench.bat, one level deeper than expected) and use Settings -> Validate below to confirm Exists=True locally." },
+        @{ Key = "MasterVdbenchBat"; Label = "Master vdbench.bat"; Browse = "file"; Hint = "Absolute path to vdbench.bat on THIS (master) machine. After running install/01-Prepare-Vdbench-Master.ps1 the bat is at C:\vdbench\vdbench.bat (contents of the zip are flattened into VdbenchRoot). Use Settings -> Validate to confirm Exists=True." },
         @{ Key = "WindowsVdbench"; Label = "Windows Vdbench path"; Browse = "folder"; Hint = "Default Vdbench path for Windows slaves." },
         @{ Key = "LinuxVdbench"; Label = "Linux Vdbench path"; Browse = "none"; Hint = "Default Vdbench path for Linux slaves." },
         @{ Key = "SshConfig"; Label = "SSH config"; Browse = "file" },
@@ -103,18 +101,6 @@ function Build-SettingsTab {
     $validateButton = New-Button "Validate paths" 0 0 120 30
     $validateButton.Add_Click({ Validate-SettingsPaths })
     Add-FlowToolbarItem $buttonBar $validateButton
-
-    $fakeButton = New-Button "Use fake runner" 0 0 125 30
-    $fakeButton.Add_Click({ Use-FakeRunnerSettings })
-    Add-FlowToolbarItem $buttonBar $fakeButton
-
-    $importSettingsButton = New-Button "Import settings" 0 0 125 30
-    $importSettingsButton.Add_Click({ Import-Settings })
-    Add-FlowToolbarItem $buttonBar $importSettingsButton
-
-    $exportSettingsButton = New-Button "Export settings" 0 0 125 30
-    $exportSettingsButton.Add_Click({ Export-Settings })
-    Add-FlowToolbarItem $buttonBar $exportSettingsButton
 
     $y += 46
     $script:SettingsStatusBox = New-Object System.Windows.Forms.TextBox
@@ -1636,51 +1622,6 @@ function Open-SelectedReportFolder {
     $dir = [string]$row.Cells["RunDir"].Value
     if (-not [string]::IsNullOrWhiteSpace($dir) -and (Test-Path -LiteralPath $dir)) {
         Start-Process $dir
-    }
-}
-
-function Export-SelectedRunBundle {
-    if ($script:ReportsGrid.SelectedRows.Count -eq 0) {
-        Show-Warning "Select a run first."
-        return
-    }
-    $row = $script:ReportsGrid.SelectedRows[0]
-    $runId = [string]$row.Cells["Id"].Value
-    $dir = [string]$row.Cells["RunDir"].Value
-    if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path -LiteralPath $dir)) {
-        Show-Warning "Selected run folder does not exist."
-        return
-    }
-    $dialog = New-Object System.Windows.Forms.SaveFileDialog
-    $dialog.Filter = "ZIP archive (*.zip)|*.zip|All files (*.*)|*.*"
-    $dialog.FileName = ("vdbench-run-{0}.zip" -f (Sanitize-FileName $runId))
-    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-        return
-    }
-    try {
-        if (Test-Path -LiteralPath $dialog.FileName) {
-            Remove-Item -LiteralPath $dialog.FileName -Force
-        }
-        $source = Join-Path $dir "*"
-        Compress-Archive -Path $source -DestinationPath $dialog.FileName -Force
-        Show-Info ("Exported run bundle: {0}" -f $dialog.FileName)
-    } catch {
-        Show-Warning ("Run bundle export failed: " + $_.Exception.Message)
-    }
-}
-
-function Show-SelectedRunConfig {
-    if ($script:ReportsGrid.SelectedRows.Count -eq 0) {
-        return
-    }
-    $script:ReportDetailBox.Text = ""
-    $id = [string]$script:ReportsGrid.SelectedRows[0].Cells["Id"].Value
-    $state = Read-JsonFile (Join-Path $script:RunStateRoot ($id + ".json")) $null
-    $parmPath = [string](Get-PropertyValue $state "ParmPath" "")
-    if ($state -and -not [string]::IsNullOrWhiteSpace($parmPath) -and (Test-Path -LiteralPath $parmPath)) {
-        $script:ReportDetailBox.Text = [System.IO.File]::ReadAllText($parmPath)
-    } else {
-        $script:ReportDetailBox.Text = "No config available for selected run."
     }
 }
 

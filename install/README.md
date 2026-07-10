@@ -12,6 +12,6 @@ Lab prepare kit for Vdbench UI.
 
 Copy this folder to `C:\install` (Windows) or `/root/install` (Linux).
 
-**Order:** run `01` on the master → copy `master_id_ed25519.pub` to every slave → run `02` / `03` on slaves.
+**Order:** run `01` on the master → copy `master_id_rsa.pub` to every slave → run `02` / `03` on slaves.
 
 See [REQUIRED-FILES.txt](REQUIRED-FILES.txt) and the bilingual guides under [`docs/en`](../docs/en/README.md) / [`docs/ka`](../docs/ka/README.md).
