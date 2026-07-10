@@ -76,8 +76,8 @@
     "Example": "rd1",
     "SortOrder": 10,
     "Group": "Run definition (RD)",
-    "HelpEn": "Unique name for the Run Definition (RD). This becomes the rd= identifier in the generated Vdbench config.",
-    "HelpKa": "ტესტის გაშვების (Run Definition) უნიკალური სახელი."
+    "HelpEn": "Name of this run definition (rd=…).\nExample: rd1\nRecommendation: keep a short unique name; Vdbench uses it in reports and logs.",
+    "HelpKa": "გაშვების განსაზღვრის სახელი (rd=…).\nმაგალითი: rd1\nრეკომენდაცია: მოკლე, უნიკალური სახელი — Vdbench მას რეპორტებსა და ლოგებში იყენებს."
   },
   {
     "Key": "run.iorate",
@@ -99,8 +99,8 @@
     "Example": "max",
     "SortOrder": 56,
     "EditorHidden": true,
-    "HelpEn": "Number of I/O operations per second. Fixed at max for all raw/block profiles in this UI.\nOptions: max (maximum possible performance), or a specific capped number (e.g., 5000).",
-    "HelpKa": "I/O ოპერაციების სიხშირე (IOPS) წამში. ამ UI-ში ყოველთვის max-ზეა ფიქსირებული.\nვარიანტები: max (მაქსიმალური შესაძლებელი წარმადობის გატესტვა), ან კონკრეტული ლიმიტირებული რიცხვი (მაგ. 5000)."
+    "HelpEn": "Target I/O rate for raw/block runs (iorate=).\nIn this UI the value is fixed at max (drive as fast as the storage allows).\nExample: max\nRecommendation: leave at max for stress tests; lower rates are for controlled lab experiments only.",
+    "HelpKa": "ნედლი/ბლოკური გაშვების სამიზნე I/O სიჩქარე (iorate=).\nამ UI-ში მნიშვნელობა ფიქსირებულია max-ზე (რაც შეიძლება სწრაფად).\nმაგალითი: max\nრეკომენდაცია: სტრეს-ტესტისთვის დატოვე max; დაბალი მნიშვნელობა მხოლოდ კონტროლირებადი ლაბისთვის."
   },
   {
     "Key": "run.elapsed",
@@ -117,8 +117,8 @@
     "Example": "300",
     "SortOrder": 30,
     "Group": "Run definition (RD)",
-    "HelpEn": "Total duration of the test.\nOptions: seconds (e.g., 300), minutes (e.g., 10m), hours (e.g., 2h).",
-    "HelpKa": "ტესტის ძირითადი ხანგრძლივობა.\nვარიანტები: წამები (მაგ. 300), წუთები (მაგ. 10m), საათები (მაგ. 2h)."
+    "HelpEn": "Total run duration in seconds, including warmup (elapsed=).\nExample: 300 (= 5 minutes)\nRecommendation: short runs (60–180s) for smoke tests; 300–1800s for meaningful averages. Warmup is counted inside elapsed.",
+    "HelpKa": "გაშვების სრული ხანგრძლივობა წამებში, warmup-ის ჩათვლით (elapsed=).\nმაგალითი: 300 (= 5 წუთი)\nრეკომენდაცია: მოკლე გაშვება (60–180წმ) საცდელად; 300–1800წმ საშუალოებისთვის. Warmup შედის elapsed-ში."
   },
   {
     "Key": "run.warmup",
@@ -135,8 +135,8 @@
     "Example": "30",
     "SortOrder": 40,
     "Group": "Run definition (RD)",
-    "HelpEn": "Warmup time in seconds. Performance data gathered during this time is excluded from the final statistics.\nOptions: any numeric value in seconds (e.g., 30, 60).",
-    "HelpKa": "ტესტის გახურების დრო წამებში. ამ პერიოდში დაფიქსირებული შედეგები არ შედის საბოლოო სტატისტიკაში.\nვარიანტები: ნებისმიერი რიცხვითი მნიშვნელობა წამებში (მაგ. 30, 60)."
+    "HelpEn": "Seconds at the start of elapsed that are excluded from final averages (warmup=).\nExample: 30 with elapsed=300 → ~270s of measured work\nRecommendation: use 10–20% of elapsed (e.g. 30–60s) so caches and queues stabilize before metrics count.",
+    "HelpKa": "elapsed-ის დასაწყისის წამები, რომლებიც საბოლოო საშუალოებში არ შედის (warmup=).\nმაგალითი: 30 elapsed=300-თან → ~270წმ გაზომვადი სამუშაო\nრეკომენდაცია: elapsed-ის 10–20% (მაგ. 30–60წმ), რომ ქეში/რიგები დასტაბილურდეს."
   },
   {
     "Key": "run.interval",
@@ -153,8 +153,8 @@
     "Example": "1",
     "SortOrder": 50,
     "Group": "Run definition (RD)",
-    "HelpEn": "Reporting interval in seconds for updating statistics in the output.\nOptions: any numeric value in seconds (e.g., 1, 5, 10).",
-    "HelpKa": "სტატისტიკის განახლებისა და რეპორტში ჩაწერის ინტერვალი წამებში.\nვარიანტები: ნებისმიერი რიცხვითი მნიშვნელობა წამებში (მაგ. 1, 5, 10)."
+    "HelpEn": "How often Vdbench prints interval statistics, in seconds (interval=).\nExample: 1\nRecommendation: 1 for detailed charts; 5–10 for very long runs to keep logs smaller.",
+    "HelpKa": "რამდენ წამში ერთხელ იბეჭდება ინტერვალის სტატისტიკა (interval=).\nმაგალითი: 1\nრეკომენდაცია: 1 დეტალური გრაფიკისთვის; 5–10 ძალიან გრძელი გაშვებისთვის (უფრო პატარა ლოგი)."
   },
   {
     "Key": "run.format",
@@ -179,8 +179,8 @@
     "Example": "no",
     "SortOrder": 55,
     "Group": "Filesystem options",
-    "HelpEn": "Controls how Vdbench treats test files before the run starts.\nOptions:\n  no — use existing files\n  yes — delete and recreate files from scratch\n  restart — resume interrupted file creation\n  only — create files only; do not run the workload\n  clean — delete existing files only\n  once — create files on the first run only\n  directories — create directory tree only, without files",
-    "HelpKa": "განსაზღვრავს, თუ როგორ უნდა მოექცეს პროგრამა სატესტო ფაილებს ტესტის დაწყებამდე.\nვარიანტები:\n  no — გამოიყენებს უკვე არსებულ ფაილებს\n  yes — წაშლის და ხელახლა შექმნის ფაილებს ნულიდან\n  restart — გააგრძელებს გაწყვეტილი ფაილების შექმნის პროცესს\n  only — მხოლოდ შექმნის ფაილებს და ტესტს არ გაუშვებს\n  clean — მხოლოდ წაშლის არსებულ ფაილებს\n  once — შექმნის ფაილებს მხოლოდ პირველი გაშვებისას\n  directories — შექმნის მხოლოდ საქაღალდეებს ფაილების გარეშე"
+    "HelpEn": "Whether Vdbench prepares filesystem files before the workload (format=).\nOptions: yes (create/rewrite files), no (use existing), restart (create missing only).\nExample: restart\nRecommendation: use restart for repeatable labs; yes only on empty anchors (RISK: can overwrite data); no when files already exist.",
+    "HelpKa": "მოამზადოს თუ არა Vdbench ფაილები დატვირთვამდე (format=).\nვარიანტები: yes (შექმნა/გადაწერა), no (არსებულის გამოყენება), restart (მხოლოდ გამოტოვებულის შექმნა).\nმაგალითი: restart\nრეკომენდაცია: ლაბისთვის restart; yes მხოლოდ ცარიელ ანქორზე (რისკი: მონაცემების გადაწერა); no — როცა ფაილები უკვე არის."
   },
   {
     "Key": "run.createAnchors",
@@ -197,8 +197,8 @@
     "AppliesTo": "fs",
     "Required": false,
     "Help": "Automatically create anchor directories before the run if they do not exist.",
-    "HelpEn": "When enabled, Vdbench automatically creates the root anchor directories before the run if they do not exist.\nOptions:\n  yes — emit create_anchors=yes in config\n  no — emit create_anchors=no in config",
-    "HelpKa": "ავტომატურად ქმნის ძირეულ სატესტო საქაღალდეებს ტესტის დაწყებამდე, თუ ისინი არ არსებობს.\nვარიანტები:\n  yes\n  no",
+    "HelpEn": "Create missing anchor directories before the run (create_anchors=).\nOptions: yes / no\nExample: yes\nRecommendation: yes for new empty paths; no if the mount/folder must already exist and you want a hard fail when it does not.",
+    "HelpKa": "შექმნას თუ არა გამოტოვებული ანქორის საქაღალდეები გაშვებამდე (create_anchors=).\nვარიანტები: yes / no\nმაგალითი: yes\nრეკომენდაცია: yes ახალი ცარიელი გზებისთვის; no — თუ mount/საქაღალდე აუცილებლად უკვე უნდა არსებობდეს.",
     "Example": "yes",
     "SortOrder": 57,
     "Group": "Filesystem options"
@@ -222,7 +222,9 @@
     "Help": "Fixed at max for all filesystem profiles.",
     "Example": "max",
     "SortOrder": 56,
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Filesystem workload rate (fwdrate=).\nIn this UI the value is fixed at max.\nExample: max\nRecommendation: leave at max for stress tests.",
+    "HelpKa": "ფაილსისტემის დატვირთვის სიჩქარე (fwdrate=).\nამ UI-ში ფიქსირებულია max-ზე.\nმაგალითი: max\nრეკომენდაცია: სტრეს-ტესტისთვის დატოვე max."
   },
   {
     "Key": "storage.name",
@@ -239,8 +241,8 @@
     "Example": "sd1",
     "SortOrder": 10,
     "Group": "SD definition (SD)",
-    "HelpEn": "Unique name for the Storage Definition (SD). This becomes the sd= identifier in the generated config.",
-    "HelpKa": "მონაცემთა საცავის (Storage Definition) უნიკალური სახელი."
+    "HelpEn": "Storage Definition name (sd=…).\nExample: sd1\nRecommendation: short unique id; the UI usually fills this automatically per target.",
+    "HelpKa": "საცავის განსაზღვრის სახელი (sd=…).\nმაგალითი: sd1\nრეკომენდაცია: მოკლე უნიკალური id; UI ჩვეულებრივ თავად ავსებს ტარგეტზე."
   },
   {
     "Key": "storage.lun",
@@ -258,8 +260,8 @@
     "SortOrder": 20,
     "TargetDerived": true,
     "Group": "SD definition (SD)",
-    "HelpEn": "Target path for the physical (Raw) or logical disk being tested. Usually set from target selection on Local Host or Master / Slave.\nOptions: for Linux (e.g., /dev/sdb, /dev/mapper/mpatha), for Windows (e.g., \\\\.\\PhysicalDrive1).",
-    "HelpKa": "სამიზნე ფიზიკური (Raw) ან ლოგიკური დისკის მისამართი.\nვარიანტები: Linux-ისთვის (მაგ. /dev/sdb, /dev/mapper/mpatha), Windows-ისთვის (მაგ. \\\\.\\PhysicalDrive1)."
+    "HelpEn": "Raw device or file path for this SD (lun=).\nExample: \\\\.\\PhysicalDrive1 or C:\\vdbench\\testfile.dat\nRecommendation: pick the target on Local/Slaves (Browse), not by typing here. Raw disks are destructive — never use production volumes.",
+    "HelpKa": "ნედლი მოწყობილობის ან ფაილის გზა ამ SD-სთვის (lun=).\nმაგალითი: \\\\.\\PhysicalDrive1 ან C:\\vdbench\\testfile.dat\nრეკომენდაცია: აირჩიე Local/Slaves Browse-ით, აქ ხელით ნუ ჩაწერ. Raw დისკი დესტრუქციულია — პროდაქშენ ვოლიუმი არასდროს."
   },
   {
     "Key": "storage.size",
@@ -276,8 +278,8 @@
     "Example": "10g",
     "SortOrder": 30,
     "Group": "SD definition (SD)",
-    "HelpEn": "Limits the total storage capacity to be used for testing (for example, use only part of a larger disk).\nOptions: size in megabytes (m), gigabytes (g), terabytes (t), or percentage (e.g., 50%).",
-    "HelpKa": "გამოსაყენებელი დისკის მოცულობის ლიმიტი (მაგ. თუ დისკი 1TB-ია და გსურთ მხოლოდ ნაწილის გამოყენება).\nვარიანტები: მოცულობა მეგაბაიტებში (m), გიგაბაიტებში (g), ტერაბაიტებში (t), ან პროცენტულად (მაგ. 50%)."
+    "HelpEn": "Size of a test file when the LUN is a file (size=).\nExample: 10g\nRecommendation: start with 1g–10g for trials; raise for long runs. Leave blank for real raw disks.",
+    "HelpKa": "სატესტო ფაილის ზომა, როცა LUN ფაილია (size=).\nმაგალითი: 10g\nრეკომენდაცია: საცდელად 1g–10g; გრძელი გაშვებისთვის გაზარდე. ნამდვილი raw დისკისთვის ცარიელი დატოვე."
   },
   {
     "Key": "storage.align",
@@ -294,8 +296,8 @@
     "Example": "4k",
     "SortOrder": 40,
     "Group": "SD layout",
-    "HelpEn": "Data alignment for I/O operations.\nOptions: 4k, 8k, 1m, etc.",
-    "HelpKa": "I/O ოპერაციების ბლოკური გასწორება (Alignment).\nვარიანტები: 4k, 8k, 1m და ა.შ."
+    "HelpEn": "Force I/O alignment boundary (align=).\nExample: 4k\nRecommendation: match the device’s logical block size (often 4k). Leave blank unless you are testing misalignment.",
+    "HelpKa": "I/O გასწორების საზღვარი (align=).\nმაგალითი: 4k\nრეკომენდაცია: მოწყობილობის ლოგიკური ბლოკის ზომა (ხშირად 4k). ცარიელი დატოვე, თუ განზრახ არ ამოწმებ არასწორ გასწორებას."
   },
   {
     "Key": "storage.offset",
@@ -312,8 +314,8 @@
     "Example": "1g",
     "SortOrder": 50,
     "Group": "SD layout",
-    "HelpEn": "Starting offset on the disk where I/O operations will begin.\nOptions: size (e.g., 1m, 10g).",
-    "HelpKa": "დისკზე ტესტირების დაწყების საწყისი წერტილი (გადახრა დასაწყისიდან).\nვარიანტები: ზომა (მაგ. 1m, 10g)."
+    "HelpEn": "Byte offset into the LUN before I/O starts (offset=).\nExample: 0\nRecommendation: usually 0. Non-zero offsets are for advanced partition/skip scenarios.",
+    "HelpKa": "ბაიტური ოფსეტი LUN-ში I/O-ს დაწყებამდე (offset=).\nმაგალითი: 0\nრეკომენდაცია: ჩვეულებრივ 0. არანულოვანი — მხოლოდ სპეციალური partition/skip სცენარებისთვის."
   },
   {
     "Key": "storage.range",
@@ -330,8 +332,8 @@
     "Example": "0,100g",
     "SortOrder": 60,
     "Group": "SD layout",
-    "HelpEn": "Specific range of the disk to restrict I/O operations.\nOptions: percentage range (e.g., (0,50) to test the first half of the disk).",
-    "HelpKa": "დისკის კონკრეტული მონაკვეთი/დიაპაზონი, სადაც უნდა შესრულდეს ოპერაციები.\nვარიანტები: პროცენტული დიაპაზონი (მაგ. (0,50) დატესტავს დისკის პირველ ნახევარს)."
+    "HelpEn": "Limit which portion of the LUN is used (range=).\nExample: (1,50) for the first half\nRecommendation: leave blank to use the whole device/file unless you intentionally want a partial region.",
+    "HelpKa": "LUN-ის რომელი ნაწილი გამოიყენოს (range=).\nმაგალითი: (1,50) — პირველი ნახევარი\nრეკომენდაცია: ცარიელი = მთელი მოწყობილობა/ფაილი, თუ განზრახ არ გინდა ნაწილობრივი რეგიონი."
   },
   {
     "Key": "storage.bypassOsCache",
@@ -351,8 +353,8 @@
     "Example": "yes",
     "SortOrder": 70,
     "Group": "SD layout",
-    "HelpEn": "Bypass the operating system cache (direct I/O) so operations go to disk instead of cache.\nWhen yes, generated sd= lines include openflags=directio on Windows and openflags=o_direct on Linux.\nOptions:\n  yes\n  no",
-    "HelpKa": "ოპერაციული სისტემის ქეშის გვერდის ავლის პარამეტრი.\nyes-ისას config-ში იწერება openflags=directio (Windows) ან openflags=o_direct (Linux).\nვარიანტები:\n  yes\n  no"
+    "HelpEn": "Bypass OS page cache for raw I/O (maps to openflags like o_direct / directio).\nExample: yes\nRecommendation: yes for storage stress (measures the device, not RAM cache). no only when you intentionally want cached behavior.",
+    "HelpKa": "OS ქეშის გვერდის ავლა ნედლი I/O-სთვის (openflags: o_direct / directio).\nმაგალითი: yes\nრეკომენდაცია: yes სტრესისთვის (იზომება მოწყობილობა, არა RAM ქეში). no — მხოლოდ თუ განზრახ გინდა ქეშირებული ქცევა."
   },
   {
     "Key": "storage.openflags",
@@ -373,7 +375,9 @@
     "Help": "Legacy open flags field. Use Bypass OS cache instead.",
     "Example": "o_direct",
     "SortOrder": 71,
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Low-level open flags for the SD (openflags=). Prefer the Bypass OS cache control in this UI.\nExample: o_direct\nRecommendation: leave disabled unless you need a flag the Bypass control does not cover.",
+    "HelpKa": "SD-ის დაბალი დონის openflags=. ამ UI-ში უპირატესობა მიანიჭე Bypass OS cache კონტროლს.\nმაგალითი: o_direct\nრეკომენდაცია: გათიშული დატოვე, თუ Bypass არ ფარავს საჭირო ფლაგს."
   },
   {
     "Key": "storage.compratio",
@@ -390,8 +394,8 @@
     "Example": "2",
     "SortOrder": 80,
     "Group": "SD advanced",
-    "HelpEn": "Data compression ratio.\nOptions: 1 (uncompressible data), 2 or higher (compressible data, e.g., 2 means 2:1 ratio).",
-    "HelpKa": "მონაცემთა კომპრესიის (შეკუმშვის) კოეფიციენტი.\nვარიანტები: 1 (არ იკუმშება), 2 და მეტი (იკუმშება პროპორციით, მაგ. 2 ნიშნავს 2:1-ზე)."
+    "HelpEn": "Synthetic compression ratio for generated data (compratio=).\nExample: 2\nRecommendation: 1 = incompressible; 2–4 to simulate compressible data on arrays that care about compression.",
+    "HelpKa": "გენერირებული მონაცემების სინთეტიკური კომპრესიის კოეფიციენტი (compratio=).\nმაგალითი: 2\nრეკომენდაცია: 1 = არაკომპრესირებადი; 2–4 — თუ მასივი კომპრესიას ითვალისწინებს."
   },
   {
     "Key": "storage.dedupratio",
@@ -408,8 +412,8 @@
     "Example": "2",
     "SortOrder": 90,
     "Group": "SD advanced",
-    "HelpEn": "Data deduplication ratio.\nOptions: 1 (no deduplication, all blocks unique), 2 or higher (ratio of repeating data, e.g., 2 means 2:1 ratio).",
-    "HelpKa": "მონაცემთა დედუპლიკაციის კოეფიციენტი.\nვარიანტები: 1 (ყველა ბლოკი უნიკალურია), 2 და მეტი (განმეორებადი მონაცემები, მაგ. 2 ნიშნავს 2:1-ზე)."
+    "HelpEn": "Synthetic deduplication ratio for generated data (dedupratio=).\nExample: 2\nRecommendation: 1 = unique data; >1 only when testing dedupe-aware storage.",
+    "HelpKa": "გენერირებული მონაცემების სინთეტიკური დედუპლიკაციის კოეფიციენტი (dedupratio=).\nმაგალითი: 2\nრეკომენდაცია: 1 = უნიკალური მონაცემები; >1 — მხოლოდ dedupe-aware საცავის ტესტისთვის."
   },
   {
     "Key": "storage.dedupunit",
@@ -426,8 +430,8 @@
     "Example": "4k",
     "SortOrder": 100,
     "Group": "SD advanced",
-    "HelpEn": "Deduplication unit size (must be equal to or a multiple of xfersize).\nOptions: 4k, 8k, 32k, etc.",
-    "HelpKa": "დედუპლიკაციის საბაზისო ბლოკის ზომა (უნდა იყოს xfersize-ის იდენტური ან მისი ჯერადი).\nვარიანტები: 4k, 8k, 32k და ა.შ."
+    "HelpEn": "Dedup unit size in bytes (dedupunit=).\nExample: 128k\nRecommendation: match the array’s dedupe chunk size if known; otherwise leave default/blank.",
+    "HelpKa": "Dedup ერთეულის ზომა ბაიტებში (dedupunit=).\nმაგალითი: 128k\nრეკომენდაცია: მასივის dedupe chunk-ის ზომა, თუ იცი; წინააღმდეგ შემთხვევაში ნაგულისხმევი/ცარიელი."
   },
   {
     "Key": "storage.threads",
@@ -443,7 +447,9 @@
     "Help": "Fixed off; use workload threads on the WD tab instead.",
     "Example": "8",
     "SortOrder": 110,
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Threads attached to the SD (sd=,threads=). Prefer workload threads on the WD tab for most tests.\nExample: 8\nRecommendation: leave disabled unless you specifically need SD-level threading.",
+    "HelpKa": "SD-ზე მიბმული ნაკადები (sd=,threads=). უმეტეს ტესტში უპირატესობა მიანიჭე WD ტაბის threads-ს.\nმაგალითი: 8\nრეკომენდაცია: გათიშული დატოვე, თუ სპეციალურად არ გჭირდება SD-დონის threading."
   },
   {
     "Key": "workload.name",
@@ -460,8 +466,8 @@
     "Example": "wd1",
     "SortOrder": 10,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Unique name for the Workload Definition (WD). This becomes the wd= identifier in the generated config.",
-    "HelpKa": "დატვირთვის პროფილის (Workload Definition) უნიკალური სახელი."
+    "HelpEn": "Workload Definition name (wd=…).\nExample: wd1\nRecommendation: short unique name; UI usually fills this per target.",
+    "HelpKa": "დატვირთვის განსაზღვრის სახელი (wd=…).\nმაგალითი: wd1\nრეკომენდაცია: მოკლე უნიკალური სახელი; UI ჩვეულებრივ თავად ავსებს."
   },
   {
     "Key": "workload.rdpct",
@@ -474,12 +480,12 @@
     "Options": [],
     "AppliesTo": "raw",
     "Required": true,
-    "Help": "Percentage of I/O operations that are reads.",
+    "Help": "Percentage of raw/block I/O that are reads (0-100). Enabled by default.",
     "Example": "70",
     "SortOrder": 20,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Percentage of read operations.\nOptions: 0 to 100 (100 = 100% read, 0 = 100% write, 70 = 70% read / 30% write).",
-    "HelpKa": "წაკითხვის (Read) ოპერაციების პროცენტული წილი.\nვარიანტები: 0-დან 100-მდე (100 = სრული წაკითხვა, 0 = სრული ჩაწერა, 70 = 70% წაკითხვა / 30% ჩაწერა)."
+    "HelpEn": "Read percentage for raw/block I/O (rdpct=): how many operations are reads vs writes.\nOptions: 0–100 (100 = read-only, 0 = write-only, 70 = 70% read / 30% write).\nExample: 70\nRecommendation: 100 for read stress; 0 for write stress; 70 for a mixed “real world” profile. Enabled by default.",
+    "HelpKa": "წაკითხვის პროცენტი ნედლი/ბლოკური I/O-სთვის (rdpct=): რამდენი ოპერაციაა წაკითხვა და რამდენი ჩაწერა.\nვარიანტები: 0–100 (100 = მხოლოდ read, 0 = მხოლოდ write, 70 = 70% read / 30% write).\nმაგალითი: 70\nრეკომენდაცია: 100 read სტრესისთვის; 0 write სტრესისთვის; 70 შერეული „რეალური“ პროფილისთვის. ნაგულისხმევად ჩართულია."
   },
   {
     "Key": "workload.seekpct",
@@ -499,8 +505,8 @@
     "Example": "random",
     "SortOrder": 30,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "How I/O addresses are chosen on the LUN.\nOptions:\n  random — access the LUN randomly\n  sequential — access the LUN sequentially",
-    "HelpKa": "სამიზნე LUN-ზე I/O მისამართების არჩევის მეთოდი.\nვარიანტები:\n  random — LUN-ს ირჩევს ალაგ-ალაგ\n  sequential — LUN-ს ირჩევს თანმიმდევრობით"
+    "HelpEn": "How the LUN is addressed: random or sequential (seekpct=).\nOptions: random, sequential\nExample: random\nRecommendation: random for typical storage stress; sequential for throughput/streaming tests.",
+    "HelpKa": "როგორ მიმართავს LUN-ს: შემთხვევითი თუ თანმიმდევრული (seekpct=).\nვარიანტები: random, sequential\nმაგალითი: random\nრეკომენდაცია: random ტიპური სტრესისთვის; sequential გამტარობის/streaming ტესტისთვის."
   },
   {
     "Key": "workload.rhpct",
@@ -517,8 +523,8 @@
     "Example": "0",
     "SortOrder": 90,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Simulation of read cache hit percentage.\nOptions: 0 to 100.",
-    "HelpKa": "წაკითხვის ოპერაციების ქეშში მოხვედრის (Read Hit) პროცენტული სიმულაცია.\nვარიანტები: 0-დან 100-მდე."
+    "HelpEn": "Read hit percentage against a prior working set (rhpct=).\nExample: 50\nRecommendation: advanced — leave blank/disabled unless modeling cache hits explicitly.",
+    "HelpKa": "წაკითხვის hit პროცენტი წინა working set-ზე (rhpct=).\nმაგალითი: 50\nრეკომენდაცია: მოწინავე პარამეტრი — ცარიელი/გათიშული დატოვე, თუ ქეშის hit-ებს განზრახ არ მოდელირებ."
   },
   {
     "Key": "workload.whpct",
@@ -535,8 +541,8 @@
     "Example": "0",
     "SortOrder": 100,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Simulation of write cache hit percentage.\nOptions: 0 to 100.",
-    "HelpKa": "ჩაწერის ოპერაციების ქეშში მოხვედრის (Write Hit) პროცენტული სიმულაცია.\nვარიანტები: 0-დან 100-მდე."
+    "HelpEn": "Write hit percentage against a prior working set (whpct=).\nExample: 50\nRecommendation: advanced — leave blank/disabled unless modeling cache hits explicitly.",
+    "HelpKa": "ჩაწერის hit პროცენტი წინა working set-ზე (whpct=).\nმაგალითი: 50\nრეკომენდაცია: მოწინავე პარამეტრი — ცარიელი/გათიშული დატოვე, თუ ქეშის hit-ებს განზრახ არ მოდელირებ."
   },
   {
     "Key": "workload.skew",
@@ -553,8 +559,8 @@
     "Example": "50",
     "SortOrder": 60,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Percentage of the total I/O rate allocated to this specific workload (used when running multiple WDs).\nOptions: 1 to 100 percent.",
-    "HelpKa": "საერთო I/O წარმადობის რა პროცენტი უნდა მიემართოს ამ კონკრეტულ Workload-ზე (გამოიყენება მულტი-WD ტესტირებისას).\nვარიანტები: 1-დან 100-მდე პროცენტი."
+    "HelpEn": "Relative share of work when multiple workloads run together (skew=).\nExample: 50\nRecommendation: use equal skew (or leave default) unless you intentionally want one WD hotter than another.",
+    "HelpKa": "სამუშაოს წილი, როცა რამდენიმე დატვირთვა ერთად მუშაობს (skew=).\nმაგალითი: 50\nრეკომენდაცია: თანაბარი skew (ან ნაგულისხმევი), თუ ერთ WD-ს განზრახ არ აძლიერებ."
   },
   {
     "Key": "workload.stride",
@@ -571,8 +577,8 @@
     "Example": "8k,128k",
     "SortOrder": 70,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Stride size for sequential I/O. Controls the space to skip on the disk after each I/O operation.\nOptions: size (e.g., 4k, 1m).",
-    "HelpKa": "გამოტოვებული ბიჯის ზომა Sequential ტესტირებისას. აკონტროლებს რა მანძილი უნდა გამოტოვოს დისკზე ყოველი I/O ოპერაციის შემდეგ.\nვარიანტები: ზომა (მაგ. 4k, 1m)."
+    "HelpEn": "Sequential stride distance between I/Os (stride=).\nExample: 1\nRecommendation: mainly for sequential patterns; leave blank for random workloads.",
+    "HelpKa": "თანმიმდევრულ I/O-ებს შორის ნაბიჯი (stride=).\nმაგალითი: 1\nრეკომენდაცია: ძირითადად sequential რეჟიმისთვის; random დატვირთვაზე ცარიელი დატოვე."
   },
   {
     "Key": "workload.range",
@@ -589,8 +595,8 @@
     "Example": "0,50g",
     "SortOrder": 80,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Restricts this specific workload to a designated section of the LUN.\nOptions: percentage range (e.g., (50,100) to use the second half of the disk).",
-    "HelpKa": "LUN-ის კონკრეტული მონაკვეთის ლიმიტირება ამ Workload-ისთვის.\nვარიანტები: პროცენტული დიაპაზონი (მაგ. (50,100) გამოიყენებს დისკის მეორე ნახევარს)."
+    "HelpEn": "Limit the LUN region this workload uses (range=).\nExample: (1,100)\nRecommendation: blank = full LUN. Set a range only for multi-WD partitioning experiments.",
+    "HelpKa": "LUN-ის რეგიონი, რომელსაც ეს დატვირთვა იყენებს (range=).\nმაგალითი: (1,100)\nრეკომენდაცია: ცარიელი = მთელი LUN. დააყენე მხოლოდ მრავალი WD-ის გაყოფის ექსპერიმენტისთვის."
   },
   {
     "Key": "workload.threads",
@@ -607,8 +613,8 @@
     "Example": "16",
     "SortOrder": 50,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "Number of concurrent threads / Queue Depth (OIO).\nOptions: 1, 8, 16, 32, 64, etc.",
-    "HelpKa": "პარალელური სამუშაო ნაკადების / რიგის სიღრმის (Queue Depth) რაოდენობა.\nვარიანტები: 1, 8, 16, 32, 64 და ა.შ."
+    "HelpEn": "Number of concurrent threads for this workload (threads=).\nExample: 8\nRecommendation: start with 1–8; raise until latency climbs or CPU saturates. More threads ≠ always more IOPS.",
+    "HelpKa": "პარალელური ნაკადების რაოდენობა ამ დატვირთვისთვის (threads=).\nმაგალითი: 8\nრეკომენდაცია: დაიწყე 1–8-ით; გაზარდე სანამ latency არ აიწევს ან CPU არ გაივსება. მეტი thread ≠ ყოველთვის მეტი IOPS."
   },
   {
     "Key": "workload.xfersize",
@@ -634,8 +640,8 @@
     "Example": "4k",
     "SortOrder": 40,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "I/O transfer block size.\nOptions: fixed size (e.g., 4k, 8k, 1m) or a mixed ratio (e.g., (4k,50,8k,50) means 50% 4k and 50% 8k).",
-    "HelpKa": "I/O ტრანსფერის ბლოკის ზომა.\nვარიანტები: ფიქსირებული ზომა (მაგ. 4k, 8k, 1m) ან კომბინირებული/შერეული (მაგ. (4k,50,8k,50) ნიშნავს 50% 4k-ს და 50% 8k-ს)."
+    "HelpEn": "Transfer size per I/O (xfersize=).\nExample: 4k or 32k\nRecommendation: 4k for IOPS-oriented tests; 32k–256k for throughput. Keep the same size when comparing runs.",
+    "HelpKa": "ერთი I/O-ს გადაცემის ზომა (xfersize=).\nმაგალითი: 4k ან 32k\nრეკომენდაცია: 4k IOPS ტესტისთვის; 32k–256k გამტარობისთვის. შედარებისას იგივე ზომა დაიტოვე."
   },
   {
     "Key": "workload.priority",
@@ -652,8 +658,8 @@
     "Example": "0",
     "SortOrder": 110,
     "Group": "Raw/block workload (WD)",
-    "HelpEn": "I/O operation priority level.\nOptions: 1, 2, 3, etc. (usually, a higher number indicates lower priority).",
-    "HelpKa": "I/O ოპერაციების პრიორიტეტი სისტემის დონეზე.\nვარიანტები: 1, 2, 3 და ა.შ. (ჩვეულებრივ, მაღალი რიცხვი ნიშნავს დაბალ პრიორიტეტს)."
+    "HelpEn": "Relative scheduling priority among workloads (priority=).\nExample: 1\nRecommendation: leave default unless you are mixing high/low priority WDs on purpose.",
+    "HelpKa": "დატვირთვებს შორის შედარებითი პრიორიტეტი (priority=).\nმაგალითი: 1\nრეკომენდაცია: ნაგულისხმევი დატოვე, თუ განზრახ არ ურევ high/low priority WD-ებს."
   },
   {
     "Key": "workload.iorate",
@@ -669,7 +675,9 @@
     "Help": "Fixed off; I/O rate is always max on the run definition.",
     "Example": "1000",
     "SortOrder": 120,
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Per-workload I/O rate cap (iorate=). Prefer the General run iorate (fixed at max in this UI).\nExample: max\nRecommendation: leave disabled for full-stress runs.",
+    "HelpKa": "დატვირთვის I/O სიჩქარის ლიმიტი (iorate=). უპირატესობა მიანიჭე General-ის iorate-ს (ამ UI-ში max).\nმაგალითი: max\nრეკომენდაცია: სრული სტრესისთვის გათიშული დატოვე."
   },
   {
     "Key": "fsd.name",
@@ -686,8 +694,8 @@
     "Example": "fsd1",
     "SortOrder": 10,
     "Group": "Filesystem definition (FSD)",
-    "HelpEn": "Unique name for the filesystem definition. This becomes the fsd= identifier in the generated config.",
-    "HelpKa": "ფაილური სისტემის პროფილის უნიკალური სახელი."
+    "HelpEn": "Filesystem Structure Definition name (fsd=…).\nExample: fsd1\nRecommendation: short unique id; UI usually fills this per anchor.",
+    "HelpKa": "ფაილსისტემის სტრუქტურის სახელი (fsd=…).\nმაგალითი: fsd1\nრეკომენდაცია: მოკლე უნიკალური id; UI ჩვეულებრივ თავად ავსებს ანქორზე."
   },
   {
     "Key": "fsd.anchor",
@@ -705,8 +713,8 @@
     "SortOrder": 20,
     "TargetDerived": true,
     "Group": "Filesystem definition (FSD)",
-    "HelpEn": "Root directory path (anchor) where the test file tree is created. Usually set from target selection on Local Host or Master / Slave.",
-    "HelpKa": "ძირეული საქაღალდის გზა (დირექტორია), სადაც შეიქმნება სატესტო ფაილები და იერარქია."
+    "HelpEn": "Directory where Vdbench creates/uses test files (anchor=).\nExample: D:\\fs_test or /stresstest\nRecommendation: pick via Browse on Slaves/Local. Use an empty dedicated folder — never a production share.",
+    "HelpKa": "საქაღალდე, სადაც Vdbench ქმნის/იყენებს სატესტო ფაილებს (anchor=).\nმაგალითი: D:\\fs_test ან /stresstest\nრეკომენდაცია: აირჩიე Browse-ით Slaves/Local-ზე. მხოლოდ ცარიელი გამოყოფილი საქაღალდე — არა პროდაქშენ share."
   },
   {
     "Key": "fsd.depth",
@@ -723,8 +731,8 @@
     "Example": "2",
     "SortOrder": 30,
     "Group": "FSD tree layout",
-    "HelpEn": "Depth of the directory tree under the anchor. For example, 1 means only one level of subdirectories.",
-    "HelpKa": "საქაღალდეების იერარქიის სიღრმე. მაგალითად, 1 ნიშნავს მხოლოდ ერთი დონის საქაღალდეებს."
+    "HelpEn": "How many directory levels under the anchor (depth=).\nExample: 1\nRecommendation: 1 for a simple flat layout; raise only if you need a deep tree stress.",
+    "HelpKa": "რამდენი დონის საქაღალდეა ანქორის ქვეშ (depth=).\nმაგალითი: 1\nრეკომენდაცია: 1 მარტივი ბრტყელი სტრუქტურისთვის; გაზარდე მხოლოდ ღრმა ხის სტრესისთვის."
   },
   {
     "Key": "fsd.width",
@@ -741,8 +749,8 @@
     "Example": "4",
     "SortOrder": 40,
     "Group": "FSD tree layout",
-    "HelpEn": "Number of subdirectories created at each depth level.",
-    "HelpKa": "თითოეულ დონეზე შესაქმნელი საქაღალდეების რაოდენობა."
+    "HelpEn": "Directories per level (width=).\nExample: 1\nRecommendation: 1 with depth=1 for a single folder of files (typical lab). Larger width creates many directories.",
+    "HelpKa": "საქაღალდეების რაოდენობა თითო დონეზე (width=).\nმაგალითი: 1\nრეკომენდაცია: 1 depth=1-თან ერთი საქაღალდისთვის (ტიპური ლაბი). დიდი width ბევრ საქაღალდეს ქმნის."
   },
   {
     "Key": "fsd.files",
@@ -759,7 +767,9 @@
     "Example": "1",
     "SortOrder": 50,
     "Group": "FSD tree layout",
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Number of files per directory (files=).\nExample: 1\nRecommendation: 1 for single-file stress (common); raise for metadata-heavy tests.",
+    "HelpKa": "ფაილების რაოდენობა თითო საქაღალდეში (files=).\nმაგალითი: 1\nრეკომენდაცია: 1 ერთფაილიანი სტრესისთვის (ხშირი); გაზარდე metadata-მძიმე ტესტისთვის."
   },
   {
     "Key": "fsd.size",
@@ -776,8 +786,8 @@
     "Example": "1m",
     "SortOrder": 60,
     "Group": "FSD tree layout",
-    "HelpEn": "Size of each test file (for example 1m, 10g). The UI fixes files=1 per directory; use Advanced manual lines for sizes= distributions if needed.",
-    "HelpKa": "თითოეული სატესტო ფაილის ზომა (მაგალითად 1m, 10g)."
+    "HelpEn": "Size of each test file (size=).\nExample: 10g\nRecommendation: 1g–10g for trials; tens of GB+ for long runs. Ensure the anchor has enough free space.",
+    "HelpKa": "თითო სატესტო ფაილის ზომა (size=).\nმაგალითი: 10g\nრეკომენდაცია: 1g–10g საცდელად; ათობით GB+ გრძელი გაშვებისთვის. ანქორზე საკმარისი თავისუფალი ადგილი უნდა იყოს."
   },
   {
     "Key": "fsd.bypassOsCache",
@@ -797,8 +807,8 @@
     "Example": "yes",
     "SortOrder": 65,
     "Group": "FSD tree layout",
-    "HelpEn": "Bypass the operating system cache (direct I/O) so operations go to disk instead of cache.\nWhen yes, generated fsd= lines include openflags=directio on Windows and openflags=o_direct on Linux.\nOptions:\n  yes\n  no",
-    "HelpKa": "ოპერაციული სისტემის ქეშის უგულებელყოფა (Direct I/O), რათა ოპერაციები პირდაპირ დისკზე შესრულდეს.\nვარიანტები:\n  yes\n  no"
+    "HelpEn": "Bypass OS page cache for filesystem I/O (maps to o_direct / directio).\nExample: yes\nRecommendation: yes for storage stress; no only when measuring cached filesystem behavior on purpose.",
+    "HelpKa": "OS ქეშის გვერდის ავლა ფაილსისტემის I/O-სთვის (o_direct / directio).\nმაგალითი: yes\nრეკომენდაცია: yes სტრესისთვის; no — მხოლოდ თუ განზრახ ზომავ ქეშირებულ ფაილსისტემას."
   },
   {
     "Key": "fsd.distribution",
@@ -818,8 +828,8 @@
     "Example": "bottom",
     "SortOrder": 70,
     "Group": "FSD tree layout",
-    "HelpEn": "Where files are placed in the directory tree.\nOptions:\n  bottom — files only in leaf directories\n  all — files distributed in every directory level",
-    "HelpKa": "განსაზღვრავს იერარქიაში სად უნდა განთავსდეს ფაილები.\nვარიანტები:\n  bottom — ფაილები შეიქმნება მხოლოდ ბოლო დონის საქაღალდეებში\n  all — ფაილები გადანაწილდება ყველა დონის საქაღალდეში"
+    "HelpEn": "How file sizes are distributed when multiple sizes are used (distribution=).\nExample: bottom_up\nRecommendation: leave default unless you are modeling mixed file-size populations.",
+    "HelpKa": "ფაილის ზომების განაწილება, როცა რამდენიმე ზომაა (distribution=).\nმაგალითი: bottom_up\nრეკომენდაცია: ნაგულისხმევი დატოვე, თუ შერეულ ზომებს არ მოდელირებ."
   },
   {
     "Key": "fsd.totalsize",
@@ -836,8 +846,8 @@
     "Example": "10g",
     "SortOrder": 80,
     "Group": "FSD advanced",
-    "HelpEn": "Total data volume to create across the filesystem definition before stopping file creation.",
-    "HelpKa": "ფაილური სისტემის ჯამური მოცულობა, რომელიც უნდა შეიქმნას."
+    "HelpEn": "Total data set size across files (totalsize=).\nExample: 100g\nRecommendation: optional cap; often leave blank and control size via fsd.size × files.",
+    "HelpKa": "მონაცემთა სრული მოცულობა ყველა ფაილზე (totalsize=).\nმაგალითი: 100g\nრეკომენდაცია: არასავალდებულო ლიმიტი; ხშირად ცარიელი დატოვე და აკონტროლე fsd.size × files-ით."
   },
   {
     "Key": "fsd.workingsetsize",
@@ -854,8 +864,8 @@
     "Example": "1g",
     "SortOrder": 90,
     "Group": "FSD advanced",
-    "HelpEn": "Working set size (wss=): the subset of data that the workload actively uses during the test.",
-    "HelpKa": "სამუშაო სივრცის ზომა, ანუ მონაცემების ის მოცულობა, რომელზეც უშუალოდ იტრიალებს დატვირთვა ტესტის დროს."
+    "HelpEn": "Active working-set size inside the data set (workingsetsize=).\nExample: 20g\nRecommendation: advanced — use when simulating hot data smaller than totalsize.",
+    "HelpKa": "აქტიური working set-ის ზომა მონაცემებში (workingsetsize=).\nმაგალითი: 20g\nრეკომენდაცია: მოწინავე — გამოიყენე, როცა ცხელი მონაცემები totalsize-ზე პატარაა."
   },
   {
     "Key": "fsd.openflags",
@@ -877,7 +887,9 @@
     "Example": "o_direct",
     "SortOrder": 100,
     "Group": "FSD advanced",
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Low-level open flags for FSD (openflags=). Prefer Bypass OS cache in this UI.\nExample: o_direct\nRecommendation: leave disabled unless you need an extra flag.",
+    "HelpKa": "FSD-ის დაბალი დონის openflags=. უპირატესობა მიანიჭე Bypass OS cache-ს.\nმაგალითი: o_direct\nრეკომენდაცია: გათიშული დატოვე, თუ დამატებითი ფლაგი არ გჭირდება."
   },
   {
     "Key": "fsd.shared",
@@ -897,7 +909,9 @@
     "Example": "no",
     "SortOrder": 110,
     "Group": "FSD advanced",
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Whether multiple hosts may share the same FSD files (shared=).\nExample: yes\nRecommendation: yes for distributed runs on a shared anchor; no for host-private directories.",
+    "HelpKa": "შეიძლება თუ არა რამდენიმე ჰოსტმა იგივე FSD ფაილები გაიზიაროს (shared=).\nმაგალითი: yes\nრეკომენდაცია: yes განაწილებულ გაშვებაზე საერთო ანქორზე; no — ჰოსტის პირადი საქაღალდეებისთვის."
   },
   {
     "Key": "fwd.name",
@@ -914,8 +928,8 @@
     "Example": "fwd1",
     "SortOrder": 10,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Name of the filesystem workload definition (fwd=).",
-    "HelpKa": "ფაილური დატვირთვის პროფილის სახელი."
+    "HelpEn": "Filesystem Workload Definition name (fwd=…).\nExample: fwd1\nRecommendation: short unique name; UI usually fills this.",
+    "HelpKa": "ფაილსისტემის დატვირთვის სახელი (fwd=…).\nმაგალითი: fwd1\nრეკომენდაცია: მოკლე უნიკალური სახელი; UI ჩვეულებრივ თავად ავსებს."
   },
   {
     "Key": "fwd.operation",
@@ -945,8 +959,8 @@
     "Example": "read",
     "SortOrder": 20,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Primary filesystem operation for this workload.\nCommon options:\n  read — read data\n  write — write data\n  mkdir — create directory\n  rmdir — remove directory\n  create — create file\n  delete — delete file",
-    "HelpKa": "შესასრულებელი ძირითადი ოპერაციის ტიპი.\nვარიანტები:\n  read — წაკითხვა\n  write — ჩაწერა\n  mkdir — საქაღალდის შექმნა\n  rmdir — საქაღალდის წაშლა\n  create — ფაილის შექმნა\n  delete — ფაილის წაშლა"
+    "HelpEn": "Primary filesystem operation (operation=).\nCommon options: read, write, mkdir, rmdir, create, delete, access\nExample: read\nRecommendation: read or write for data-path stress; create/delete for metadata stress. Pair with Read % when mixing reads and writes.",
+    "HelpKa": "ძირითადი ფაილსისტემის ოპერაცია (operation=).\nვარიანტები: read, write, mkdir, rmdir, create, delete, access\nმაგალითი: read\nრეკომენდაცია: read/write მონაცემების სტრესისთვის; create/delete metadata-სთვის. შერეული read/write-ისთვის გამოიყენე Read %."
   },
   {
     "Key": "fwd.rdpct",
@@ -955,16 +969,16 @@
     "VdbenchName": "rdpct",
     "Line": "fwd",
     "Type": "text",
-    "Default": "",
+    "Default": "70",
     "Options": [],
     "AppliesTo": "fs",
-    "Required": false,
-    "Help": "For read/write operations: mix reads and writes against the same file.",
-    "Example": "30",
+    "Required": true,
+    "Help": "Percentage of filesystem I/O that are reads (0-100). Enabled by default.",
+    "Example": "70",
     "SortOrder": 30,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Percentage of read operations in the workload when mixing reads and writes (for example 100 means read-only).",
-    "HelpKa": "წაკითხვის ოპერაციების პროცენტული წილი მთლიან დატვირთვაში (მაგალითად 100 ნიშნავს სრულად წაკითხვას)."
+    "HelpEn": "Read percentage for filesystem workloads (rdpct=): share of reads vs writes against the same files.\nOptions: 0–100 (100 = read-only, 0 = write-only, 70 = 70% read / 30% write).\nExample: 70\nRecommendation: 100 with operation=read for pure read; 70 for mixed WP-style tests; 0 for pure write. Enabled by default with value 70.",
+    "HelpKa": "წაკითხვის პროცენტი ფაილსისტემის დატვირთვაში (rdpct=): read vs write წილი იმავე ფაილებზე.\nვარიანტები: 0–100 (100 = მხოლოდ read, 0 = მხოლოდ write, 70 = 70% read / 30% write).\nმაგალითი: 70\nრეკომენდაცია: 100 operation=read-თან სუფთა წაკითხვისთვის; 70 შერეული WP-სტილისთვის; 0 სუფთა ჩაწერისთვის. ნაგულისხმევად ჩართულია მნიშვნელობით 70."
   },
   {
     "Key": "fwd.fileio",
@@ -985,7 +999,9 @@
     "Example": "(random,shared)",
     "SortOrder": 40,
     "Group": "Filesystem workload (FWD)",
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "How file contents are accessed (fileio=).\nOptions include random and (random,shared).\nExample: (random,shared)\nRecommendation: (random,shared) for multi-thread/multi-host random access; random for simpler single-thread patterns.",
+    "HelpKa": "როგორ იკითხება/იწერება ფაილის შიგთავსი (fileio=).\nვარიანტები: random, (random,shared) და სხვ.\nმაგალითი: (random,shared)\nრეკომენდაცია: (random,shared) მრავალნაკადიანი/მრავალჰოსტიანი random-ისთვის; random უფრო მარტივი სცენარისთვის."
   },
   {
     "Key": "fwd.fileselect",
@@ -1005,8 +1021,8 @@
     "Example": "random",
     "SortOrder": 50,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "How target files are chosen from the directory tree.\nOptions:\n  random — pick files randomly\n  sequential — pick files in order",
-    "HelpKa": "სამიზნე ფაილების არჩევის მეთოდი საერთო დირექტორიიდან.\nვარიანტები:\n  random — ფაილებს ირჩევს ალაგ-ალაგ\n  sequential — ფაილებს ირჩევს თანმიმდევრობით"
+    "HelpEn": "How files are chosen under the anchor (fileselect=).\nExample: random\nRecommendation: random for typical stress; sequential when walking files in order.",
+    "HelpKa": "როგორ ირჩევა ფაილები ანქორის ქვეშ (fileselect=).\nმაგალითი: random\nრეკომენდაცია: random ტიპური სტრესისთვის; sequential — როცა ფაილებს თანმიმდევრობით გადაივლი."
   },
   {
     "Key": "fwd.xfersize",
@@ -1032,8 +1048,8 @@
     "Example": "4k",
     "SortOrder": 60,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Transfer block size for each I/O operation (for example 4k, 32k).",
-    "HelpKa": "მონაცემთა გადაცემის ანუ ბლოკის ზომა თითოეული ოპერაციისთვის (მაგალითად 4k, 32k)."
+    "HelpEn": "Transfer size for filesystem I/O (xfersize=).\nExample: 32k\nRecommendation: 4k for IOPS; 32k–128k for throughput. Keep constant when comparing runs.",
+    "HelpKa": "ფაილსისტემის I/O-ს გადაცემის ზომა (xfersize=).\nმაგალითი: 32k\nრეკომენდაცია: 4k IOPS-ისთვის; 32k–128k გამტარობისთვის. შედარებისას იგივე დაიტოვე."
   },
   {
     "Key": "fwd.threads",
@@ -1050,8 +1066,8 @@
     "Example": "8",
     "SortOrder": 70,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Number of parallel threads executing this workload. You need at least one file per thread.",
-    "HelpKa": "პარალელური ნაკადების რაოდენობა, რომლებიც ერთდროულად ასრულებენ დატვირთვას."
+    "HelpEn": "Concurrent threads for this filesystem workload (threads=).\nExample: 8\nRecommendation: start low (1–8) and increase until latency rises. On distributed runs, threads are per host workload.",
+    "HelpKa": "პარალელური ნაკადები ამ ფაილსისტემის დატვირთვისთვის (threads=).\nმაგალითი: 8\nრეკომენდაცია: დაიწყე დაბლა (1–8) და გაზარდე სანამ latency არ აიწევს. განაწილებულ გაშვებაში threads ჰოსტზეა."
   },
   {
     "Key": "fwd.skew",
@@ -1068,8 +1084,8 @@
     "Example": "50",
     "SortOrder": 80,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Percentage of total workload assigned to this FWD when multiple workloads run together.",
-    "HelpKa": "საერთო დატვირთვის რა პროცენტი უნდა მოხმარდეს ამ კონკრეტულ პროფილს (გამოიყენება რამდენიმე დატვირთვის ერთდროულად გაშვებისას)."
+    "HelpEn": "Relative share when multiple FWDs run together (skew=).\nExample: 50\nRecommendation: equal skew unless one workload should dominate.",
+    "HelpKa": "წილი, როცა რამდენიმე FWD ერთად მუშაობს (skew=).\nმაგალითი: 50\nრეკომენდაცია: თანაბარი skew, თუ ერთ დატვირთვას განზრახ არ აძლიერებ."
   },
   {
     "Key": "fwd.stopafter",
@@ -1086,8 +1102,8 @@
     "Example": "1000",
     "SortOrder": 90,
     "Group": "Filesystem workload (FWD)",
-    "HelpEn": "Stop condition for the workload, for example after a specific amount of data has been processed.",
-    "HelpKa": "პირობა ტესტის შესაწყვეტად, მაგალითად, მას შემდეგ რაც დამუშავდება კონკრეტული მოცულობის მონაცემი."
+    "HelpEn": "Stop after N operations or amount of work (stopafter=).\nExample: 10000\nRecommendation: usually leave blank and control duration with elapsed/warmup instead.",
+    "HelpKa": "გაჩერება N ოპერაციის ან სამუშაოს შემდეგ (stopafter=).\nმაგალითი: 10000\nრეკომენდაცია: ჩვეულებრივ ცარიელი დატოვე და ხანგრძლივობა elapsed/warmup-ით აკონტროლე."
   },
   {
     "Key": "fwd.openflags",
@@ -1109,6 +1125,8 @@
     "Example": "o_direct",
     "SortOrder": 100,
     "Group": "Filesystem workload (FWD)",
-    "EditorHidden": true
+    "EditorHidden": true,
+    "HelpEn": "Low-level open flags for FWD (openflags=). Prefer FSD Bypass OS cache.\nExample: o_direct\nRecommendation: leave disabled unless you need an extra flag on the workload.",
+    "HelpKa": "FWD-ის დაბალი დონის openflags=. უპირატესობა მიანიჭე FSD Bypass OS cache-ს.\nმაგალითი: o_direct\nრეკომენდაცია: გათიშული დატოვე, თუ დატვირთვაზე დამატებითი ფლაგი არ გჭირდება."
   }
 ]

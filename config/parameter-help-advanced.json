@@ -1,12 +1,12 @@
 {
   "AdvancedActive": {
     "Label": "Active manual Vdbench lines",
-    "HelpEn": "Manually injected Vdbench configuration lines that are active and executed in the test.",
-    "HelpKa": "ხელით გაწერილი Vdbench-ის კონფიგურაციის დამატებითი ხაზები, რომლებიც ტესტში აქტიურია და ეშვება."
+    "HelpEn": "Extra Vdbench parameter lines you type by hand. They are written into the generated .parm and executed with the run.\nExample: hd=extra,system=10.0.0.9,user=root\nRecommendation: use only when the Profile tabs cannot express a needed line. Prefer the normal parameter grid for anything it already covers — typos here can break the whole run.",
+    "HelpKa": "დამატებითი Vdbench ხაზები, რომლებსაც ხელით წერ. იწერება გენერირებულ .parm-ში და გაშვებასთან ერთად სრულდება.\nმაგალითი: hd=extra,system=10.0.0.9,user=root\nრეკომენდაცია: გამოიყენე მხოლოდ მაშინ, როცა Profile ტაბები საჭირო ხაზს ვერ გამოხატავს. რაც უკვე გრიდშია — იქ დააყენე; აქ შეცდომამ მთელი გაშვება შეიძლება დააზიანოს."
   },
   "AdvancedDisabled": {
     "Label": "Disabled/commented manual lines",
-    "HelpEn": "Commented-out (disabled) lines that are ignored by the program during the run.",
-    "HelpKa": "დაკომენტარებული (გათიშული) ხაზები, რომლებსაც პროგრამა იგნორირებას უკეთებს გაშვებისას."
+    "HelpEn": "Manual lines kept in the profile but commented out in the .parm (not executed).\nExample: * sd=old,lun=/dev/sdz\nRecommendation: park experimental lines here instead of deleting them, so you can re-enable later. They do not affect the live run while commented.",
+    "HelpKa": "ხელით გაწერილი ხაზები, რომლებიც პროფილში რჩება, მაგრამ .parm-ში კომენტარია (არ სრულდება).\nმაგალითი: * sd=old,lun=/dev/sdz\nრეკომენდაცია: ექსპერიმენტული ხაზები აქ შეინახე წაშლის ნაცვლად — მოგვიანებით ისევ ჩართავ. კომენტარისას ცოცხალ გაშვებაზე გავლენა არ აქვთ."
   }
 }

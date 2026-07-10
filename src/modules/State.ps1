@@ -120,6 +120,11 @@ function Apply-RawProfileFixedDefaults {
     if (-not [string]::IsNullOrWhiteSpace($seekpct)) {
         Set-ProfileParamValue $Profile "workload.seekpct" (Normalize-WorkloadSeekpctProfileValue $seekpct)
     }
+    $rdpctValue = Get-ProfileParamValue $Profile "workload.rdpct" ""
+    if ([string]::IsNullOrWhiteSpace($rdpctValue)) {
+        Set-ProfileParamValue $Profile "workload.rdpct" "70"
+        Set-ProfileParamEnabled $Profile "workload.rdpct" $true
+    }
 }
 
 function Apply-FilesystemProfileFixedDefaults {
@@ -157,6 +162,13 @@ function Apply-FilesystemProfileFixedDefaults {
     }
     Set-ProfileParamValue $Profile "common.rate" "max"
     Set-ProfileParamEnabled $Profile "common.rate" $true
+    # Enable Read % by default (catalog Default=70). Migrate older FS profiles that
+    # still have blank+disabled fwd.rdpct from when the catalog Default was empty.
+    $rdpctValue = Get-ProfileParamValue $Profile "fwd.rdpct" ""
+    if ([string]::IsNullOrWhiteSpace($rdpctValue)) {
+        Set-ProfileParamValue $Profile "fwd.rdpct" "70"
+        Set-ProfileParamEnabled $Profile "fwd.rdpct" $true
+    }
 }
 
 function Test-ProfileRawBypassOsCacheEnabled {
@@ -863,6 +875,8 @@ function Ensure-DefaultProfiles {
     if (-not [System.IO.File]::Exists($readPath)) {
         $profileObject = New-DefaultProfile "Default-Filesystem-Random-Read" "Filesystem"
         Set-ProfileParamValue $profileObject "fwd.operation" "read"
+        Set-ProfileParamValue $profileObject "fwd.rdpct" "100"
+        Set-ProfileParamEnabled $profileObject "fwd.rdpct" $true
         Set-ProfileParamValue $profileObject "run.format" "no"
         Apply-FilesystemProfileFixedDefaults $profileObject
         Write-JsonFile $readPath $profileObject
