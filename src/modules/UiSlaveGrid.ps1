@@ -905,7 +905,7 @@ function Show-TargetPicker {
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
     $dialog.MinimizeBox = $false
     $dialog.MaximizeBox = $true
-    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1040 -BaseHeight 640
+    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1040 -BaseHeight 640 -PassThru
 
     $layout = New-Object System.Windows.Forms.TableLayoutPanel
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1131,9 +1131,11 @@ function Add-NewSlaveRow {
     $idx = $script:SlaveGrid.Rows.Add()
     $row = $script:SlaveGrid.Rows[$idx]
     $row.Cells["Enabled"].Value = $false
-    $row.Cells["Name"].Value = [string]$details.Name
-    $row.Cells["Host"].Value = [string]$details.Host
-    $row.Cells["OsType"].Value = [string]$details.OsType
+    # Use Get-PropertyValue (not bare $details.Name): under StrictMode, member
+    # enumeration on a polluted Object[] return throws PropertyNotFoundException.
+    $row.Cells["Name"].Value = [string](Get-PropertyValue $details "Name" "")
+    $row.Cells["Host"].Value = [string](Get-PropertyValue $details "Host" "")
+    $row.Cells["OsType"].Value = [string](Get-PropertyValue $details "OsType" "Windows")
     $row.Cells["Readiness"].Value = "Not checked"
     $row.Cells["CheckedAt"].Value = ""
     $row.Cells["PingStatus"].Value = ""

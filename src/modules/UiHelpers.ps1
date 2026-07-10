@@ -865,10 +865,19 @@ function Initialize-ResponsiveChildForm {
     param(
         [System.Windows.Forms.Form]$Form,
         [int]$BaseWidth = 0,
-        [int]$BaseHeight = 0
+        [int]$BaseHeight = 0,
+        # Only emit the scale factor when the caller asks for it. Returning by
+        # default polluted dialog functions (e.g. Show-AddSlaveDialog) under
+        # Set-StrictMode: the bare float + returned hashtable became Object[],
+        # and $details.Name then threw PropertyNotFoundException on the float.
+        [switch]$PassThru
     )
+    $scale = 1.0
     if ($null -eq $Form) {
-        return 1.0
+        if ($PassThru) {
+            return $scale
+        }
+        return
     }
     $scale = Get-UiScaleFactor $script:Form
     if ($scale -lt 1.0) {
@@ -882,7 +891,9 @@ function Initialize-ResponsiveChildForm {
     if ($BaseWidth -gt 0 -and $BaseHeight -gt 0) {
         $Form.Size = New-Object System.Drawing.Size -ArgumentList ([int][Math]::Round($BaseWidth * $scale)), ([int][Math]::Round($BaseHeight * $scale))
     }
-    return $scale
+    if ($PassThru) {
+        return $scale
+    }
 }
 
 function Apply-ResponsiveDialogControlFonts {

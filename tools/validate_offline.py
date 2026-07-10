@@ -725,7 +725,131 @@ Invoke-AppSelfTest
     _run_remote_ssh_args_return_regression_check(pwsh)
     _run_directory_listing_regression_check(pwsh)
     _run_process_event_bridge_regression_check(pwsh)
+    _run_add_slave_dialog_scale_leak_regression_check(pwsh)
     return True
+
+
+def _run_add_slave_dialog_scale_leak_regression_check(pwsh: str) -> None:
+    """Initialize-ResponsiveChildForm must not pollute dialog return pipelines.
+
+    Real bug (2026-07-10): Show-AddSlaveDialog called Initialize-ResponsiveChildForm
+    without capturing its returned scale float. Under Set-StrictMode -Version 2.0,
+    Add-NewSlaveRow then did $details.Name on Object[] (float + hashtable) and threw
+    PropertyNotFoundException — hosts could not be added. Fix: only emit scale with
+    -PassThru; callers that need it must opt in.
+
+    WinForms types are unavailable on Linux pwsh, so this harness does not
+    dot-source UiHelpers.ps1. It reproduces the StrictMode failure mode and
+    checks the PassThru contract via a minimal stand-in that mirrors the fixed
+    helper's emit rules; static asserts in main() cover the real source.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="vdbench-add-slave-scale-") as tmp_dir:
+        harness_script = Path(tmp_dir) / "run-add-slave-scale-check.ps1"
+        harness_script.write_text(
+            """
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = "Stop"
+$script:AppRoot = "{app_root}"
+$script:ModuleRoot = "{module_root}"
+. (Join-Path $script:ModuleRoot "Core.ps1")
+
+# Stand-in mirroring Initialize-ResponsiveChildForm's PassThru emit contract
+# (no WinForms types — those cannot load on Linux pwsh).
+function Initialize-ResponsiveChildFormStandIn {{
+    param(
+        [object]$Form = $null,
+        [int]$BaseWidth = 0,
+        [int]$BaseHeight = 0,
+        [switch]$PassThru
+    )
+    $scale = 1.0
+    if ($PassThru) {{
+        return $scale
+    }}
+}}
+
+$leaked = @(Initialize-ResponsiveChildFormStandIn -Form $null -BaseWidth 100 -BaseHeight 100)
+if ($leaked.Count -ne 0) {{
+    throw ("stand-in leaked pipeline output without -PassThru: count={{0}}" -f $leaked.Count)
+}}
+
+$scale = Initialize-ResponsiveChildFormStandIn -Form $null -BaseWidth 100 -BaseHeight 100 -PassThru
+if ($scale -ne 1.0) {{
+    throw ("PassThru should return 1.0, got {{0}}" -f $scale)
+}}
+
+# Exact StrictMode failure the UI hit: scale float + hashtable → Object[].Name
+function Invoke-PollutedAddSlaveReturn {{
+    1.25
+    return @{{ Host = "10.0.0.5"; Name = "slave-1"; OsType = "Windows" }}
+}}
+function Invoke-CleanAddSlaveReturn {{
+    return @{{ Host = "10.0.0.5"; Name = "slave-1"; OsType = "Windows" }}
+}}
+
+$polluted = @(Invoke-PollutedAddSlaveReturn)
+$clean = Invoke-CleanAddSlaveReturn
+$pollutedFailed = $false
+try {{
+    $null = [string]$polluted.Name
+}} catch [System.Management.Automation.PropertyNotFoundException] {{
+    $pollutedFailed = $true
+}}
+if (-not $pollutedFailed) {{
+    throw "expected StrictMode PropertyNotFoundException on polluted Object[].Name"
+}}
+
+$cleanName = [string]$clean.Name
+if ($cleanName -ne "slave-1") {{
+    throw ("clean hashtable .Name failed: {{0}}" -f $cleanName)
+}}
+$viaHelper = [string](Get-PropertyValue $clean "Name" "")
+if ($viaHelper -ne "slave-1") {{
+    throw ("Get-PropertyValue on hashtable Name failed: {{0}}" -f $viaHelper)
+}}
+
+$results = [pscustomobject]@{{
+    LeakCount = $leaked.Count
+    PassThruScale = $scale
+    PollutedCount = $polluted.Count
+    PollutedFailed = $pollutedFailed
+    CleanName = $cleanName
+    HelperName = $viaHelper
+}}
+$results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
+""".format(
+                app_root=str(ROOT),
+                module_root=str(MODULE_ROOT),
+                results_path=str(Path(tmp_dir) / "results.json"),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(harness_script)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(result.stdout.strip())
+            print(result.stderr.strip())
+            raise AssertionError("add-slave scale-leak regression harness failed to run")
+
+        parsed = json.loads((Path(tmp_dir) / "results.json").read_text(encoding="utf-8"))
+        assert parsed.get("LeakCount") == 0, parsed
+        assert parsed.get("PassThruScale") == 1.0, parsed
+        assert parsed.get("PollutedCount") == 2, parsed
+        assert parsed.get("PollutedFailed") is True, parsed
+        assert parsed.get("CleanName") == "slave-1", parsed
+        assert parsed.get("HelperName") == "slave-1", parsed
+        print(
+            "add-slave scale-leak regression check: "
+            "PassThru emit contract verified; polluted Object[].Name StrictMode "
+            "failure reproduced; clean hashtable OK"
+        )
 
 
 def _run_target_cleanup_regression_check(pwsh: str) -> None:
@@ -2867,6 +2991,30 @@ def main() -> int:
     assert "function Browse-SlaveTargetsForRow" in ui_slave_module
     assert "function Start-SlaveReadinessCheck" in ui_slave_module
     assert "function Show-AddSlaveDialog" in ui_slave_module
+    assert "[switch]$PassThru" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8"), (
+        "Initialize-ResponsiveChildForm must gate scale return behind -PassThru "
+        "(bare return polluted Show-AddSlaveDialog and broke Add slave under StrictMode)"
+    )
+    assert 'Get-PropertyValue $details "Name"' in ui_slave_module, (
+        "Add-NewSlaveRow must read dialog fields via Get-PropertyValue, not bare $details.Name"
+    )
+    # Callers that need the scale must opt in; bare calls must not assign a leaked float.
+    for rel in ("UiSlaveGrid.ps1", "TargetDiscovery.ps1"):
+        text = (MODULE_ROOT / rel).read_text(encoding="utf-8")
+        for i, line in enumerate(text.splitlines(), 1):
+            if "Initialize-ResponsiveChildForm" not in line:
+                continue
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if re.search(r"\$\w+\s*=\s*Initialize-ResponsiveChildForm", stripped):
+                assert "-PassThru" in stripped, (
+                    f"{rel}:{i} assigns Initialize-ResponsiveChildForm result but missing -PassThru"
+                )
+            else:
+                assert "-PassThru" not in stripped, (
+                    f"{rel}:{i} passes -PassThru without capturing the scale return"
+                )
     assert "function Reset-SlaveRowReadiness" in ui_slave_module
     assert "Schedule-SlaveReadinessCheck" not in ui_slave_module
     assert "SlaveReadinessTimerRows" not in ui_slave_module
