@@ -73,6 +73,7 @@ UI-ის ველი **Install root (reference)** master-ზე `C:\install`-�
 | `03-Prepare-Vdbench-Linux-Slave-v4.3.sh` | Linux slave | RHEL 9 slave-ის ოფლაინ მომზადება |
 | `04-Check-Vdbench-Hosts-Readiness.ps1` | Master (UI) | **Readiness** ღილაკი (ცალკე PowerShell ფანჯარა) |
 | `REQUIRED-FILES.txt` | ყველა | ბინარული პაკეტების ჩექლისტი (git-ში არ არის) |
+| `vdbench-50407.pdf` | არასავალდებულო | Oracle Vdbench 5.04.07 სახელმძღვანელო (მხოლოდ ცნობარი) |
 | `microsoft-jdk-11.0.31-windows-x64.exe` | Master + Win slave | Microsoft JDK 11 |
 | `OpenSSH-Win64-v10.0.0.0.msi` | Master + Win slave | OpenSSH Client + Server |
 | `vdbench50407.zip` | Master + ყველა slave | Oracle Vdbench არქივი (`C:\vdbench` / `/opt/vdbench`) |

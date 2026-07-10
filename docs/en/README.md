@@ -73,6 +73,7 @@ The UI’s **Install root (reference)** field points at `C:\install` on the mast
 | `03-Prepare-Vdbench-Linux-Slave-v4.3.sh` | Linux slave | Offline-friendly RHEL 9 slave prepare |
 | `04-Check-Vdbench-Hosts-Readiness.ps1` | Master (UI) | Used by the **Readiness** button (separate PowerShell window) |
 | `REQUIRED-FILES.txt` | All | Checklist of binaries you must add (not in git) |
+| `vdbench-50407.pdf` | Optional | Oracle Vdbench 5.04.07 user guide (reference only) |
 | `microsoft-jdk-11.0.31-windows-x64.exe` | Master + Win slave | Microsoft JDK 11 (preferred) |
 | `OpenSSH-Win64-v10.0.0.0.msi` | Master + Win slave | OpenSSH Client + Server |
 | `vdbench50407.zip` | Master + all slaves | Oracle Vdbench archive (extract under `C:\vdbench` / `/opt/vdbench`) |

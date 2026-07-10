@@ -6,11 +6,12 @@ Copy this entire "install" folder to each lab host as:
   Windows master / Windows slave :  C:\install
   Linux slave                    :  /root/install
 
-Scripts in THIS folder (shipped with the repo):
+Scripts / docs in THIS folder (shipped with the repo):
   01-Prepare-Vdbench-Master.ps1
   02-Prepare-Vdbench-Windows-Slave.ps1
   03-Prepare-Vdbench-Linux-Slave-v4.3.sh
   04-Check-Vdbench-Hosts-Readiness.ps1
+  vdbench-50407.pdf    (Oracle Vdbench 5.04.07 user guide — optional reference)
   REQUIRED-FILES.txt   (this file)
 
 You must ADD the binary packages below yourself (not stored in git).

@@ -431,6 +431,12 @@ def validate_filesystem_parameter_help(catalog: list[dict]):
         for field in ("HelpEn", "HelpKa"):
             value = str(item.get(field) or "").strip()
             assert value, f"catalog item {key} missing non-empty {field}"
+        help_en = str(item.get("HelpEn") or "")
+        help_ka = str(item.get("HelpKa") or "")
+        assert re.search(r"(?i)\bexample\b", help_en), f"catalog item {key} HelpEn should include an Example"
+        assert re.search(r"(?i)\brecommend", help_en), f"catalog item {key} HelpEn should include a Recommendation"
+        assert "მაგალით" in help_ka, f"catalog item {key} HelpKa should include მაგალითი"
+        assert "რეკომენდ" in help_ka, f"catalog item {key} HelpKa should include რეკომენდაცია"
 
 
 def validate_raw_parameter_help(catalog: list[dict]):
@@ -443,6 +449,12 @@ def validate_raw_parameter_help(catalog: list[dict]):
         for field in ("HelpEn", "HelpKa"):
             value = str(item.get(field) or "").strip()
             assert value, f"catalog item {key} missing non-empty {field}"
+        help_en = str(item.get("HelpEn") or "")
+        help_ka = str(item.get("HelpKa") or "")
+        assert re.search(r"(?i)\bexample\b", help_en), f"catalog item {key} HelpEn should include an Example"
+        assert re.search(r"(?i)\brecommend", help_en), f"catalog item {key} HelpEn should include a Recommendation"
+        assert "მაგალით" in help_ka, f"catalog item {key} HelpKa should include მაგალითი"
+        assert "რეკომენდ" in help_ka, f"catalog item {key} HelpKa should include რეკომენდაცია"
 
 
 def validate_advanced_parameter_help():
@@ -455,6 +467,12 @@ def validate_advanced_parameter_help():
         for field in ("Label", "HelpEn", "HelpKa"):
             value = str(entry.get(field) or "").strip()
             assert value, f"advanced help {key} missing non-empty {field}"
+        help_en = str(entry.get("HelpEn") or "")
+        help_ka = str(entry.get("HelpKa") or "")
+        assert re.search(r"(?i)\bexample\b", help_en), f"advanced help {key} HelpEn should include an Example"
+        assert re.search(r"(?i)\brecommend", help_en), f"advanced help {key} HelpEn should include a Recommendation"
+        assert "მაგალით" in help_ka, f"advanced help {key} HelpKa should include მაგალითი"
+        assert "რეკომენდ" in help_ka, f"advanced help {key} HelpKa should include რეკომენდაცია"
 
 
 def validate_modules():
@@ -1156,6 +1174,7 @@ $legacy = [pscustomobject]@{{
         [pscustomobject]@{{ Key = "fsd.shared"; Enabled = $false; Value = "yes" }}
         [pscustomobject]@{{ Key = "fwd.fileio"; Enabled = $true; Value = "random" }}
         [pscustomobject]@{{ Key = "fsd.openflags"; Enabled = $true; Value = "o_direct" }}
+        [pscustomobject]@{{ Key = "fwd.rdpct"; Enabled = $false; Value = "" }}
     )
     AdvancedActive = ""
     AdvancedDisabled = ""
@@ -1169,6 +1188,8 @@ $results = [pscustomobject]@{{
     BypassValue = (Get-ProfileParamValue $legacy "fsd.bypassOsCache" "")
     BypassEnabled = (Get-ProfileParamEnabled $legacy "fsd.bypassOsCache")
     LegacyOpenflagsEnabled = (Get-ProfileParamEnabled $legacy "fsd.openflags")
+    RdpctValue = (Get-ProfileParamValue $legacy "fwd.rdpct" "")
+    RdpctEnabled = (Get-ProfileParamEnabled $legacy "fwd.rdpct")
 }}
 $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding UTF8
 """.format(
@@ -1204,9 +1225,15 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
         )
         assert parsed.get("BypassEnabled") is True, parsed
         assert parsed.get("LegacyOpenflagsEnabled") is False, parsed
+        assert parsed.get("RdpctValue") == "70", (
+            f"blank fwd.rdpct must default to 70 on load, got {parsed.get('RdpctValue')!r}"
+        )
+        assert parsed.get("RdpctEnabled") is True, (
+            f"blank fwd.rdpct must be Enabled by default, got {parsed.get('RdpctEnabled')!r}"
+        )
         print(
             "filesystem profile fixed-defaults regression check: "
-            "legacy files/shared/fileio/bypassOsCache normalize on profile load"
+            "legacy files/shared/fileio/bypassOsCache/rdpct normalize on profile load"
         )
 
 
@@ -2799,7 +2826,13 @@ def main() -> int:
     assert "========================================" in ui_helpers_text
     catalog_by_key = {item["Key"]: item for item in catalog}
     assert catalog_by_key["fwd.rdpct"]["Type"] == "text", "fwd.rdpct must be a text field"
+    assert catalog_by_key["fwd.rdpct"].get("Default") == "70", "fwd.rdpct must default to 70"
+    assert catalog_by_key["fwd.rdpct"].get("Required") is True, "fwd.rdpct must be Required (Enabled by default)"
     assert catalog_by_key["workload.rdpct"]["Type"] == "text", "workload.rdpct must be a text field"
+    assert catalog_by_key["workload.rdpct"].get("Default") == "70", "workload.rdpct must default to 70"
+    assert catalog_by_key["workload.rdpct"].get("Required") is True, "workload.rdpct must be Required (Enabled by default)"
+    assert (ROOT / "install" / "vdbench-50407.pdf").is_file(), "vdbench-50407.pdf must live under install/"
+    assert not (ROOT / "vdbench-50407.pdf").exists(), "vdbench-50407.pdf must not remain at repo root"
     seekpct_def = catalog_by_key["workload.seekpct"]
     assert seekpct_def["Type"] == "dropdown", "workload.seekpct must be a dropdown"
     assert list(seekpct_def.get("Options") or []) == ["random", "sequential"], (
