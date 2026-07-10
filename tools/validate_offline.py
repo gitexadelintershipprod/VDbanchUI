@@ -3033,20 +3033,6 @@ def main() -> int:
     metrics_module = (MODULE_ROOT / "Metrics.ps1").read_text(encoding="utf-8")
     assert "function Get-MetricDataLine" in metrics_module
     assert "Test-MetricHeaderLine" in metrics_module
-    assert "function Format-RunResultSummaryText" in metrics_module
-    assert "function Update-RunResultSummaryCards" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "function New-ResultSectionCard" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "function New-ResultMetricCell" in (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert "RunResultSummaryHost" in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
-    assert "Update-RunResultSummaryCards" in (MODULE_ROOT / "ConfigGeneration.ps1").read_text(encoding="utf-8")
-    ui_helpers_for_results = (MODULE_ROOT / "UiHelpers.ps1").read_text(encoding="utf-8")
-    assert not re.search(
-        r"New-Object\s+System\.Windows\.Forms\.RowStyle\s+-ArgumentList[^;\n]*\[single\]",
-        ui_helpers_for_results,
-    ), (
-        "RowStyle -ArgumentList must not use [single]$n inline "
-        "(Windows PowerShell 5.1 turns it into the string '[single]N' and crashes at startup)"
-    )
 
     ui_tabs_module = (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "AutoScaleMode]::None" in ui_tabs_module

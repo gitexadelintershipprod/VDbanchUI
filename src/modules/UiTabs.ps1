@@ -1524,15 +1524,17 @@ function Build-RunTab {
     $resultTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 70, 140)
     $resultLayout.Controls.Add($resultTitle, 0, 0)
 
-    $script:RunResultSummaryHost = New-Object System.Windows.Forms.Panel
-    $script:RunResultSummaryHost.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $script:RunResultSummaryHost.AutoScroll = $true
-    $script:RunResultSummaryHost.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
-    $script:RunResultSummaryHost.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $script:RunResultSummaryHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6
-    # Keep legacy name pointing at host for any older resize/font helpers.
-    $script:RunResultSummaryBox = $script:RunResultSummaryHost
-    $resultLayout.Controls.Add($script:RunResultSummaryHost, 0, 1)
+    $script:RunResultSummaryBox = New-Object System.Windows.Forms.TextBox
+    $script:RunResultSummaryBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $script:RunResultSummaryBox.Multiline = $true
+    $script:RunResultSummaryBox.ReadOnly = $true
+    $script:RunResultSummaryBox.ScrollBars = [System.Windows.Forms.ScrollBars]::None
+    $script:RunResultSummaryBox.Font = New-Object System.Drawing.Font -ArgumentList "Consolas", 8.25
+    $script:RunResultSummaryBox.WordWrap = $false
+    $script:RunResultSummaryBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $script:RunResultSummaryBox.BackColor = [System.Drawing.Color]::FromArgb(248, 251, 255)
+    $script:RunResultSummaryBox.Add_TextChanged({ Resize-RunTabSummaryArea })
+    $resultLayout.Controls.Add($script:RunResultSummaryBox, 0, 1)
 
     $summaryPanel.Add_Resize({ Resize-RunTabSummaryArea })
 
