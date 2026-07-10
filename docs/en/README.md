@@ -1,10 +1,17 @@
 # Vdbench UI — User Guide (English)
 
-**Language:** [English](./README.md) · [ქართული](../ka/README.md)
+<p align="center">
+  <a href="./README.md"><b>Documentation</b></a> ·
+  <a href="./README.md">English</a> ·
+  <a href="../ka/README.md">ქართული</a>
+</p>
 
-Portable Windows UI for preparing, running, and reviewing Oracle **Vdbench** storage stress tests — on a single host or across Master/Slave hosts (Windows + Linux).
+<p align="center">
+  Portable Windows UI for preparing, running, and reviewing Oracle <strong>Vdbench</strong>
+  storage stress tests — single host or Master/Slave (Windows + Linux).
+</p>
 
-> The UI does **not** install Java, OpenSSH, or Vdbench by itself. First prepare the master and slaves with the install scripts and packages described below, then launch the UI.
+> The UI does **not** install Java, OpenSSH, or Vdbench by itself. First prepare the master and slaves with the [`install/`](../../install/) kit, then launch the UI.
 
 ---
 
@@ -48,13 +55,14 @@ Typical hosts in a lab:
 
 ## 2. Prerequisites & install kit
 
-Place everything under a single install folder on the master, for example:
+Prepare scripts ship in the repo under **[`install/`](../../install/)**. On each lab host, copy that folder to:
 
-```text
-C:\install
-```
+| Host | Staging path |
+|---|---|
+| Windows master / Windows slave | `C:\install` |
+| Linux slave | `/root/install` |
 
-The UI’s **Install root (reference)** field points at this folder. The readiness checker and SSH key commonly live here as well.
+The UI’s **Install root (reference)** field points at `C:\install` on the master. Full package checklist: [`install/REQUIRED-FILES.txt`](../../install/REQUIRED-FILES.txt).
 
 ### 2.1 Root of `C:\install` (required files)
 
@@ -64,16 +72,18 @@ The UI’s **Install root (reference)** field points at this folder. The readine
 | `02-Prepare-Vdbench-Windows-Slave.ps1` | Windows slave | Same on a Windows slave + trusts master’s public key |
 | `03-Prepare-Vdbench-Linux-Slave-v4.3.sh` | Linux slave | Offline-friendly RHEL 9 slave prepare |
 | `04-Check-Vdbench-Hosts-Readiness.ps1` | Master (UI) | Used by the **Readiness** button (separate PowerShell window) |
+| `REQUIRED-FILES.txt` | All | Checklist of binaries you must add (not in git) |
 | `microsoft-jdk-11.0.31-windows-x64.exe` | Master + Win slave | Microsoft JDK 11 (preferred) |
 | `OpenSSH-Win64-v10.0.0.0.msi` | Master + Win slave | OpenSSH Client + Server |
 | `vdbench50407.zip` | Master + all slaves | Oracle Vdbench archive (extract under `C:\vdbench` / `/opt/vdbench`) |
 | `java-11-openjdk-headless-11.0.25.0.9-7.el9.x86_64.rpm` | Linux slave | Headless OpenJDK 11 for RHEL 9 |
 | `unzip-6.0-60.el9.x86_64.rpm` | Linux slave | Unzip for the Vdbench ZIP on Linux |
 | `rpms\` | Linux slave | Extra EL9 RPMs Java/NSS/Lua depend on (offline) |
-| `ssh\` | Master | SSH private/public key (e.g. `id_rsa`) used by the UI and Vdbench |
+| `ssh\` | Master (created by `01`) | Private/public key (`id_rsa`) used by the UI and Vdbench |
+| `master_id_ed25519.pub` | **Every slave** (copied from master) | Master public key — **required before** running `02` / `03` |
 | `files\` | Optional | Extra staging files for prepare scripts |
 
-These scripts are also shipped in this repository’s root (same names). Copy them into `C:\install` on the lab servers if you deploy from Git.
+Scripts come from this repository’s [`install/`](../../install/) folder. Binary packages are **not** in git — add them yourself per `REQUIRED-FILES.txt`.
 
 ### 2.2 `C:\install\rpms` (Linux offline dependencies)
 
@@ -104,6 +114,33 @@ Without these offline RPMs, Linux prepare will fail on air-gapped hosts (`OFFLIN
 
 Run prepare scripts **as Administrator** (Windows) or **root** (Linux). Lab defaults often disable firewall/UAC/SELinux unless you pass keep-enabled flags — use only in isolated stress labs.
 
+### Required order (do not skip)
+
+```text
+1) Prepare MASTER with 01-*.ps1
+2) Copy SSH public key (+ slave packages) to every slave
+3) Prepare each SLAVE with 02-*.ps1 / 03-*.sh
+4) Use 04-*.ps1 / UI Readiness to verify
+```
+
+> ### Critical: copy SSH files from master → slaves **before** slave prepare
+>
+> After `01-Prepare-Vdbench-Master.ps1` finishes, the master has:
+>
+> | Path on master | What it is |
+> |---|---|
+> | `C:\install\ssh\id_rsa` | Private key (stays on master; UI / Vdbench use it) |
+> | `C:\install\ssh\id_rsa.pub` | Public key |
+> | `C:\install\master_id_ed25519.pub` | **Export for slaves** (same public key — copy this file) |
+>
+> **Copy `master_id_ed25519.pub` onto every slave** into their install folder:
+>
+> - Windows slave → `C:\install\master_id_ed25519.pub`
+> - Linux slave → `/root/install/master_id_ed25519.pub`
+>
+> Only **after** that file is present, run `02-Prepare-Vdbench-Windows-Slave.ps1` or `03-Prepare-Vdbench-Linux-Slave-v4.3.sh`.  
+> If you run slave prepare first, it fails looking for the master’s public key, and the master will not be able to SSH to that host.
+
 ### 3.1 Master (`01-Prepare-Vdbench-Master.ps1`)
 
 On the Windows master, with the install kit under `C:\install`:
@@ -118,14 +155,28 @@ What it does (summary):
 - Installs Microsoft JDK 11 and sets `JAVA_HOME` / PATH  
 - Installs OpenSSH Client + Server  
 - Creates a passphrase-less SSH key (under `C:\install\ssh`) and hardens ACL on the private key  
+- Writes `C:\install\master_id_ed25519.pub` for distribution to slaves  
 - Extracts Vdbench to `C:\vdbench` and fixes the Windows `vdbench.bat` classpath quirk  
 - Prepares distributed templates  
 
 Useful switches: `-RecreateSshKey`, `-ForceJavaInstall`, `-KeepFirewallEnabled`, `-KeepUACEnabled`.
 
-### 3.2 Windows slave (`02-Prepare-Vdbench-Windows-Slave.ps1`)
+### 3.2 Copy SSH key to slaves (mandatory step)
 
-Copy the Windows installers + ZIP + master’s **public** key to the slave’s `C:\install`, then:
+From the master, after step 3.1 succeeds, copy the public key (USB, share, or `scp` once you have another temporary login):
+
+```text
+Master:  C:\install\master_id_ed25519.pub
+   │
+   ├──► Windows slave:  C:\install\master_id_ed25519.pub
+   └──► Linux slave:    /root/install/master_id_ed25519.pub
+```
+
+Also copy the rest of that slave’s kit (JDK/OpenSSH/ZIP or Linux RPMs) listed in `REQUIRED-FILES.txt`. **Do not** copy the master’s **private** key (`id_rsa`) to slaves.
+
+### 3.3 Windows slave (`02-Prepare-Vdbench-Windows-Slave.ps1`)
+
+Only after `master_id_ed25519.pub` is in the slave’s `C:\install`:
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -137,7 +188,7 @@ Expects (among others):
 - `microsoft-jdk-*-windows-x64.exe` (or `.msi`)  
 - `OpenSSH-Win64-*.msi`  
 - `vdbench*.zip`  
-- `master_id_ed25519.pub` (or the public key file produced by the master prepare)  
+- **`master_id_ed25519.pub`** (copied from master — see §3.2)  
 
 After reboot, from the master:
 
@@ -147,9 +198,9 @@ ssh Administrator@<SLAVE_IP> java --version
 ssh Administrator@<SLAVE_IP> C:\vdbench\vdbench.bat -t
 ```
 
-### 3.3 Linux slave (`03-Prepare-Vdbench-Linux-Slave-v4.3.sh`)
+### 3.4 Linux slave (`03-Prepare-Vdbench-Linux-Slave-v4.3.sh`)
 
-Stage files under `/root/install` (script + `vdbench*.zip` + `*.pub` + RPMs / `rpms/`), then:
+Stage files under `/root/install` (script + `vdbench*.zip` + **`master_id_ed25519.pub`** + RPMs / `rpms/`), then:
 
 ```bash
 cd /root/install
@@ -165,7 +216,7 @@ OFFLINE_ONLY=0 ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
 
 Resulting layout: assets under `/opt/install`, Vdbench under `/opt/vdbench`.
 
-### 3.4 Readiness checker (`04-Check-Vdbench-Hosts-Readiness.ps1`)
+### 3.5 Readiness checker (`04-Check-Vdbench-Hosts-Readiness.ps1`)
 
 Runs on the **master**. CLI example:
 
