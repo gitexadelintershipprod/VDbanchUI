@@ -269,7 +269,7 @@ function Prompt-HostPathEntry {
     $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), 44)) | Out-Null
-    $dialog.Controls.Add($layout)
+    $dialog.Controls.Add($layout) | Out-Null
 
     $label = New-Label "Path on host:" 0 0 100 24
     $label.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -621,7 +621,7 @@ function Show-HostPathBrowser {
     $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
     $dialog.MinimizeBox = $false
     $dialog.MaximizeBox = $true
-    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1020 -BaseHeight 620
+    $scale = Initialize-ResponsiveChildForm -Form $dialog -BaseWidth 1020 -BaseHeight 620 -PassThru
 
     $layout = New-Object System.Windows.Forms.TableLayoutPanel
     $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
