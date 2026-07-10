@@ -52,6 +52,7 @@ $script:RunModeCombo = $null
 $script:RunProfileSelector = $null
 $script:RunSummaryBox = $null
 $script:RunResultSummaryBox = $null
+$script:RunResultSummaryHost = $null
 $script:RunResultSummary = $null
 $script:RunSummarySplit = $null
 $script:RunTabLayout = $null
