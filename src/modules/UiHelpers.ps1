@@ -1290,7 +1290,9 @@ function New-ResultMetricCell {
     $cell.ColumnCount = 1
     $cell.RowCount = 2
     $cell.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
-    $cell.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), [single]$headerHeight)) | Out-Null
+    # Windows PowerShell 5.1: do NOT put [single]$n inside -ArgumentList - it becomes
+    # the literal string "[single]18" and RowStyle construction throws at startup.
+    $cell.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Absolute), $headerHeight)) | Out-Null
     $cell.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::Percent), 100)) | Out-Null
     $cell.CellBorderStyle = [System.Windows.Forms.TableLayoutPanelCellBorderStyle]::Single
     $cell.BackColor = [System.Drawing.Color]::White
