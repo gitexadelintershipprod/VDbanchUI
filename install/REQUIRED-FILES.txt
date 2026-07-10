@@ -1,0 +1,94 @@
+================================================================================
+Vdbench UI — install kit: REQUIRED FILES
+================================================================================
+Copy this entire "install" folder to each lab host as:
+
+  Windows master / Windows slave :  C:\install
+  Linux slave                    :  /root/install
+
+Scripts in THIS folder (shipped with the repo):
+  01-Prepare-Vdbench-Master.ps1
+  02-Prepare-Vdbench-Windows-Slave.ps1
+  03-Prepare-Vdbench-Linux-Slave-v4.3.sh
+  04-Check-Vdbench-Hosts-Readiness.ps1
+  REQUIRED-FILES.txt   (this file)
+
+You must ADD the binary packages below yourself (not stored in git).
+Oracle Vdbench is licensed separately — supply vdbench50407.zip lawfully.
+
+--------------------------------------------------------------------------------
+A) Files needed on the WINDOWS MASTER  (C:\install)
+--------------------------------------------------------------------------------
+  microsoft-jdk-11.0.31-windows-x64.exe
+  OpenSSH-Win64-v10.0.0.0.msi
+  vdbench50407.zip
+  01-Prepare-Vdbench-Master.ps1
+  04-Check-Vdbench-Hosts-Readiness.ps1
+
+  After master prepare succeeds, these are CREATED automatically:
+    ssh\id_rsa
+    ssh\id_rsa.pub
+    master_id_ed25519.pub     <-- public key export for slaves (copy this!)
+
+--------------------------------------------------------------------------------
+B) Files needed on each WINDOWS SLAVE  (C:\install)
+--------------------------------------------------------------------------------
+  microsoft-jdk-11.0.31-windows-x64.exe   (or microsoft-jdk-*-windows-x64.msi)
+  OpenSSH-Win64-v10.0.0.0.msi
+  vdbench50407.zip
+  02-Prepare-Vdbench-Windows-Slave.ps1
+
+  *** CRITICAL — copy FROM MASTER BEFORE running 02-*.ps1 ***
+  master_id_ed25519.pub
+      Source on master:  C:\install\master_id_ed25519.pub
+      (also available as C:\install\ssh\id_rsa.pub — same public key)
+
+  Do NOT start 02-Prepare-Vdbench-Windows-Slave.ps1 until master_id_ed25519.pub
+  is present in C:\install on the slave.
+
+--------------------------------------------------------------------------------
+C) Files needed on each LINUX SLAVE  (/root/install)
+--------------------------------------------------------------------------------
+  03-Prepare-Vdbench-Linux-Slave-v4.3.sh
+  vdbench50407.zip
+  java-11-openjdk-headless-11.0.25.0.9-7.el9.x86_64.rpm
+  unzip-6.0-60.el9.x86_64.rpm
+  rpms\   (entire folder — see list below)
+
+  *** CRITICAL — copy FROM MASTER BEFORE running 03-*.sh ***
+  master_id_ed25519.pub   (or any master_id*.pub / *.pub from the master)
+
+  Do NOT start 03-Prepare-Vdbench-Linux-Slave-v4.3.sh until the master's
+  public key file is present in /root/install.
+
+--------------------------------------------------------------------------------
+D) rpms\ folder (Linux offline dependencies — copy whole directory)
+--------------------------------------------------------------------------------
+  alsa-lib-1.2.15.3-1.el9.x86_64.rpm
+  compat-lua-5.1.5-20.el9.x86_64.rpm
+  compat-lua-libs-5.1.5-20.el9.x86_64.rpm
+  copy-jdk-configs-4.0-3.el9.noarch.rpm
+  cups-libs-2.3.3op2-38.el9_8.x86_64.rpm
+  javapackages-filesystem-6.4.0-1.el9.noarch.rpm
+  lksctp-tools-1.0.19-3.el9_4.x86_64.rpm
+  lua-5.4.4-4.el9.x86_64.rpm
+  lua-libs-5.4.4-4.el9.x86_64.rpm
+  lua-posix-35.0-8.el9.x86_64.rpm
+  nspr-4.36.0-8.el9_4.x86_64.rpm
+  nss-3.112.0-8.el9_4.x86_64.rpm
+  nss-softokn-3.112.0-8.el9_4.x86_64.rpm
+  nss-softokn-freebl-3.112.0-8.el9_4.x86_64.rpm
+  nss-sysinit-3.112.0-8.el9_4.x86_64.rpm
+  nss-util-3.112.0-8.el9_4.x86_64.rpm
+
+--------------------------------------------------------------------------------
+E) Recommended order
+--------------------------------------------------------------------------------
+  1. Fill C:\install on the master with section A packages + scripts.
+  2. Run 01-Prepare-Vdbench-Master.ps1 on the master.
+  3. Copy master_id_ed25519.pub (and the rest of each slave's kit) to every slave.
+  4. Run 02-*.ps1 on Windows slaves / 03-*.sh on Linux slaves.
+  5. Point the UI Readiness checker at 04-Check-Vdbench-Hosts-Readiness.ps1.
+
+See docs/en/README.md or docs/ka/README.md for the full bilingual guide.
+================================================================================
