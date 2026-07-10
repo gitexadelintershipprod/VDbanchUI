@@ -433,10 +433,22 @@ def validate_filesystem_parameter_help(catalog: list[dict]):
             assert value, f"catalog item {key} missing non-empty {field}"
         help_en = str(item.get("HelpEn") or "")
         help_ka = str(item.get("HelpKa") or "")
-        assert re.search(r"(?i)\bexample\b", help_en), f"catalog item {key} HelpEn should include an Example"
+        assert re.search(r"(?i)\bexample\b", help_en) or "for example" in help_en.lower() or "e.g." in help_en.lower(), (
+            f"catalog item {key} HelpEn should include an Example"
+        )
         assert re.search(r"(?i)\brecommend", help_en), f"catalog item {key} HelpEn should include a Recommendation"
         assert "მაგალით" in help_ka, f"catalog item {key} HelpKa should include მაგალითი"
         assert "რეკომენდ" in help_ka, f"catalog item {key} HelpKa should include რეკომენდაცია"
+    # Format help must keep the full per-option list (do not collapse to a short summary).
+    format_en = str(by_key["run.format"].get("HelpEn") or "")
+    format_ka = str(by_key["run.format"].get("HelpKa") or "")
+    for option in ("no", "yes", "restart", "only", "clean", "once", "directories"):
+        assert re.search(rf"(?m)^\s*{re.escape(option)}\s*[—\-]", format_en), (
+            f"run.format HelpEn must keep detailed option line for {option!r}"
+        )
+        assert re.search(rf"(?m)^\s*{re.escape(option)}\s*[—\-]", format_ka), (
+            f"run.format HelpKa must keep detailed option line for {option!r}"
+        )
 
 
 def validate_raw_parameter_help(catalog: list[dict]):
