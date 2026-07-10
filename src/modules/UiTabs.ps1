@@ -886,7 +886,7 @@ function Set-ProfileEditorBanner {
         $script:ProfileEditorBanner.Visible = $true
     } elseif (Test-EditingSavedProfile) {
         $sourceName = Get-ProfileEditSourceName
-        $script:ProfileEditorBanner.Text = ("Editing saved profile '{0}' — parameters for derived test kind: {1}" -f $sourceName, $script:ProfileEditorTestKind)
+        $script:ProfileEditorBanner.Text = ("Editing saved profile '{0}' - parameters for derived test kind: {1}" -f $sourceName, $script:ProfileEditorTestKind)
         $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::DarkBlue
         $script:ProfileEditorBanner.Visible = $true
     } else {
