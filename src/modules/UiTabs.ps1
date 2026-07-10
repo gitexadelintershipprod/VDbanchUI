@@ -884,10 +884,31 @@ function Set-ProfileEditorBanner {
         $script:ProfileEditorBanner.Text = [string]$Message
         $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
         $script:ProfileEditorBanner.Visible = $true
+    } elseif (Test-EditingSavedProfile) {
+        $sourceName = Get-ProfileEditSourceName
+        $script:ProfileEditorBanner.Text = ("Editing saved profile '{0}' — parameters for derived test kind: {1}" -f $sourceName, $script:ProfileEditorTestKind)
+        $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::DarkBlue
+        $script:ProfileEditorBanner.Visible = $true
     } else {
         $script:ProfileEditorBanner.Text = ("Editing profile parameters for derived test kind: {0}" -f $script:ProfileEditorTestKind)
         $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::DarkGreen
         $script:ProfileEditorBanner.Visible = $true
+    }
+}
+
+function Update-ProfileEditUiHints {
+    if ($null -ne $script:ProfileToolbarNote) {
+        if (Test-EditingSavedProfile) {
+            $sourceName = Get-ProfileEditSourceName
+            $script:ProfileToolbarNote.Text = ("Editing saved profile '{0}'. Save profile overwrites that file when the name is unchanged. Rename before save to create a copy." -f $sourceName)
+            $script:ProfileToolbarNote.ForeColor = [System.Drawing.Color]::DarkBlue
+        } else {
+            $script:ProfileToolbarNote.Text = "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs."
+            $script:ProfileToolbarNote.ForeColor = [System.Drawing.Color]::DimGray
+        }
+    }
+    if ($null -ne $script:ProfileEditorBanner -and -not [bool]$script:ProfileEditorLocked) {
+        Set-ProfileEditorBanner $false ""
     }
 }
 
@@ -1158,7 +1179,10 @@ function Sync-ProfileEditorTargetContext {
 }
 
 function Refresh-ProfileEditor {
-    param([string]$ChangeSource = "manual")
+    param(
+        [string]$ChangeSource = "manual",
+        [switch]$SkipCapture
+    )
 
     if ($script:RefreshingProfileEditor) {
         $script:ProfileEditorRefreshPending = $true
@@ -1168,13 +1192,13 @@ function Refresh-ProfileEditor {
         return
     }
 
-    Write-DebugLog ("Refresh-ProfileEditor start: source={0}" -f $ChangeSource)
+    Write-DebugLog ("Refresh-ProfileEditor start: source={0}; skipCapture={1}" -f $ChangeSource, [bool]$SkipCapture)
     $script:RefreshingProfileEditor = $true
     try {
         if ($null -eq $script:CurrentProfile) {
             $script:CurrentProfile = New-DefaultProfile "New-Profile"
         }
-        if (-not $script:ProfileEditorLocked) {
+        if (-not $SkipCapture -and -not $script:ProfileEditorLocked) {
             Capture-ProfileEditor
         }
 
@@ -1343,13 +1367,13 @@ function Build-ProfileTab {
     $toolbar.Controls.Add($script:ProfileNameBox)
     $toolbar.SetFlowBreak($script:ProfileNameBox, $true)
 
-    $note = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 0 0 400 48
-    $note.AutoSize = $false
-    $note.Tag = "flow-toolbar-wrap"
-    $note.AccessibleDescription = "48"
-    $note.ForeColor = [System.Drawing.Color]::DimGray
-    $note.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
-    $toolbar.Controls.Add($note)
+    $script:ProfileToolbarNote = New-Label "Create new workload profiles here. Parameter groups follow the selected target type from Local Host or Master/Slave tabs." 0 0 400 48
+    $script:ProfileToolbarNote.AutoSize = $false
+    $script:ProfileToolbarNote.Tag = "flow-toolbar-wrap"
+    $script:ProfileToolbarNote.AccessibleDescription = "48"
+    $script:ProfileToolbarNote.ForeColor = [System.Drawing.Color]::DimGray
+    $script:ProfileToolbarNote.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 0
+    $toolbar.Controls.Add($script:ProfileToolbarNote)
 
     $script:ProfileEditorBanner = New-Label "Select a target to edit profile parameters." 10 4 1040 36
     $script:ProfileEditorBanner.ForeColor = [System.Drawing.Color]::Firebrick
@@ -1444,6 +1468,11 @@ function Build-RunTab {
     $setProfileButton = New-Button "Set Profile" 0 0 95 28
     $setProfileButton.Add_Click({ Reload-RunProfile })
     Add-FlowToolbarItem $toolbar $setProfileButton
+
+    $editProfileButton = New-Button "Edit" 0 0 70 28
+    $editProfileButton.Add_Click({ Edit-SelectedProfile })
+    Set-ControlToolTip $editProfileButton "Load the selected profile into Profile Builder (disk copy). Save profile overwrites the same file when the name is unchanged."
+    Add-FlowToolbarItem $toolbar $editProfileButton
 
     $startButton = New-Button "Start" 0 0 80 28
     $startButton.Add_Click({ Invoke-UiSafe { Start-VdbenchRun } "Start run" })
