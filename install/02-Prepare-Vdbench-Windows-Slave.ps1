@@ -17,11 +17,11 @@ Expected files on this Windows slave:
   C:\install\microsoft-jdk-*-windows-x64.exe  OR .msi
   C:\install\OpenSSH-Win64-*.msi
   C:\install\vdbench*.zip
-  C:\install\master_id_ed25519.pub
+  C:\install\master_id_rsa.pub   (preferred; master_id_ed25519.pub also accepted)
 
 Run:
   Set-ExecutionPolicy Bypass -Scope Process -Force
-  C:\install\03-Prepare-Vdbench-Windows-Slave-FINAL.ps1
+  C:\install\02-Prepare-Vdbench-Windows-Slave.ps1
 
 After reboot, test from Master:
   ssh Administrator@<SLAVE_IP_OR_NAME> hostname
@@ -32,7 +32,7 @@ After reboot, test from Master:
 param(
     [string]$InstallDir = "C:\install",
     [string]$VdbenchRoot = "C:\vdbench",
-    [string]$MasterPublicKeyFile = "C:\install\master_id_ed25519.pub",
+    [string]$MasterPublicKeyFile = "",
     [switch]$KeepFirewallEnabled,
     [switch]$KeepUACEnabled,
     [switch]$ForceJavaInstall
@@ -526,11 +526,33 @@ function Install-OpenSSH {
     Write-Host "OpenSSH sshd service is ready." -ForegroundColor Green
 }
 
+function Resolve-MasterPublicKeyFile {
+    param([string]$PreferredPath, [string]$InstallDir)
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($PreferredPath)) {
+        $candidates += $PreferredPath
+    }
+    $candidates += @(
+        (Join-Path $InstallDir "master_id_rsa.pub"),
+        (Join-Path $InstallDir "master_id_ed25519.pub"),
+        (Join-Path $InstallDir "ssh\id_rsa.pub")
+    )
+    foreach ($c in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($c) -and (Test-Path -LiteralPath $c)) {
+            return $c
+        }
+    }
+    return $(if ([string]::IsNullOrWhiteSpace($PreferredPath)) { (Join-Path $InstallDir "master_id_rsa.pub") } else { $PreferredPath })
+}
+
 function Add-MasterPublicKey {
     Write-Step "Adding Master public key for Administrator SSH login"
 
+    $resolvedKey = Resolve-MasterPublicKeyFile -PreferredPath $MasterPublicKeyFile -InstallDir $InstallDir
+    $script:MasterPublicKeyFile = $resolvedKey
+
     if (-not (Test-Path $MasterPublicKeyFile)) {
-        throw "Master public key not found: $MasterPublicKeyFile. Copy C:\install\master_id_ed25519.pub from Master to this slave/template first."
+        throw "Master public key not found. Copy C:\install\master_id_rsa.pub from Master to this slave first (legacy master_id_ed25519.pub also accepted)."
     }
 
     $sshDataDir = "C:\ProgramData\ssh"

@@ -28,7 +28,8 @@ A) Files needed on the WINDOWS MASTER  (C:\install)
   After master prepare succeeds, these are CREATED automatically:
     ssh\id_rsa
     ssh\id_rsa.pub
-    master_id_ed25519.pub     <-- public key export for slaves (copy this!)
+    master_id_rsa.pub     <-- public key export for slaves (copy this!)
+    master_id_ed25519.pub <-- legacy alias also written for older kits
 
 --------------------------------------------------------------------------------
 B) Files needed on each WINDOWS SLAVE  (C:\install)
@@ -39,11 +40,11 @@ B) Files needed on each WINDOWS SLAVE  (C:\install)
   02-Prepare-Vdbench-Windows-Slave.ps1
 
   *** CRITICAL — copy FROM MASTER BEFORE running 02-*.ps1 ***
-  master_id_ed25519.pub
-      Source on master:  C:\install\master_id_ed25519.pub
+  master_id_rsa.pub
+      Source on master:  C:\install\master_id_rsa.pub
       (also available as C:\install\ssh\id_rsa.pub — same public key)
 
-  Do NOT start 02-Prepare-Vdbench-Windows-Slave.ps1 until master_id_ed25519.pub
+  Do NOT start 02-Prepare-Vdbench-Windows-Slave.ps1 until master_id_rsa.pub
   is present in C:\install on the slave.
 
 --------------------------------------------------------------------------------
@@ -56,7 +57,7 @@ C) Files needed on each LINUX SLAVE  (/root/install)
   rpms\   (entire folder — see list below)
 
   *** CRITICAL — copy FROM MASTER BEFORE running 03-*.sh ***
-  master_id_ed25519.pub   (or any master_id*.pub / *.pub from the master)
+  master_id_rsa.pub   (or any master_id*.pub / *.pub from the master)
 
   Do NOT start 03-Prepare-Vdbench-Linux-Slave-v4.3.sh until the master's
   public key file is present in /root/install.
@@ -86,7 +87,7 @@ E) Recommended order
 --------------------------------------------------------------------------------
   1. Fill C:\install on the master with section A packages + scripts.
   2. Run 01-Prepare-Vdbench-Master.ps1 on the master.
-  3. Copy master_id_ed25519.pub (and the rest of each slave's kit) to every slave.
+  3. Copy master_id_rsa.pub (and the rest of each slave's kit) to every slave.
   4. Run 02-*.ps1 on Windows slaves / 03-*.sh on Linux slaves.
   5. Point the UI Readiness checker at 04-Check-Vdbench-Hosts-Readiness.ps1.
 

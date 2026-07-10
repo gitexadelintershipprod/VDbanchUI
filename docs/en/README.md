@@ -80,7 +80,7 @@ The UI’s **Install root (reference)** field points at `C:\install` on the mast
 | `unzip-6.0-60.el9.x86_64.rpm` | Linux slave | Unzip for the Vdbench ZIP on Linux |
 | `rpms\` | Linux slave | Extra EL9 RPMs Java/NSS/Lua depend on (offline) |
 | `ssh\` | Master (created by `01`) | Private/public key (`id_rsa`) used by the UI and Vdbench |
-| `master_id_ed25519.pub` | **Every slave** (copied from master) | Master public key — **required before** running `02` / `03` |
+| `master_id_rsa.pub` | **Every slave** (copied from master) | Master public key — **required before** running `02` / `03` |
 | `files\` | Optional | Extra staging files for prepare scripts |
 
 Scripts come from this repository’s [`install/`](../../install/) folder. Binary packages are **not** in git — add them yourself per `REQUIRED-FILES.txt`.
@@ -131,12 +131,12 @@ Run prepare scripts **as Administrator** (Windows) or **root** (Linux). Lab defa
 > |---|---|
 > | `C:\install\ssh\id_rsa` | Private key (stays on master; UI / Vdbench use it) |
 > | `C:\install\ssh\id_rsa.pub` | Public key |
-> | `C:\install\master_id_ed25519.pub` | **Export for slaves** (same public key — copy this file) |
+> | `C:\install\master_id_rsa.pub` | **Export for slaves** (same public key — copy this file) |
 >
-> **Copy `master_id_ed25519.pub` onto every slave** into their install folder:
+> **Copy `master_id_rsa.pub` onto every slave** into their install folder:
 >
-> - Windows slave → `C:\install\master_id_ed25519.pub`
-> - Linux slave → `/root/install/master_id_ed25519.pub`
+> - Windows slave → `C:\install\master_id_rsa.pub`
+> - Linux slave → `/root/install/master_id_rsa.pub`
 >
 > Only **after** that file is present, run `02-Prepare-Vdbench-Windows-Slave.ps1` or `03-Prepare-Vdbench-Linux-Slave-v4.3.sh`.  
 > If you run slave prepare first, it fails looking for the master’s public key, and the master will not be able to SSH to that host.
@@ -155,7 +155,7 @@ What it does (summary):
 - Installs Microsoft JDK 11 and sets `JAVA_HOME` / PATH  
 - Installs OpenSSH Client + Server  
 - Creates a passphrase-less SSH key (under `C:\install\ssh`) and hardens ACL on the private key  
-- Writes `C:\install\master_id_ed25519.pub` for distribution to slaves  
+- Writes `C:\install\master_id_rsa.pub` for distribution to slaves  
 - Extracts Vdbench to `C:\vdbench` and fixes the Windows `vdbench.bat` classpath quirk  
 - Prepares distributed templates  
 
@@ -166,17 +166,17 @@ Useful switches: `-RecreateSshKey`, `-ForceJavaInstall`, `-KeepFirewallEnabled`,
 From the master, after step 3.1 succeeds, copy the public key (USB, share, or `scp` once you have another temporary login):
 
 ```text
-Master:  C:\install\master_id_ed25519.pub
+Master:  C:\install\master_id_rsa.pub
    │
-   ├──► Windows slave:  C:\install\master_id_ed25519.pub
-   └──► Linux slave:    /root/install/master_id_ed25519.pub
+   ├──► Windows slave:  C:\install\master_id_rsa.pub
+   └──► Linux slave:    /root/install/master_id_rsa.pub
 ```
 
 Also copy the rest of that slave’s kit (JDK/OpenSSH/ZIP or Linux RPMs) listed in `REQUIRED-FILES.txt`. **Do not** copy the master’s **private** key (`id_rsa`) to slaves.
 
 ### 3.3 Windows slave (`02-Prepare-Vdbench-Windows-Slave.ps1`)
 
-Only after `master_id_ed25519.pub` is in the slave’s `C:\install`:
+Only after `master_id_rsa.pub` is in the slave’s `C:\install`:
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -188,7 +188,7 @@ Expects (among others):
 - `microsoft-jdk-*-windows-x64.exe` (or `.msi`)  
 - `OpenSSH-Win64-*.msi`  
 - `vdbench*.zip`  
-- **`master_id_ed25519.pub`** (copied from master — see §3.2)  
+- **`master_id_rsa.pub`** (copied from master — see §3.2)  
 
 After reboot, from the master:
 
@@ -200,7 +200,7 @@ ssh Administrator@<SLAVE_IP> C:\vdbench\vdbench.bat -t
 
 ### 3.4 Linux slave (`03-Prepare-Vdbench-Linux-Slave-v4.3.sh`)
 
-Stage files under `/root/install` (script + `vdbench*.zip` + **`master_id_ed25519.pub`** + RPMs / `rpms/`), then:
+Stage files under `/root/install` (script + `vdbench*.zip` + **`master_id_rsa.pub`** + RPMs / `rpms/`), then:
 
 ```bash
 cd /root/install
@@ -258,7 +258,6 @@ Configure paths **before** first distributed run. Typical values:
 
 | Field | Example | Notes |
 |---|---|---|
-| Install root (reference) | `C:\install` | Reference only |
 | Vdbench root | `C:\vdbench` | Master install |
 | Reports root | `C:\vdbench\manager\reports` | Run output |
 | Readiness checker | `C:\install\04-Check-Vdbench-Hosts-Readiness.ps1` | Opens its own window |
@@ -365,10 +364,10 @@ History of runs: Id, StartedAt, Status (`Completed` / `Abandoned`), ExitCode, Pr
 
 Before stressing real disks:
 
-1. Settings → **Use fake runner** → Save  
-2. Start a short run from **Run**  
-3. Confirm log streaming and report folder creation  
-4. Restore **Master vdbench.bat** to the real `C:\vdbench\vdbench.bat` before production tests  
+1. On **Run**, use **Config only** to write a `.parm` and run folder without starting Vdbench.  
+2. Confirm the run folder appears under Reports root.  
+3. For a short real run, use a dedicated empty filesystem anchor (never production volumes).  
+4. Review **Preview** for `RISK` warnings before **Start**.  
 
 ---
 

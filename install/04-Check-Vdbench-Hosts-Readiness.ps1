@@ -13,9 +13,10 @@ Fixes:
 - Creates TXT and CSV report.
 
 Examples:
-  C:\install\04-Check-Vdbench-Hosts-Readiness-CORRECTED.ps1 -WindowsHosts 10.50.11.178
-  C:\install\04-Check-Vdbench-Hosts-Readiness-CORRECTED.ps1 -WindowsHosts 10.50.11.178 -LinuxHosts 10.50.11.179
-  C:\install\04-Check-Vdbench-Hosts-Readiness-CORRECTED.ps1 -WindowsHosts 10.50.11.178 -SkipPing
+  C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.178
+  C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.178 -LinuxHosts 10.50.11.179
+  C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.178 -SkipPing
+  C:\install\04-Check-Vdbench-Hosts-Readiness.ps1 -WindowsHosts 10.50.11.178 -PrivateKeyPath C:\install\ssh\id_rsa
 #>
 
 param(
@@ -28,6 +29,7 @@ param(
     [string]$MasterVdbenchRoot = "C:\vdbench",
     [string]$WindowsVdbenchRoot = "C:\vdbench",
     [string]$LinuxVdbenchRoot = "/opt/vdbench",
+    [string]$PrivateKeyPath = "C:\install\ssh\id_rsa",
 
     [string]$OutputDir = "C:\vdbench\output\host_readiness",
     [int]$ConnectTimeoutSeconds = 10,
@@ -182,16 +184,18 @@ function Invoke-SshCommand {
 
     $target = "$User@$HostName"
 
-    $args = @(
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=$ConnectTimeoutSeconds",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=NUL",
-        $target,
-        $Command
-    )
+    $args = New-Object System.Collections.Generic.List[string]
+    [void]$args.Add("-o"); [void]$args.Add("BatchMode=yes")
+    [void]$args.Add("-o"); [void]$args.Add("ConnectTimeout=$ConnectTimeoutSeconds")
+    [void]$args.Add("-o"); [void]$args.Add("StrictHostKeyChecking=no")
+    [void]$args.Add("-o"); [void]$args.Add("UserKnownHostsFile=NUL")
+    if (-not [string]::IsNullOrWhiteSpace($PrivateKeyPath) -and (Test-Path -LiteralPath $PrivateKeyPath)) {
+        [void]$args.Add("-i"); [void]$args.Add($PrivateKeyPath)
+    }
+    [void]$args.Add($target)
+    [void]$args.Add($Command)
 
-    return Invoke-Native -FilePath "ssh.exe" -Arguments $args -TimeoutSeconds $TimeoutSeconds
+    return Invoke-Native -FilePath "ssh.exe" -Arguments $args.ToArray() -TimeoutSeconds $TimeoutSeconds
 }
 
 function Test-HostNetwork {
@@ -453,3 +457,11 @@ foreach ($h in $LinuxHosts) {
 }
 
 Write-Reports
+
+# Exit non-zero when any check failed so the UI can map Ready vs Failed
+# from the process exit code (exit 0 must mean every recorded check passed).
+$script:FinalFailCount = @($script:Results | Where-Object { $_.Status -eq "FAIL" }).Count
+if ($script:FinalFailCount -gt 0) {
+    exit 1
+}
+exit 0

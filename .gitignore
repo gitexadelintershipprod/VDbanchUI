@@ -5,6 +5,17 @@ reports/
 logs/
 dist/
 
+# Secrets / local SSH material (never commit)
+install/ssh/
+**/id_rsa
+**/id_rsa.pub
+**/master_id_*.pub
+*.pem
+*.ppk
+
+# Operator-saved profiles (keep profiles/README.md)
+profiles/*.json
+
 # OS / editor
 .DS_Store
 Thumbs.db
@@ -12,3 +23,5 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+__pycache__/
+*.pyc

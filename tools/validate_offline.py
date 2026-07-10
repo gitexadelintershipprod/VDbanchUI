@@ -733,8 +733,6 @@ $script:Slaves = @()
 $script:LocalHostTargets = @()
 $script:SlaveGrid = $null
 $script:RunModeCombo = $null
-$script:CleanupUiEnabledCache = $false
-$script:CleanupUiStateInitialized = $false
 foreach ($m in @("Core.ps1","ProcessRunner.ps1","State.ps1","UiHelpers.ps1","TargetDiscovery.ps1","Runner.ps1","ConfigGeneration.ps1")) {{
     . (Join-Path $script:ModuleRoot $m)
 }}
@@ -780,8 +778,8 @@ Assert-True (-not (Test-TargetSupportsCleanup $targets[0])) "test file does not 
 Assert-True (Test-TargetSupportsCleanup $targets[1]) "filesystem supports cleanup"
 Assert-True (-not (Test-TargetSupportsCleanup $targets[3])) "raw disk skipped"
 $linuxScript = Get-TargetCleanupRemoteScript -Path $mountLikeDir -Kind "Filesystem" -OsType "Linux"
-Assert-True ($linuxScript -like "*'/*") "linux filesystem script deletes contents only"
-Assert-True ($linuxScript -like "*..?*") "linux filesystem script includes hidden entries"
+Assert-True ($linuxScript -like "*find *") "linux filesystem script uses find for contents-only delete"
+Assert-True ($linuxScript -like "*-mindepth 1*") "linux filesystem script keeps the anchor directory"
 $winScript = Get-TargetCleanupRemoteScript -Path "D:\\fs_test" -Kind "Filesystem" -OsType "Windows"
 Assert-True ($winScript -like "*Get-ChildItem*") "windows filesystem script deletes contents only"
 
@@ -794,9 +792,7 @@ Assert-True (Test-Path -LiteralPath $mountLikeDir) "mount-like anchor kept"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $mountLikeDir "run-data.txt"))) "mount-like contents deleted"
 Assert-True ($result.Cleaned.Count -eq 2) "two filesystem anchors cleaned"
 Assert-True ($result.Skipped.Count -ge 2) "non-filesystem targets skipped in result"
-Assert-True (-not (Test-CleanupUiEnabled)) "cleanup UI disabled until filesystem run targets exist"
 $script:LocalHostTargets = @((New-TargetSelection -Kind "Filesystem" -Target $anchorDir -Selected $true))
-Assert-True (Test-CleanupUiEnabled) "cleanup UI enabled for filesystem run targets"
 
 $runnerContextPath = Join-Path "{tmp_dir}" "cleanup-session-context.json"
 $runnerResultPath = Join-Path "{tmp_dir}" "cleanup-session-result.json"
@@ -854,21 +850,16 @@ function Show-Warning {{
     param([string]$Message, [string]$Title = "Vdbench UI")
     $script:ShowWarningCalls += $Message
 }}
-# Force global cleanup gate OFF via the same cache Update-CleanupUiState uses —
-# Clean must still work per-row even when the app-wide gate is false.
-$script:LocalHostTargets = @()
-$script:AppState = @{{
-    RunMode = "MasterSlave"
-    LocalHost = @{{ OsType = "Windows"; Targets = @() }}
-    Slaves = @()
+# Per-row Clean must start when the row has selected filesystem targets.
+Assert-True (Test-SlaveRowCleanEnabled -Row $cleanRow) "per-row Clean enabled when row has FS targets"
+# Stub Ask-YesNo so confirm dialog does not block headless regression.
+function Ask-YesNo {{
+    param([string]$Message, [string]$Title = "Confirm")
+    return $true
 }}
-$script:CleanupUiStateInitialized = $true
-$script:CleanupUiEnabledCache = $false
-Assert-True (-not (Test-CleanupUiEnabled)) "global cleanup gate is off without ready slaves"
-Assert-True (Test-SlaveRowCleanEnabled -Row $cleanRow) "per-row Clean enabled ignores global gate when row has FS targets"
 Start-SlaveTargetClean -Row $cleanRow
 $firstCalls = $script:StartBackgroundUiWorkCalls
-Assert-True ($firstCalls -eq 1) "Clean starts even when global CleanupUiEnabled is false"
+Assert-True ($firstCalls -eq 1) "Clean starts for row with filesystem targets"
 Start-SlaveTargetClean -Row $cleanRow
 Assert-True ($script:StartBackgroundUiWorkCalls -eq 1) "repeat clean click ignored while in flight (count)"
 Assert-True ($script:ShowWarningCalls.Count -eq 1) "repeat clean click warns instead of silent no-op"
@@ -2592,17 +2583,14 @@ def _run_ssh_alias_default_regression_check(pwsh: str) -> None:
     SshAlias silently defaulted to its own Name, so any connection attempt was made
     against an arbitrary label instead of the real address right next to it in the grid.
 
-    Fix: Get-DefaultSshAliasForSlave now prefers Host over Name, so a slave connects by
-    its own IP/hostname by default, and only ever uses Name as a last resort when Host
-    itself is blank. SshAlias remains a user-editable override for anyone who genuinely
-    has a matching `Host <alias>` entry in their own ssh config and wants to use it
-    instead.
+    Fix: Get-DefaultSshAliasForSlave defaults to Host/IP only. It never falls back to the
+    display Name (even when Host is blank) — a blank Host leaves SshAlias blank so the
+    operator must enter a real address. SshAlias remains a user-editable override.
 
     This check drives the real Get-DefaultSshAliasForSlave and the real
     Apply-SlaveDefaults (matching Add-NewSlaveRow's exact shape: Host and Name both
     provided, Targets empty) through a real pwsh process and asserts the resulting
-    SshAlias is the Host/IP, not the Name - plus confirms Name is still used as a
-    fallback when Host is genuinely blank.
+    SshAlias is the Host/IP, not the Name - and that a blank Host yields a blank alias.
     """
     import subprocess
     import tempfile
@@ -2664,8 +2652,8 @@ $results | ConvertTo-Json | Set-Content -LiteralPath "{results_path}" -Encoding 
             f"made Browse/New folder/the real distributed run try to connect by an "
             f"arbitrary display label instead of the real, directly-connectable address"
         )
-        assert parsed.get("AliasWithBlankHost") == "linux-002", (
-            f"Name must still be used as a fallback when Host is genuinely blank - got "
+        assert parsed.get("AliasWithBlankHost") == "", (
+            f"Name must NOT be used as a fallback when Host is blank - got "
             f"{parsed.get('AliasWithBlankHost')!r}"
         )
         assert parsed.get("AliasWithBothBlank") == "", (
@@ -2820,8 +2808,27 @@ def main() -> int:
     assert "iorate) is fixed at max" in ui_tabs_module
     assert '"Set Profile"' in (MODULE_ROOT / "UiTabs.ps1").read_text(encoding="utf-8")
     assert "Require preview confirmation before run" not in ui_tabs_module
-    assert 'Key = "InstallRoot"; Label = "Install root"; Browse = "none"' in ui_tabs_module
-    assert 'Key = "ManagerRoot"; Label = "Manager root"; Browse = "none"' in ui_tabs_module
+    assert 'Key = "InstallRoot"' not in ui_tabs_module, "InstallRoot reference field removed from Settings UI"
+    assert 'Key = "ManagerRoot"' not in ui_tabs_module, "ManagerRoot reference field removed from Settings UI"
+    assert "Use fake runner" not in ui_tabs_module, "Fake runner button removed from Settings"
+    assert "Import settings" not in ui_tabs_module and "Export settings" not in ui_tabs_module, "Settings Import/Export removed"
+    assert "function Export-SelectedRunBundle" not in ui_tabs_module, "unwired Export-SelectedRunBundle removed"
+    assert "function Show-SelectedRunConfig" not in ui_tabs_module, "unwired Show-SelectedRunConfig removed"
+    assert "function Use-FakeRunnerSettings" not in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Import-Settings" not in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert "function Export-Settings" not in (MODULE_ROOT / "State.ps1").read_text(encoding="utf-8")
+    assert '"install"' in (ROOT / "tools" / "Package-Portable.ps1").read_text(encoding="utf-8"), "portable package must include install/"
+    assert "function Get-SlaveConnectionHost" in (MODULE_ROOT / "UiSlaveGrid.ps1").read_text(encoding="utf-8")
+    assert "Ask-YesNo" in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8"), "Clean must confirm before delete"
+    cleanup_fs_fn = (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    assert 'return "find ' in cleanup_fs_fn or "return \"find " in cleanup_fs_fn or "find $quotedPath -mindepth 1" in cleanup_fs_fn, (
+        "Linux clean must use find for contents-only delete"
+    )
+    assert '2>/dev/null || true"' not in cleanup_fs_fn, "Linux clean must not mask errors with || true"
+    assert "function Test-CleanupUiEnabled" not in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
+    readiness_checker = (ROOT / "install" / "04-Check-Vdbench-Hosts-Readiness.ps1").read_text(encoding="utf-8")
+    assert "exit 1" in readiness_checker and "FinalFailCount" in readiness_checker, "readiness checker must exit non-zero on FAIL"
+    assert "PrivateKeyPath" in readiness_checker, "readiness checker must accept PrivateKeyPath from UI settings"
     ui_slave_module = (MODULE_ROOT / "UiSlaveGrid.ps1").read_text(encoding="utf-8")
     assert "function Build-MasterSlaveTab" in ui_slave_module
     assert "function Browse-SlaveTargetsForRow" in ui_slave_module
@@ -2842,9 +2849,9 @@ def main() -> int:
     assert 'ContainsKey("CleanInFlight")' in ui_slave_module
     assert 'Get-PropertyValue $state "CleanInFlight" $false' in (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
     cleanup_module = (MODULE_ROOT / "TargetCleanup.ps1").read_text(encoding="utf-8")
-    assert "if (-not (Test-CleanupUiEnabled))" not in cleanup_module.split("function Test-SlaveRowCleanEnabled", 1)[1].split("function Start-SlaveTargetClean", 1)[0], (
-        "Test-SlaveRowCleanEnabled must not gate on global Test-CleanupUiEnabled; "
-        "Clean is per-row and must work before any slave is Enabled/Ready"
+    assert "function Test-SlaveRowCleanEnabled" in cleanup_module
+    assert "Get-CleanupEligibleTargets" in cleanup_module.split("function Test-SlaveRowCleanEnabled", 1)[1].split("function Start-SlaveTargetClean", 1)[0], (
+        "Test-SlaveRowCleanEnabled must be per-row (eligible filesystem targets)"
     )
     assert "No selected filesystem targets to clean on this host" in cleanup_module
     assert 'Start-SlaveTargetClean -Row $row' in ui_slave_module
@@ -2861,7 +2868,6 @@ def main() -> int:
     assert 'New-Button "Pick target"' not in ui_slave_module
     assert "function Set-SelectedSlavePrivateKey" not in ui_tabs_module
     assert "No log available for selected run." in ui_tabs_module
-    assert "No config available for selected run." in ui_tabs_module
     assert "$layout.Controls.Add($tabs, 0, 1)" in ui_tabs_module
     assert '"User", "VdbenchPath"' in ui_slave_module
     assert '"SlaveUser"' not in ui_tabs_module
@@ -3156,12 +3162,9 @@ def main() -> int:
     assert ssh_alias_fn_match, "Get-DefaultSshAliasForSlave function not found in State.ps1"
     ssh_alias_fn_body = ssh_alias_fn_match.group(0)
     host_check_pos = ssh_alias_fn_body.find("IsNullOrWhiteSpace($HostName)")
-    name_check_pos = ssh_alias_fn_body.find("IsNullOrWhiteSpace($Name)")
-    assert host_check_pos != -1 and name_check_pos != -1 and host_check_pos < name_check_pos, (
-        "Get-DefaultSshAliasForSlave must check $HostName before $Name, so a slave's "
-        "SshAlias defaults to its own Host/IP rather than its display Name - the exact "
-        "bug that made Browse/New folder/the real distributed run try to connect by an "
-        "arbitrary label the user typed instead of the real address next to it"
+    assert host_check_pos != -1, "Get-DefaultSshAliasForSlave must check $HostName"
+    assert "return $Name.Trim()" not in ssh_alias_fn_body, (
+        "Get-DefaultSshAliasForSlave must never fall back to display Name for SshAlias"
     )
     assert "readyRowIndex" not in ui_slave_module
     assert "pingRowIndex" not in ui_slave_module
@@ -3190,9 +3193,8 @@ def main() -> int:
     assert "Update-TargetGridSelectionCounter" in ui_tabs_module
     assert "$selectedCol.MinimumWidth = 48" in ui_tabs_module or "MinimumWidth = 48" in ui_tabs_module
     assert "target(s) selected" in ui_slave_module
-    assert '$Row.Cells["Enabled"].Value = $true' in ui_slave_module, (
-        "Browse-SlaveTargetsForRow must auto-enable the slave Use column after a "
-        "successful Save selection with at least one target checked"
+    assert '$Row.Cells["Enabled"].Value = $true' not in ui_slave_module, (
+        "Browse-SlaveTargetsForRow must NOT auto-enable Use; operator enables after Ready"
     )
     assert "Get-SelectedTargetEntries $rows).Count -eq 0" in ui_slave_module, (
         "Show-SlaveTargetPicker must refuse Save selection when no Use checkbox is "

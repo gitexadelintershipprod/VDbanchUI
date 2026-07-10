@@ -6,8 +6,8 @@
 #   1) Put this script and all required files in: /root/install
 #   2) Run it from /root/install as root:
 #        cd /root/install
-#        chmod +x ./03-Prepare-Vdbench-Linux-Slave.sh
-#        ./03-Prepare-Vdbench-Linux-Slave.sh
+#        chmod +x ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
+#        ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
 #
 # What this script does:
 #   - Uses /root/install as the source/staging directory by default, regardless of current working directory.
@@ -20,7 +20,7 @@
 #
 # Required source files in /root/install:
 #   - vdbench*.zip
-#   - master_id*.pub or *.pub
+#   - master_id_rsa.pub (preferred) or master_id*.pub / *.pub
 #
 # Optional source files in /root/install:
 #   - *.rpm
@@ -28,13 +28,13 @@
 #   - java/*
 #
 # Offline/template mode is DEFAULT.
-#   ./03-Prepare-Vdbench-Linux-Slave.sh
+#   ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
 #
 # Optional online/repo mode, only if explicitly needed:
-#   OFFLINE_ONLY=0 ./03-Prepare-Vdbench-Linux-Slave.sh
+#   OFFLINE_ONLY=0 ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
 #
 # Keep firewall/SELinux unchanged:
-#   KEEP_FIREWALL_ENABLED=1 KEEP_SELINUX_ENFORCING=1 ./03-Prepare-Vdbench-Linux-Slave.sh
+#   KEEP_FIREWALL_ENABLED=1 KEEP_SELINUX_ENFORCING=1 ./03-Prepare-Vdbench-Linux-Slave-v4.3.sh
 #
 
 set -euo pipefail
@@ -184,13 +184,16 @@ precheck_required_assets() {
   echo "OK: Vdbench zip -> $vdbench_zip"
 
   if [[ -z "$MASTER_PUBLIC_KEY_FILE" ]]; then
-    MASTER_PUBLIC_KEY_FILE="$(find_first_file "$INSTALL_DIR" 'master_id*.pub')"
+    MASTER_PUBLIC_KEY_FILE="$(find_first_file "$INSTALL_DIR" 'master_id_rsa.pub')"
+    if [[ -z "$MASTER_PUBLIC_KEY_FILE" ]]; then
+      MASTER_PUBLIC_KEY_FILE="$(find_first_file "$INSTALL_DIR" 'master_id*.pub')"
+    fi
     if [[ -z "$MASTER_PUBLIC_KEY_FILE" ]]; then
       MASTER_PUBLIC_KEY_FILE="$(find_first_file "$INSTALL_DIR" '*.pub')"
     fi
   fi
 
-  [[ -n "$MASTER_PUBLIC_KEY_FILE" ]] || die "Master public key not found in $INSTALL_DIR. Expected master_id*.pub or *.pub"
+  [[ -n "$MASTER_PUBLIC_KEY_FILE" ]] || die "Master public key not found in $INSTALL_DIR. Expected master_id_rsa.pub (or legacy master_id_ed25519.pub / *.pub)"
   [[ -f "$MASTER_PUBLIC_KEY_FILE" ]] || die "Master public key file not found: $MASTER_PUBLIC_KEY_FILE"
   echo "OK: Master public key -> $MASTER_PUBLIC_KEY_FILE"
 }
