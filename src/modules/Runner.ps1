@@ -50,16 +50,152 @@ function Reset-RunChart {
         try {
             $area = $script:RunChart.ChartAreas["RunMetrics"]
             if ($null -ne $area) {
+                $area.AxisX.Title = "Interval (workload)"
                 $area.AxisY.Title = "IOPS / MB/s"
                 $area.AxisY2.Title = "Latency (ms)"
                 $area.AxisY2.LabelStyle.Format = "0.00"
                 $area.AxisY.IsStartedFromZero = $true
                 $area.AxisY2.IsStartedFromZero = $true
+                $area.AxisX.Minimum = [double]::NaN
+                $area.AxisX.Maximum = [double]::NaN
+                $area.AxisY.Minimum = [double]::NaN
+                $area.AxisY.Maximum = [double]::NaN
+                $area.AxisY2.Minimum = [double]::NaN
+                $area.AxisY2.Maximum = [double]::NaN
             }
         } catch {
         }
     }
     Update-RunResultSummaryPanel
+}
+
+function Resolve-RunChartPointAction {
+    param(
+        [double]$NewX,
+        [double]$LastX = [double]::NaN,
+        [bool]$HasPoints = $false
+    )
+    if ($NewX -lt 1) {
+        return "Skip"
+    }
+    if (-not $HasPoints -or [double]::IsNaN($LastX)) {
+        return "Add"
+    }
+    if ($NewX -eq $LastX) {
+        return "Replace"
+    }
+    if ($NewX -lt $LastX) {
+        # Out-of-order X would draw a backtracking diagonal across the chart.
+        return "Skip"
+    }
+    return "Add"
+}
+
+function Set-RunChartSeriesPoint {
+    param(
+        $Series,
+        [double]$X,
+        [double]$Y
+    )
+    if ($null -eq $Series) {
+        return
+    }
+    $hasPoints = ($Series.Points.Count -gt 0)
+    $lastX = [double]::NaN
+    if ($hasPoints) {
+        $lastX = [double]$Series.Points[$Series.Points.Count - 1].XValue
+    }
+    $action = Resolve-RunChartPointAction -NewX $X -LastX $lastX -HasPoints:$hasPoints
+    if ($action -eq "Skip") {
+        return
+    }
+    if ($action -eq "Replace") {
+        $Series.Points[$Series.Points.Count - 1].YValues[0] = $Y
+        return
+    }
+    [void]$Series.Points.AddXY($X, $Y)
+}
+
+function Finalize-RunChart {
+    if (-not $script:RunChart) {
+        return
+    }
+    try {
+        $iopsSeries = $script:RunChart.Series["Workload IOPS"]
+        $mbpsSeries = $script:RunChart.Series["Workload MB/s"]
+        $latSeries = $script:RunChart.Series["Workload Latency"]
+        if ($null -eq $iopsSeries) {
+            $iopsSeries = $script:RunChart.Series["IOPS"]
+            $mbpsSeries = $script:RunChart.Series["MB/s"]
+            $latSeries = $script:RunChart.Series["Latency"]
+        }
+        if ($null -eq $iopsSeries -or $iopsSeries.Points.Count -eq 0) {
+            return
+        }
+
+        foreach ($series in @($iopsSeries, $mbpsSeries, $latSeries)) {
+            if ($null -eq $series -or $series.Points.Count -eq 0) {
+                continue
+            }
+            $series.Sort(
+                [System.Windows.Forms.DataVisualization.Charting.PointSortOrder]::Ascending,
+                "X"
+            )
+            # Clear old end markers, then mark the true last point.
+            foreach ($pt in $series.Points) {
+                $pt.MarkerStyle = [System.Windows.Forms.DataVisualization.Charting.MarkerStyle]::None
+            }
+            $last = $series.Points[$series.Points.Count - 1]
+            $last.MarkerStyle = [System.Windows.Forms.DataVisualization.Charting.MarkerStyle]::Circle
+            $last.MarkerSize = 7
+            $last.MarkerColor = $series.Color
+        }
+
+        $area = $script:RunChart.ChartAreas["RunMetrics"]
+        if ($null -eq $area) {
+            return
+        }
+        $minX = [double]$iopsSeries.Points[0].XValue
+        $maxX = [double]$iopsSeries.Points[$iopsSeries.Points.Count - 1].XValue
+        if ($maxX -lt $minX) {
+            return
+        }
+        $area.AxisX.IsMarginVisible = $false
+        $area.AxisX.Minimum = $minX
+        # Small pad so the end marker is not clipped by the right border.
+        $area.AxisX.Maximum = $maxX + [Math]::Max(0.5, ($maxX - $minX) * 0.02)
+
+        $maxPrimary = 0.0
+        foreach ($series in @($iopsSeries, $mbpsSeries)) {
+            if ($null -eq $series) { continue }
+            foreach ($pt in $series.Points) {
+                $y = [double]$pt.YValues[0]
+                if ($y -gt $maxPrimary) { $maxPrimary = $y }
+            }
+        }
+        if ($maxPrimary -gt 0) {
+            $area.AxisY.Minimum = 0
+            $area.AxisY.Maximum = $maxPrimary * 1.08
+        }
+
+        $minLat = [double]::PositiveInfinity
+        $maxLat = 0.0
+        if ($null -ne $latSeries) {
+            foreach ($pt in $latSeries.Points) {
+                $y = [double]$pt.YValues[0]
+                if ($y -lt $minLat) { $minLat = $y }
+                if ($y -gt $maxLat) { $maxLat = $y }
+            }
+        }
+        if ($maxLat -gt 0 -and $minLat -lt [double]::PositiveInfinity) {
+            $area.AxisY2.Minimum = 0
+            $pad = [Math]::Max(0.05, $maxLat * 0.15)
+            $area.AxisY2.Maximum = $maxLat + $pad
+            $area.AxisY2.LabelStyle.Format = "0.00"
+        }
+    } catch {
+        Write-AppLog ("Finalize-RunChart failed: {0}" -f $_.Exception.Message) "WARN"
+    }
 }
 
 function Add-MetricPointFromLine {
@@ -86,11 +222,17 @@ function Add-MetricPointFromLine {
             $area = $script:RunChart.ChartAreas["RunMetrics"]
             if ($null -ne $area) {
                 $area.AxisX.Title = "Interval (workload)"
+                $area.AxisX.Minimum = [double]::NaN
+                $area.AxisX.Maximum = [double]::NaN
             }
         } catch {
         }
     }
     if ($phase -eq "format") {
+        return
+    }
+    # Never plot summary/aggregate rows - only real interval samples.
+    if ($Line -match '(?i)\b(avg|max|std)_') {
         return
     }
     $metrics = Get-MetricValuesFromLine $Line $phase
@@ -99,12 +241,13 @@ function Add-MetricPointFromLine {
     }
     try {
         $x = [double]$metrics.Interval
-        if ($x -le 0) {
-            $script:RunMetricIndex++
-            $x = $script:RunMetricIndex
-        } else {
-            $script:RunMetricIndex = [int]$x
+        # Interval must be a real vdbench sample index. Do not invent X from a
+        # counter when Interval is 0/negative - that used to plant bogus points
+        # and could draw a backtracking diagonal at the end of the run.
+        if ($x -lt 1) {
+            return
         }
+        $script:RunMetricIndex = [int]$x
         $iopsSeries = "Workload IOPS"
         $mbpsSeries = "Workload MB/s"
         $latSeries = "Workload Latency"
@@ -113,10 +256,13 @@ function Add-MetricPointFromLine {
             $mbpsSeries = "MB/s"
             $latSeries = "Latency"
         }
-        [void]$script:RunChart.Series[$iopsSeries].Points.AddXY($x, [double]$metrics.Iops)
-        [void]$script:RunChart.Series[$mbpsSeries].Points.AddXY($x, [double]$metrics.Mbps)
-        [void]$script:RunChart.Series[$latSeries].Points.AddXY($x, [double]$metrics.Latency)
+        Set-RunChartSeriesPoint $script:RunChart.Series[$iopsSeries] $x ([double]$metrics.Iops)
+        Set-RunChartSeriesPoint $script:RunChart.Series[$mbpsSeries] $x ([double]$metrics.Mbps)
+        Set-RunChartSeriesPoint $script:RunChart.Series[$latSeries] $x ([double]$metrics.Latency)
         foreach ($series in $script:RunChart.Series) {
+            if (-not $series.Enabled) {
+                continue
+            }
             while ($series.Points.Count -gt 300) {
                 $series.Points.RemoveAt(0)
             }
@@ -149,6 +295,7 @@ function New-RunChart {
     $area.AxisY.MajorGrid.LineColor = [System.Drawing.Color]::Gainsboro
     $area.AxisX.LineColor = [System.Drawing.Color]::DimGray
     $area.AxisY.LineColor = [System.Drawing.Color]::DimGray
+    $area.AxisX.IsMarginVisible = $false
     $area.AxisY.IsStartedFromZero = $true
     $area.AxisY2.IsStartedFromZero = $true
     [void]$chart.ChartAreas.Add($area)
@@ -174,6 +321,8 @@ function New-RunChart {
         $series.Color = $item.Color
         $series.ChartArea = "RunMetrics"
         $series.XValueType = [System.Windows.Forms.DataVisualization.Charting.ChartValueType]::Double
+        $series.MarkerStyle = [System.Windows.Forms.DataVisualization.Charting.MarkerStyle]::None
+        $series["EmptyPointValue"] = "Average"
         # Hide legacy shared series from legend; keep for fallback.
         if (@("IOPS", "MB/s", "Latency") -contains $item.Name) {
             $series.IsVisibleInLegend = $false
@@ -362,6 +511,7 @@ function Complete-VdbenchProcessExited {
         }
     }
     Update-RunResultSummaryPanel
+    Finalize-RunChart
     Notify-RunFinished -RunId $RunId -Status $status
 }
 
